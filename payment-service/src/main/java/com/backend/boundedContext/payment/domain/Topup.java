@@ -51,6 +51,10 @@ public class Topup extends BaseIdAndTime {
     @Column(nullable = false)
     private long amount;
 
+    // 결제 요청 시각. 충전 준비 때 정하며, 결제창 요청 일시로 보내고 PG 조회의 원거래 일시로 씀 (헥토는 이 값이 결제창 요청과 같아야 조회됨)
+    @Column(nullable = false)
+    private LocalDateTime requestedAt;
+
     // 결제에 쓰이고 남은 금액. DONE이면 이 금액 전부를 PG에 취소할 수 있음
     @Column(nullable = false)
     private long remainingAmount;
@@ -79,13 +83,14 @@ public class Topup extends BaseIdAndTime {
 
     private LocalDateTime canceledAt;
 
-    public static Topup create(Long memberId, Wallet wallet, long amount, PgProvider pgProvider) {
+    public static Topup create(Long memberId, Wallet wallet, long amount, PgProvider pgProvider, LocalDateTime requestedAt) {
         Topup topup = new Topup();
         topup.memberId = memberId;
         topup.wallet = wallet;
         topup.pgProvider = pgProvider;
         topup.orderId = ORDER_ID_PREFIX + UUID.randomUUID();
         topup.amount = amount;
+        topup.requestedAt = requestedAt;
         topup.remainingAmount = 0;
         topup.status = TopupStatus.READY;
         return topup;

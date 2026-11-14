@@ -282,7 +282,7 @@ class PaymentTopupConfirmProcessorTest {
 
     // 승인 반영 대상: ID가 있는 PROCESSING 충전 건과 그 지갑을 잠금 조회로 돌려줌
     private Topup processingTopup(Wallet wallet, long amount) {
-        Topup topup = Topup.create(MEMBER_ID, wallet, amount, PgProvider.TOSS);
+        Topup topup = Topup.create(MEMBER_ID, wallet, amount, PgProvider.TOSS, LocalDateTime.now());
         ReflectionTestUtils.setField(topup, "id", TOPUP_ID);
         topup.markProcessing("pk_1");
         given(topupRepository.findByIdForUpdate(TOPUP_ID)).willReturn(Optional.of(topup));
@@ -302,7 +302,7 @@ class PaymentTopupConfirmProcessorTest {
 
     // 잠금 조회로 돌려줄 READY 충전 건
     private Topup readyTopup(long amount) {
-        Topup topup = Topup.create(MEMBER_ID, Wallet.create(MEMBER_ID), amount, PgProvider.TOSS);
+        Topup topup = Topup.create(MEMBER_ID, Wallet.create(MEMBER_ID), amount, PgProvider.TOSS, LocalDateTime.now());
         given(topupRepository.findByOrderIdAndMemberIdForUpdate(topup.getOrderId(), MEMBER_ID))
                 .willReturn(Optional.of(topup));
         return topup;

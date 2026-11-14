@@ -551,6 +551,7 @@
           "Rbr1Le9PHXepyjFpCOrRk",
           "DVAIeL2Vw6TkMS8vcJfl_",
           "SXSDLTN9napMHLvxAmARW",
+          "zY70nBPp09j4F-s0Bbddp",
           "XXy1QXYB-B9_aZ7fMyL6b",
           "WkX-Jwc1bfoYO8T2dLtoR",
           "YirPgdIRbGT_Rj6NYkHcI",
@@ -572,7 +573,7 @@
           "color": ""
         },
         "meta": {
-          "updateAt": 1794470503193,
+          "updateAt": 1794671686635,
           "createAt": 1791793118726
         }
       },
@@ -3753,7 +3754,7 @@
         "id": "Rbr1Le9PHXepyjFpCOrRk",
         "tableId": "Sp7yQwzWyiW9dDjvQZRTW",
         "name": "payment_key",
-        "comment": "토스 결제키",
+        "comment": "결제키 - PG 결제키 (헥토는 거래번호)",
         "dataType": "VARCHAR(200)",
         "default": "",
         "options": 4,
@@ -3765,7 +3766,7 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1791793118726,
+          "updateAt": 1794671686635,
           "createAt": 1791793118726
         }
       },
@@ -3787,6 +3788,26 @@
         "meta": {
           "updateAt": 1791793118726,
           "createAt": 1791793118726
+        }
+      },
+      "zY70nBPp09j4F-s0Bbddp": {
+        "id": "zY70nBPp09j4F-s0Bbddp",
+        "tableId": "Sp7yQwzWyiW9dDjvQZRTW",
+        "name": "requested_at",
+        "comment": "결제 요청 일시 - 충전 준비 때 정함. 결제창 요청 일시이자 PG 조회의 원거래 일시",
+        "dataType": "TIMESTAMP",
+        "default": "",
+        "options": 8,
+        "ui": {
+          "keys": 0,
+          "widthName": 76,
+          "widthComment": 60,
+          "widthDataType": 71,
+          "widthDefault": 60
+        },
+        "meta": {
+          "updateAt": 1794671686635,
+          "createAt": 1794671686635
         }
       },
       "XXy1QXYB-B9_aZ7fMyL6b": {

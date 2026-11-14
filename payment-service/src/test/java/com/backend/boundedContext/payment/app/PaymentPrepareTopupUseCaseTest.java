@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -42,12 +43,13 @@ class PaymentPrepareTopupUseCaseTest {
     }
 
     @Test
-    @DisplayName("유효한 금액이면 회원 지갑으로 READY 충전 건을 저장하고 주문번호를 돌려준다")
+    @DisplayName("유효한 금액이면 회원 지갑으로 READY 충전 건을 결제 요청 시각과 함께 저장하고 주문번호를 돌려준다")
     void prepareTopup_success() {
         Wallet wallet = Wallet.create(1L);
         given(walletRepository.findByMemberId(1L)).willReturn(Optional.of(wallet));
         given(topupRepository.save(any(Topup.class))).willAnswer(invocation -> invocation.getArgument(0));
 
+        LocalDateTime before = LocalDateTime.now();
         TopupPrepareDto result = paymentPrepareTopupUseCase.prepareTopup(1L, 20_000);
 
         ArgumentCaptor<Topup> saved = ArgumentCaptor.forClass(Topup.class);
@@ -57,6 +59,7 @@ class PaymentPrepareTopupUseCaseTest {
         assertThat(saved.getValue().getAmount()).isEqualTo(20_000);
         assertThat(saved.getValue().getStatus()).isEqualTo(TopupStatus.READY);
         assertThat(saved.getValue().getPgProvider()).isEqualTo(PgProvider.TOSS);
+        assertThat(saved.getValue().getRequestedAt()).isBetween(before, LocalDateTime.now());
         assertThat(result.orderId()).isEqualTo(saved.getValue().getOrderId()).startsWith("TOPUP-");
         assertThat(result.amount()).isEqualTo(20_000);
     }

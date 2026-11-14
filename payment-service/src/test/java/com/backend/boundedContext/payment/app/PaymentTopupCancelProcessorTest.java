@@ -40,7 +40,7 @@ class PaymentTopupCancelProcessorTest {
         PaymentTopupCancelProcessor processor =
                 new PaymentTopupCancelProcessor(topupRepository, walletRepository, walletTransactionRepository, new TopupGateways(List.of()));
         Wallet wallet = Wallet.create(MEMBER_ID);
-        Topup topup = Topup.create(MEMBER_ID, wallet, 20_000, PgProvider.TOSS);
+        Topup topup = Topup.create(MEMBER_ID, wallet, 20_000, PgProvider.TOSS, LocalDateTime.now());
         ReflectionTestUtils.setField(topup, "id", TOPUP_ID);
         topup.markProcessing("pk_1");
         topup.approve(LocalDateTime.of(2026, 10, 13, 10, 0));

@@ -109,7 +109,7 @@ class PaymentFailTopupUseCaseTest {
 
     // 잠금 조회로 돌려줄 READY 충전 건
     private Topup readyTopup() {
-        Topup topup = Topup.create(MEMBER_ID, Wallet.create(MEMBER_ID), 20_000, PgProvider.TOSS);
+        Topup topup = Topup.create(MEMBER_ID, Wallet.create(MEMBER_ID), 20_000, PgProvider.TOSS, LocalDateTime.now());
         ReflectionTestUtils.setField(topup, "id", TOPUP_ID);
         given(topupRepository.findByIdAndMemberIdForUpdate(TOPUP_ID, MEMBER_ID)).willReturn(Optional.of(topup));
         return topup;
