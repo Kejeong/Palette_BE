@@ -6,6 +6,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -18,6 +19,8 @@ import com.backend.boundedContext.payment.domain.Topup;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.out.TopupRepository;
+import com.backend.boundedContext.payment.out.pg.TopupGatewayPort;
+import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
 
 class PaymentFailTopupUseCaseTest {
@@ -26,12 +29,14 @@ class PaymentFailTopupUseCaseTest {
     private static final Long TOPUP_ID = 7L;
 
     private final TopupRepository topupRepository = mock(TopupRepository.class);
-    private final PaymentFailTopupUseCase useCase = new PaymentFailTopupUseCase(topupRepository);
+    private final TopupGatewayPort gateway = mock(TopupGatewayPort.class);
+    private final PaymentFailTopupUseCase useCase = new PaymentFailTopupUseCase(topupRepository, gateways(gateway));
 
     @Test
-    @DisplayName("사용자가 결제창을 취소(PAY_PROCESS_CANCELED)하면 FAILED_USER_CANCEL과 토스 메시지를 기록한다")
+    @DisplayName("충전 건의 PG가 사용자 취소 코드라고 하면 FAILED_USER_CANCEL과 PG 메시지를 기록한다")
     void failTopup_userCancel() {
         Topup topup = readyTopup();
+        given(gateway.isUserCancel("PAY_PROCESS_CANCELED")).willReturn(true);
 
         TopupFailDto result = useCase.failTopup(MEMBER_ID, TOPUP_ID, "PAY_PROCESS_CANCELED", "사용자에 의해 결제가 취소되었습니다.");
 
@@ -42,18 +47,7 @@ class PaymentFailTopupUseCaseTest {
     }
 
     @Test
-    @DisplayName("결제 요청이 USER_CANCEL 오류로 끝난 경우(팝업 닫기 등)도 FAILED_USER_CANCEL로 기록한다")
-    void failTopup_userCancelFromSdk() {
-        Topup topup = readyTopup();
-
-        useCase.failTopup(MEMBER_ID, TOPUP_ID, "USER_CANCEL", "취소되었습니다.");
-
-        assertThat(topup.getStatus()).isEqualTo(TopupStatus.FAILED_USER_CANCEL);
-        assertThat(topup.getFailReason()).isEqualTo("취소되었습니다.");
-    }
-
-    @Test
-    @DisplayName("그 외 결제창 실패 코드는 FAILED_PG_DECLINED로 기록한다")
+    @DisplayName("사용자 취소 코드가 아니면 FAILED_PG_DECLINED로 기록한다")
     void failTopup_declined() {
         Topup topup = readyTopup();
 
@@ -64,7 +58,7 @@ class PaymentFailTopupUseCaseTest {
     }
 
     @Test
-    @DisplayName("토스 메시지가 없으면 기본 사유를 기록한다")
+    @DisplayName("PG 메시지가 없으면 기본 사유를 기록한다")
     void failTopup_noMessage() {
         Topup topup = readyTopup();
 
@@ -106,6 +100,11 @@ class PaymentFailTopupUseCaseTest {
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("409-TOPUP_ALREADY_PROCESSED");
         assertThat(topup.getStatus()).isEqualTo(TopupStatus.DONE);
+    }
+
+    private static TopupGateways gateways(TopupGatewayPort port) {
+        given(port.provider()).willReturn(PgProvider.TOSS);
+        return new TopupGateways(List.of(port));
     }
 
     // 잠금 조회로 돌려줄 READY 충전 건

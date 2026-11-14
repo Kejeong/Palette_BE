@@ -75,11 +75,20 @@ public class TossTopupGatewayAdapter implements TopupGatewayPort {
             "계좌이체", PgPaymentMethod.TRANSFER
     );
 
+    // 사용자가 결제창을 닫거나 취소했을 때 토스가 주는 코드
+    // PAY_PROCESS_CANCELED: 실패 URL로 돌아온 경우, USER_CANCEL: 결제 요청(requestPayment)이 오류로 끝난 경우(데스크톱 팝업 닫기 등)
+    private static final Set<String> USER_CANCEL_CODES = Set.of("PAY_PROCESS_CANCELED", "USER_CANCEL");
+
     private final TossPaymentsClient tossPaymentsClient;
 
     @Override
     public PgProvider provider() {
         return PgProvider.TOSS;
+    }
+
+    @Override
+    public boolean isUserCancel(String failCode) {
+        return USER_CANCEL_CODES.contains(failCode);
     }
 
     @Override

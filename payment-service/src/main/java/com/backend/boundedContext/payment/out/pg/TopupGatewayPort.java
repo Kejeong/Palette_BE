@@ -16,6 +16,9 @@ public interface TopupGatewayPort {
 
     PgProvider provider();
 
+    // 결제창 실패 코드가 사용자 취소(결제창 닫기 등)인지. 코드는 PG마다 달라 어댑터가 판단함
+    boolean isUserCancel(String failCode);
+
     // 결제 승인. 결제창 인증을 마친 결제를 최종 승인하며, 성공하면 실제로 돈이 빠져나감
     PgPaymentResult confirm(String paymentKey, String orderId, long amount);
 

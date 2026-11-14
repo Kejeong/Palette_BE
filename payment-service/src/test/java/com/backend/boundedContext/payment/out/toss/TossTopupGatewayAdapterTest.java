@@ -48,6 +48,18 @@ class TossTopupGatewayAdapterTest {
         assertThat(adapter.provider()).isEqualTo(PgProvider.TOSS);
     }
 
+    @ParameterizedTest
+    @CsvSource({
+            "PAY_PROCESS_CANCELED, true",   // 실패 URL로 돌아온 사용자 취소
+            "USER_CANCEL, true",            // 결제 요청이 오류로 끝난 사용자 취소 (팝업 닫기 등)
+            "REJECT_CARD_COMPANY, false",
+            "PAY_PROCESS_ABORTED, false"
+    })
+    @DisplayName("결제창 실패 코드 중 토스의 사용자 취소 코드만 사용자 취소로 본다")
+    void isUserCancel(String failCode, boolean expected) {
+        assertThat(adapter.isUserCancel(failCode)).isEqualTo(expected);
+    }
+
     @Test
     @DisplayName("승인: 토스 응답을 PG 결과로 바꾼다 (DONE → APPROVED, 카드 → CARD, 승인 시각은 KST)")
     void confirm_success() {
