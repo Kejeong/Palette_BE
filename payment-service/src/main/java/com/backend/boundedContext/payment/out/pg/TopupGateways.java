@@ -33,4 +33,9 @@ public class TopupGateways {
         }
         return port;
     }
+
+    // 충전 건을 선점(Tx1)하기 전에 연동 여부만 확인. 선점 뒤에 알면 충전 건이 처리 중 상태로 남아 대사가 매 회차 실패함
+    public void checkSupported(PgProvider provider) {
+        get(provider);
+    }
 }

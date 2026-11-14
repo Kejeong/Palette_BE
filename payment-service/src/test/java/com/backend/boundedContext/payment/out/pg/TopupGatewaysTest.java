@@ -34,6 +34,17 @@ class TopupGatewaysTest {
     }
 
     @Test
+    @DisplayName("연동 여부 확인: 연동한 PG면 통과하고, 아니면 IllegalStateException")
+    void checkSupported() {
+        TopupGateways gateways = new TopupGateways(List.of(port(PgProvider.TOSS)));
+        TopupGateways empty = new TopupGateways(List.of());
+
+        gateways.checkSupported(PgProvider.TOSS);
+        assertThatThrownBy(() -> empty.checkSupported(PgProvider.TOSS))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     @DisplayName("같은 PG의 포트가 두 개면 앱 시작 때 IllegalStateException")
     void duplicated() {
         assertThatThrownBy(() -> new TopupGateways(List.of(port(PgProvider.TOSS), port(PgProvider.TOSS))))

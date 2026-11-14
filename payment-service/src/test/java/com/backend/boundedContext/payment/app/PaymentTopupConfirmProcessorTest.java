@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -29,6 +30,8 @@ import com.backend.boundedContext.payment.out.WalletTransactionRepository;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.PgPaymentStatus;
+import com.backend.boundedContext.payment.out.pg.TopupGatewayPort;
+import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
 
 class PaymentTopupConfirmProcessorTest {
@@ -41,8 +44,9 @@ class PaymentTopupConfirmProcessorTest {
     private final TopupRepository topupRepository = mock(TopupRepository.class);
     private final WalletRepository walletRepository = mock(WalletRepository.class);
     private final WalletTransactionRepository walletTransactionRepository = mock(WalletTransactionRepository.class);
+    private final TopupGateways topupGateways = new TopupGateways(List.of(gateway(PgProvider.TOSS)));
     private final PaymentTopupConfirmProcessor processor =
-            new PaymentTopupConfirmProcessor(topupRepository, walletRepository, walletTransactionRepository);
+            new PaymentTopupConfirmProcessor(topupRepository, walletRepository, walletTransactionRepository, topupGateways);
 
     @Test
     @DisplayName("승인 시작: READY 충전 건을 잠금 조회해 PROCESSING으로 바꾸고 결제키를 저장한다")
@@ -115,6 +119,19 @@ class PaymentTopupConfirmProcessorTest {
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("409-TOPUP_ALREADY_PROCESSED");
         assertThat(topup.getStatus()).isEqualTo(TopupStatus.READY);
+    }
+
+    @Test
+    @DisplayName("승인 시작: 충전 건의 PG가 연동되지 않았으면 선점하지 않고 IllegalStateException")
+    void start_pgNotSupported() {
+        PaymentTopupConfirmProcessor noPgProcessor =
+                new PaymentTopupConfirmProcessor(topupRepository, walletRepository, walletTransactionRepository, new TopupGateways(List.of()));
+        Topup topup = readyTopup(20_000);
+
+        assertThatThrownBy(() -> noPgProcessor.start(MEMBER_ID, topup.getTossOrderId(), "pk_1", 20_000))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(topup.getStatus()).isEqualTo(TopupStatus.READY);
+        assertThat(topup.getPaymentKey()).isNull();
     }
 
     @Test
@@ -275,6 +292,12 @@ class PaymentTopupConfirmProcessorTest {
 
     private PgPaymentResult approved(Topup topup, long amount, PgPaymentMethod method) {
         return new PgPaymentResult("pk_1", topup.getTossOrderId(), PgPaymentStatus.APPROVED, "DONE", amount, 0, method, APPROVED_AT);
+    }
+
+    private static TopupGatewayPort gateway(PgProvider provider) {
+        TopupGatewayPort port = mock(TopupGatewayPort.class);
+        given(port.provider()).willReturn(provider);
+        return port;
     }
 
     // 잠금 조회로 돌려줄 READY 충전 건
