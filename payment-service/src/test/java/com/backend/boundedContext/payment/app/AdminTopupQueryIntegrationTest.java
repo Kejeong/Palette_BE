@@ -173,7 +173,7 @@ class AdminTopupQueryIntegrationTest {
 
     // 앞부분이 같은 충전번호를 만들기 위해 발급된 번호를 바꿈
     private void changeOrderId(Long topupId, String orderId) {
-        jdbcTemplate.update("update topup set toss_order_id = ? where id = ?", orderId, topupId);
+        jdbcTemplate.update("update topup set order_id = ? where id = ?", orderId, topupId);
     }
 
     // created_at은 앱(KST) 기준 LocalDateTime으로 저장되므로 앱 시각으로 넣음

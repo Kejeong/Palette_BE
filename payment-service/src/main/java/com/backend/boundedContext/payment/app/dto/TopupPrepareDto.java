@@ -9,6 +9,6 @@ public record TopupPrepareDto(
         long amount
 ) {
     public static TopupPrepareDto from(Topup topup) {
-        return new TopupPrepareDto(topup.getId(), topup.getTossOrderId(), topup.getAmount());
+        return new TopupPrepareDto(topup.getId(), topup.getOrderId(), topup.getAmount());
     }
 }

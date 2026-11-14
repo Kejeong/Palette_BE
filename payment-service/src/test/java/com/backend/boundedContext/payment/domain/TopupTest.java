@@ -24,7 +24,7 @@ class TopupTest {
 
         assertThat(topup.getMemberId()).isEqualTo(1L);
         assertThat(topup.getWallet()).isSameAs(wallet);
-        assertThat(topup.getTossOrderId()).startsWith("TOPUP-");
+        assertThat(topup.getOrderId()).startsWith("TOPUP-");
         assertThat(topup.getAmount()).isEqualTo(20_000);
         assertThat(topup.getRemainingAmount()).isZero();
         assertThat(topup.getStatus()).isEqualTo(TopupStatus.READY);
@@ -37,7 +37,7 @@ class TopupTest {
         Topup first = Topup.create(1L, wallet, 10_000, PgProvider.TOSS);
         Topup second = Topup.create(1L, wallet, 10_000, PgProvider.TOSS);
 
-        assertThat(first.getTossOrderId()).isNotEqualTo(second.getTossOrderId());
+        assertThat(first.getOrderId()).isNotEqualTo(second.getOrderId());
     }
 
     @Test

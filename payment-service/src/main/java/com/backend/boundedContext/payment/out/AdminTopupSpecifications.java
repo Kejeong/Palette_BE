@@ -20,10 +20,10 @@ public final class AdminTopupSpecifications {
     }
 
     // 충전번호(토스 주문번호) 앞부분 일치. 입력값의 %·_는 와일드카드가 아닌 글자 그대로 찾음
-    // toss_order_id는 정렬 규칙이 C라 like '앞부분%'도 유니크 인덱스로 찾음
+    // order_id는 정렬 규칙이 C라 like '앞부분%'도 유니크 인덱스로 찾음
     public static Specification<Topup> orderIdStartsWith(String orderIdPrefix) {
         if (orderIdPrefix == null) return Specification.unrestricted();
-        return (root, query, cb) -> cb.like(root.get("tossOrderId"), escapeLike(orderIdPrefix) + "%", LIKE_ESCAPE);
+        return (root, query, cb) -> cb.like(root.get("orderId"), escapeLike(orderIdPrefix) + "%", LIKE_ESCAPE);
     }
 
     // 충전 준비일이 from 이후 (from 당일 포함)

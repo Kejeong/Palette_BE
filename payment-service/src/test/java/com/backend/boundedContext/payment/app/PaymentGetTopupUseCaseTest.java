@@ -34,7 +34,7 @@ class PaymentGetTopupUseCaseTest {
 
         TopupDto result = useCase.getTopup(MEMBER_ID, 7L);
 
-        assertThat(result.orderId()).isEqualTo(topup.getTossOrderId());
+        assertThat(result.orderId()).isEqualTo(topup.getOrderId());
         assertThat(result.status()).isEqualTo(TopupStatus.FAILED_USER_CANCEL);
         assertThat(result.failReason()).isEqualTo("사용자에 의해 결제가 취소되었습니다.");
     }

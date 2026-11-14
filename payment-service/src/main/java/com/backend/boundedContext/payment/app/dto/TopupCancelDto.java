@@ -18,7 +18,7 @@ public record TopupCancelDto(
         Long balance
 ) {
     public static TopupCancelDto of(Topup topup, long cancelAmount, long balance) {
-        return new TopupCancelDto(topup.getId(), topup.getTossOrderId(), topup.getStatus(), cancelAmount, topup.getCanceledAmount(), balance);
+        return new TopupCancelDto(topup.getId(), topup.getOrderId(), topup.getStatus(), cancelAmount, topup.getCanceledAmount(), balance);
     }
 
     public static TopupCancelDto canceling(TopupCancelStartResult start) {

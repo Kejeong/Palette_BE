@@ -57,7 +57,7 @@ class PaymentPrepareTopupUseCaseTest {
         assertThat(saved.getValue().getAmount()).isEqualTo(20_000);
         assertThat(saved.getValue().getStatus()).isEqualTo(TopupStatus.READY);
         assertThat(saved.getValue().getPgProvider()).isEqualTo(PgProvider.TOSS);
-        assertThat(result.orderId()).isEqualTo(saved.getValue().getTossOrderId()).startsWith("TOPUP-");
+        assertThat(result.orderId()).isEqualTo(saved.getValue().getOrderId()).startsWith("TOPUP-");
         assertThat(result.amount()).isEqualTo(20_000);
     }
 

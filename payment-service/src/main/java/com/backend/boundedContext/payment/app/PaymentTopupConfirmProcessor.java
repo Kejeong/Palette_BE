@@ -58,7 +58,7 @@ public class PaymentTopupConfirmProcessor {
      */
     @Transactional
     public TopupConfirmStartResult start(Long memberId, String orderId, String paymentKey, long amount) {
-        Topup topup = topupRepository.findByTossOrderIdAndMemberIdForUpdate(orderId, memberId)
+        Topup topup = topupRepository.findByOrderIdAndMemberIdForUpdate(orderId, memberId)
                 .orElseThrow(() -> new DomainException(PaymentErrorCode.TOPUP_NOT_FOUND));
 
         if (topup.getStatus() != TopupStatus.READY || topupRepository.existsByPaymentKey(paymentKey)) {

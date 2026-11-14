@@ -50,7 +50,7 @@ class PaymentGetTopupsUseCaseTest {
 
         assertThat(result.items()).hasSize(1);
         TopupDto item = result.items().get(0);
-        assertThat(item.orderId()).isEqualTo(topup.getTossOrderId());
+        assertThat(item.orderId()).isEqualTo(topup.getOrderId());
         assertThat(item.amount()).isEqualTo(20_000);
         assertThat(item.remainingAmount()).isZero();
         assertThat(item.status()).isEqualTo(TopupStatus.READY);

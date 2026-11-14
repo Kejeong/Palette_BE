@@ -3812,8 +3812,8 @@
       "bXVQmYbPaNl9PV6wqYuQe": {
         "id": "bXVQmYbPaNl9PV6wqYuQe",
         "tableId": "Sp7yQwzWyiW9dDjvQZRTW",
-        "name": "toss_order_id",
-        "comment": "토스 주문번호 - 서버가 발급한 주문번호 TOPUP-...",
+        "name": "order_id",
+        "comment": "주문번호 - 서버가 발급한 주문번호 TOPUP-... (PG 공통)",
         "dataType": "VARCHAR(64)",
         "default": "",
         "options": 12,
@@ -3825,7 +3825,7 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1791793118726,
+          "updateAt": 1794663594362,
           "createAt": 1791793118726
         }
       },

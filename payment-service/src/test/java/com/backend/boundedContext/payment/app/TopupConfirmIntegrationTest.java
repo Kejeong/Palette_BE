@@ -219,7 +219,7 @@ class TopupConfirmIntegrationTest {
     }
 
     private Topup savedTopup() {
-        return topupRepository.findByTossOrderIdAndMemberId(orderId, memberId).orElseThrow();
+        return topupRepository.findByOrderIdAndMemberId(orderId, memberId).orElseThrow();
     }
 
     private List<WalletTransaction> transactionsOfWallet() {

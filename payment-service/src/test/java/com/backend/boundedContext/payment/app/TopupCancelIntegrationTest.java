@@ -414,12 +414,12 @@ class TopupCancelIntegrationTest {
     }
 
     private TossPaymentResponse tossCanceled(long cancelAmount) {
-        return new TossPaymentResponse(topup.getPaymentKey(), topup.getTossOrderId(), "PARTIAL_CANCELED", AMOUNT, "카드", null,
+        return new TossPaymentResponse(topup.getPaymentKey(), topup.getOrderId(), "PARTIAL_CANCELED", AMOUNT, "카드", null,
                 List.of(new TossPaymentResponse.Cancel(cancelAmount, "DONE")));
     }
 
     private TossPaymentResponse tossPayment(String status, List<TossPaymentResponse.Cancel> cancels) {
-        return new TossPaymentResponse(topup.getPaymentKey(), topup.getTossOrderId(), status, AMOUNT, "카드", null, cancels);
+        return new TossPaymentResponse(topup.getPaymentKey(), topup.getOrderId(), status, AMOUNT, "카드", null, cancels);
     }
 
     private void moveUpdatedAtMinutesAgo(int minutes) {
