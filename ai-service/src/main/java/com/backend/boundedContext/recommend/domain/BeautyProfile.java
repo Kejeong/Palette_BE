@@ -18,6 +18,8 @@ import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 회원의 뷰티 프로필(설문 답변). 회원당 1개이고 다시 저장하면 덮어쓴다.
@@ -95,6 +97,22 @@ public class BeautyProfile extends BaseIdAndTime {
 
     public Set<BeautyCategory> getInterestCategories() {
         return values(interestCategories, BeautyCategory.class);
+    }
+
+    /**
+     * 임베딩할 글. 피하는 성분은 넣지 않는다(피하는 성분은 SQL 필터로만 거르고, 순서에는 쓰지 않는다).
+     * 예: "피부 타입: 지성\n피부 고민: 트러블, 모공\n선호 성분: 나이아신아마이드\n관심 카테고리: 스킨케어"
+     */
+    public String embeddingSource() {
+        return "피부 타입: " + skinType.getLabel()
+                + "\n피부 고민: " + labels(getConcerns().stream().map(SkinConcern::getLabel))
+                + "\n선호 성분: " + labels(getPreferredIngredients().stream().map(IngredientTag::getLabel))
+                + "\n관심 카테고리: " + labels(getInterestCategories().stream().map(BeautyCategory::getLabel));
+    }
+
+    private static String labels(Stream<String> labels) {
+        String joined = labels.collect(Collectors.joining(", "));
+        return joined.isEmpty() ? "없음" : joined;
     }
 
     private static void checkSide(List<IngredientTag> tags, IngredientTag.Side side) {

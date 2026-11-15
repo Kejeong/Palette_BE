@@ -14,4 +14,12 @@ public enum BeautyCategory {
     MASK_PACK("마스크팩");
 
     private final String label;
+
+    /** market 소분류 이름으로 찾는다. 설문 카테고리가 아니면(바디케어 등) null */
+    public static BeautyCategory fromLabel(String categoryName) {
+        for (BeautyCategory category : values()) {
+            if (category.label.equals(categoryName)) return category;
+        }
+        return null;
+    }
 }
