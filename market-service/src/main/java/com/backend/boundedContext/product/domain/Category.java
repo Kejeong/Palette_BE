@@ -67,7 +67,7 @@ public class Category extends BaseIdAndTime {
 
     /** 뷰티 대분류의 소분류인지. 대분류는 초기 데이터로만 만들고 바꿀 수 없어 이름으로 비교해도 안전하다 */
     public boolean isBeauty() {
-        return parent != null && BEAUTY_ROOT_NAME.equals(parent.name);
+        return parent != null && BEAUTY_ROOT_NAME.equals(parent.getName());
     }
 
     /** 대분류 1, 소분류 2 */
