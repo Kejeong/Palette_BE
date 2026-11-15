@@ -72,6 +72,7 @@ public class SecurityConfig {
     // 구매자 기능. 관리자는 운영 전용이라 구매·판매자 신청을 막음 (/api/v1/sellers/** (복수, 판매자 신청)는 /api/v1/seller/** (단수, 판매자 전용)와 다른 경로)
     private static final String[] BUYER_API_URLS = {
             "/api/v1/ai/survey/**",
+            "/api/v1/ai/recommendations/creators",   // 피부가 비슷한 크리에이터 추천
             "/api/v1/cart/**",
             "/api/v1/orders/**",
             "/api/v1/wishlist/**",

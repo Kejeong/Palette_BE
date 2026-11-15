@@ -1,6 +1,7 @@
 package com.backend.boundedContext.recommend.in;
 
 import com.backend.boundedContext.recommend.app.RecommendFacade;
+import com.backend.boundedContext.recommend.app.dto.CreatorRecommendationsDto;
 import com.backend.boundedContext.recommend.app.dto.ProductRecommendationsDto;
 import com.backend.global.security.JwtAccessDeniedHandler;
 import com.backend.global.security.JwtAuthenticationEntryPoint;
@@ -72,5 +73,30 @@ class ApiV1RecommendationControllerTest {
                     .andExpect(status().isBadRequest());
         }
         verifyNoInteractions(recommendFacade);
+    }
+
+    @Test
+    @DisplayName("크리에이터 추천: 로그인 필요(401), 관리자 403, size는 1~20")
+    void creatorsSecurityAndSize() throws Exception {
+        mockMvc.perform(get("/api/v1/ai/recommendations/creators")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/ai/recommendations/creators")
+                        .header("Authorization", "Bearer " + jwtTokenProvider.createAccessToken(1L, MemberRole.ADMIN)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/ai/recommendations/creators").param("size", "21")
+                        .header("Authorization", "Bearer " + jwtTokenProvider.createAccessToken(3L, MemberRole.USER)))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(recommendFacade);
+    }
+
+    @Test
+    @DisplayName("크리에이터 추천: 로그인 회원 ID와 size 기본값 10으로 조회한다")
+    void creators() throws Exception {
+        given(recommendFacade.getCreators(3L, 10)).willReturn(new CreatorRecommendationsDto(List.of()));
+
+        mockMvc.perform(get("/api/v1/ai/recommendations/creators")
+                        .header("Authorization", "Bearer " + jwtTokenProvider.createAccessToken(3L, MemberRole.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultCode").value("200-1"));
+        verify(recommendFacade).getCreators(3L, 10);
     }
 }

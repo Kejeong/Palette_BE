@@ -1,10 +1,12 @@
 package com.backend.boundedContext.recommend.in;
 
 import com.backend.boundedContext.recommend.app.RecommendFacade;
+import com.backend.boundedContext.recommend.app.dto.CreatorRecommendationsDto;
 import com.backend.boundedContext.recommend.app.dto.ProductRecommendationsDto;
 import com.backend.global.rsData.RsData;
 import com.backend.global.security.AuthMember;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -35,5 +37,19 @@ public class ApiV1RecommendationController {
     ) {
         Long memberId = authMember == null ? null : authMember.memberId();
         return RsData.of("200-1", "추천 상품을 조회했습니다.", recommendFacade.getProducts(memberId, size));
+    }
+
+    @Operation(
+            summary = "피부가 비슷한 크리에이터 추천",
+            description = "승인된 인플루언서 중 뷰티 설문을 한 사람을 내 설문과 겹치는 정도(피부 타입 + 겹친 고민 수 + 겹친 선호 성분 수)가 큰 순서로 줍니다. "
+                    + "겹치는 게 없는 사람은 빠집니다. 로그인이 필요하고, 설문을 안 했으면 404-SURVEY_NOT_FOUND입니다.")
+    @ApiResponse(responseCode = "404", description = "404-SURVEY_NOT_FOUND 설문을 아직 하지 않음")
+    @ApiResponse(responseCode = "502", description = "502-EXTERNAL_SERVICE_ERROR 회원 서비스가 응답하지 않음")
+    @GetMapping("/creators")
+    public RsData<CreatorRecommendationsDto> getCreators(
+            @AuthenticationPrincipal AuthMember authMember,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(20) int size
+    ) {
+        return RsData.of("200-1", "추천 크리에이터를 조회했습니다.", recommendFacade.getCreators(authMember.memberId(), size));
     }
 }
