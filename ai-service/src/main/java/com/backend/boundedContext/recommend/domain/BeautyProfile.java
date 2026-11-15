@@ -46,6 +46,10 @@ public class BeautyProfile extends BaseIdAndTime {
     @Column(nullable = false, columnDefinition = "text[]")
     private String[] concerns;
 
+    // 설문 저장 때 확인한 회원의 인플루언서 ID. 인플루언서가 아니면 null (크리에이터 추천 후보)
+    @Getter
+    private Long influencerId;
+
     @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(nullable = false, columnDefinition = "text[]")
     private String[] preferredIngredients;
@@ -83,6 +87,11 @@ public class BeautyProfile extends BaseIdAndTime {
         this.interestCategories = codes(interestCategories, BeautyCategory.class);
     }
 
+    /** 설문 저장 때 회원 서비스에서 확인한 승인 인플루언서 ID를 기록한다. 인플루언서가 아니면 null */
+    public void markInfluencer(Long influencerId) {
+        this.influencerId = influencerId;
+    }
+
     public Set<SkinConcern> getConcerns() {
         return values(concerns, SkinConcern.class);
     }
@@ -101,7 +110,6 @@ public class BeautyProfile extends BaseIdAndTime {
 
     /**
      * 임베딩할 글. 피하는 성분은 넣지 않는다(피하는 성분은 SQL 필터로만 거르고, 순서에는 쓰지 않는다).
-     * 예: "피부 타입: 지성\n피부 고민: 트러블, 모공\n선호 성분: 나이아신아마이드\n관심 카테고리: 스킨케어"
      */
     public String embeddingSource() {
         return "피부 타입: " + skinType.getLabel()
