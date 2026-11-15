@@ -349,6 +349,8 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       AI_DB_USERNAME: ${AI_DB_USERNAME:?AI_DB_USERNAME이 .env에 없습니다}
+      # 크리에이터 추천이 인플루언서 승인 여부를 회원 서비스 내부 API로 확인한다
+      MEMBER_SERVICE_URL: http://member:8081
       SERVER_FORWARD_HEADERS_STRATEGY: native
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
     # notification과 같은 768m(힙 576MB)
