@@ -5,10 +5,12 @@ import com.backend.boundedContext.recommend.domain.BeautyCategory;
 import com.backend.boundedContext.recommend.domain.IngredientTag;
 import com.backend.boundedContext.recommend.domain.SkinConcern;
 import com.backend.boundedContext.recommend.domain.SkinType;
+import com.backend.shared.product.event.ProductChangedEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -20,6 +22,9 @@ public class RecommendFacade {
 
     private final RecommendSaveSurveyUseCase recommendSaveSurveyUseCase;
     private final RecommendGetSurveyUseCase recommendGetSurveyUseCase;
+    private final RecommendApplyProductChangeUseCase recommendApplyProductChangeUseCase;
+    private final RecommendRetagUseCase recommendRetagUseCase;
+    private final RecommendEmbedUseCase recommendEmbedUseCase;
 
     @Transactional
     public BeautyProfileDto saveSurvey(Long memberId, SkinType skinType, List<SkinConcern> concerns,
@@ -31,5 +36,22 @@ public class RecommendFacade {
     @Transactional(readOnly = true)
     public BeautyProfileDto getSurvey(Long memberId) {
         return recommendGetSurveyUseCase.get(memberId);
+    }
+
+    /** market의 상품 변경을 추천용 사본에 반영한다. 컨슈머가 이벤트마다 부른다 */
+    @Transactional
+    public void applyProductChange(ProductChangedEvent event, LocalDateTime eventAt) {
+        recommendApplyProductChangeUseCase.apply(event, eventAt);
+    }
+
+    /** 모든 추천 상품의 성분 태그를 지금 사전으로 다시 계산한다. 기동할 때 한 번 부른다 */
+    @Transactional
+    public int retagAll() {
+        return recommendRetagUseCase.retagAll();
+    }
+
+    /** 비어 있는 임베딩(상품·설문)을 채운다. OpenAI를 부르므로 트랜잭션을 걸지 않는다 */
+    public void embedPending() {
+        recommendEmbedUseCase.embedPending();
     }
 }

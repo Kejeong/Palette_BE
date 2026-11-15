@@ -7,6 +7,7 @@ import com.backend.boundedContext.recommend.domain.IngredientTag;
 import com.backend.boundedContext.recommend.domain.SkinConcern;
 import com.backend.boundedContext.recommend.domain.SkinType;
 import com.backend.boundedContext.recommend.out.BeautyProfileRepository;
+import com.backend.boundedContext.recommend.out.RecommendVectorRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +17,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class RecommendSaveSurveyUseCase {
     private final BeautyProfileRepository beautyProfileRepository;
+    private final RecommendVectorRepository recommendVectorRepository;
 
     // 처음이면 만들고, 있으면 덮어쓴다 같은 회원이 동시에 처음 저장하면 유니크 제약에 걸려 409-DATA_CONFLICT
     public BeautyProfileDto save(Long memberId, SkinType skinType, List<SkinConcern> concerns,
@@ -30,6 +32,8 @@ public class RecommendSaveSurveyUseCase {
                         preferredIngredients, avoidedIngredients, interestCategories)));
         // updatedAt을 응답에 담으려고 바로 반영함(Auditing은 flush 때 채움)
         beautyProfileRepository.flush();
+        // 답이 바뀌었으니 설문 임베딩을 지운다. 스케줄러가 몇 초 안에 다시 만든다
+        recommendVectorRepository.clearProfileEmbedding(memberId);
         return BeautyProfileDto.from(profile);
     }
 }
