@@ -133,7 +133,7 @@ public class PaymentTopupConfirmProcessor {
             return Optional.empty();
         }
         topup.startMethodCancel();
-        return Optional.of(new TopupMethodCancelStart(topup.getId(), topup.getPgProvider(), topup.getPaymentKey(),
+        return Optional.of(new TopupMethodCancelStart(topup.getId(), topup.getPgProvider(), PgPaymentRef.from(topup),
                 topup.getAmount(), topup.getCancelAttempts(), topup.methodCancelIdempotencyKey()));
     }
 
@@ -162,7 +162,7 @@ public class PaymentTopupConfirmProcessor {
             return Optional.empty();
         }
         topup.retryMethodCancel();
-        return Optional.of(new TopupMethodCancelStart(topup.getId(), topup.getPgProvider(), topup.getPaymentKey(),
+        return Optional.of(new TopupMethodCancelStart(topup.getId(), topup.getPgProvider(), PgPaymentRef.from(topup),
                 topup.getAmount(), topup.getCancelAttempts(), topup.methodCancelIdempotencyKey()));
     }
 

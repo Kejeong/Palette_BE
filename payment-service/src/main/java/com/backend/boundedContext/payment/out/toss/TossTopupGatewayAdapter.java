@@ -6,6 +6,7 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 import com.backend.boundedContext.payment.domain.PgProvider;
+import com.backend.boundedContext.payment.out.pg.PgCancelRequest;
 import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgDeclinedException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
@@ -124,9 +125,9 @@ public class TossTopupGatewayAdapter implements TopupGatewayPort {
     }
 
     @Override
-    public PgPaymentResult cancel(String paymentKey, long cancelAmount, String reason, String idempotencyKey) {
+    public PgPaymentResult cancel(PgCancelRequest request) {
         try {
-            return toResult(tossPaymentsClient.cancel(paymentKey, cancelAmount, reason, idempotencyKey));
+            return toResult(tossPaymentsClient.cancel(request.payment().paymentKey(), request.cancelAmount(), request.reason(), request.idempotencyKey()));
         } catch (TossTimeoutException e) {
             throw new PgResultUnknownException(e);
         } catch (TossPaymentException e) {

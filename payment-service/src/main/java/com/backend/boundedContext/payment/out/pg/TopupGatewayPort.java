@@ -25,6 +25,10 @@ public interface TopupGatewayPort {
     // 결제 조회 (결과를 모르는 PROCESSING·CANCELING 충전 건의 최종 결과 확인용). 결제를 찾는 값은 PG마다 달라 충전 건 정보를 넘김
     PgPaymentResult getPayment(PgPaymentRef payment);
 
-    // 결제 취소. cancelAmount만큼 부분 취소하며, 같은 idempotencyKey로 다시 요청하면 PG가 한 번만 취소함
-    PgPaymentResult cancel(String paymentKey, long cancelAmount, String reason, String idempotencyKey);
+    /**
+     * 결제 취소. cancelAmount만큼 부분 취소함
+     * 멱등 키를 지원하지 않는 PG가 있음 (토스는 같은 idempotencyKey면 한 번만 취소하지만, 헥토는 같은 회차를 다시 보내면 또 취소됨)
+     * 그래서 결과를 모르는 취소는 다시 요청하지 않고, 대사가 PG 조회로 취소 합계를 확인해 확정·되돌림
+     */
+    PgPaymentResult cancel(PgCancelRequest request);
 }

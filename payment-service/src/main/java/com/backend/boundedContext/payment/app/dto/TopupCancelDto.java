@@ -22,6 +22,6 @@ public record TopupCancelDto(
     }
 
     public static TopupCancelDto canceling(TopupCancelStartResult start) {
-        return new TopupCancelDto(start.topupId(), start.orderId(), TopupStatus.CANCELING, start.cancelAmount(), null, null);
+        return new TopupCancelDto(start.topupId(), start.payment().orderId(), TopupStatus.CANCELING, start.cancelAmount(), null, null);
     }
 }

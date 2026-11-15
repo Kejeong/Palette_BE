@@ -28,6 +28,7 @@ import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.WalletRepository;
 import com.backend.boundedContext.payment.out.WalletTransactionRepository;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.PgPaymentStatus;
 import com.backend.boundedContext.payment.out.pg.TopupGatewayPort;
@@ -229,7 +230,7 @@ class PaymentTopupConfirmProcessorTest {
 
         assertThat(topup.getStatus()).isEqualTo(TopupStatus.METHOD_CANCELING);
         assertThat(start).hasValueSatisfying(s -> {
-            assertThat(s.paymentKey()).isEqualTo("pk_1");
+            assertThat(s.payment()).isEqualTo(PgPaymentRef.from(topup));
             assertThat(s.amount()).isEqualTo(20_000);
             assertThat(s.attempt()).isEqualTo(1);
             assertThat(s.idempotencyKey()).isEqualTo("TOPUP-" + TOPUP_ID + "-METHOD-CANCEL-1");

@@ -59,7 +59,7 @@ public class PaymentTopupCancelProcessor {
         String idempotencyKey = topup.cancelIdempotencyKey();
         walletTransactionRepository.save(WalletTransaction.record(wallet, WalletTransactionType.CHARGE_CANCEL, topup.getCancelingAmount(), topup.getId(), idempotencyKey));
 
-        return new TopupCancelStartResult(topup.getId(), topup.getOrderId(), topup.getPgProvider(), topup.getPaymentKey(), topup.getCancelingAmount(), topup.getCancelAttempts(), idempotencyKey);
+        return new TopupCancelStartResult(topup.getId(), topup.getPgProvider(), PgPaymentRef.from(topup), topup.getCancelingAmount(), topup.getCancelAttempts(), idempotencyKey);
     }
 
     /**
