@@ -10,6 +10,7 @@ import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgDeclinedException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
 import com.backend.boundedContext.payment.out.pg.PgPaymentNotFoundException;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.PgPaymentStatus;
 import com.backend.boundedContext.payment.out.pg.PgResultUnknownException;
@@ -109,9 +110,9 @@ public class TossTopupGatewayAdapter implements TopupGatewayPort {
     }
 
     @Override
-    public PgPaymentResult getPayment(String paymentKey) {
+    public PgPaymentResult getPayment(PgPaymentRef payment) {
         try {
-            return toResult(tossPaymentsClient.getPayment(paymentKey));
+            return toResult(tossPaymentsClient.getPayment(payment.paymentKey()));
         } catch (TossTimeoutException e) {
             throw new PgResultUnknownException(e);
         } catch (TossPaymentException e) {

@@ -21,6 +21,7 @@ import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.WalletRepository;
 import com.backend.boundedContext.payment.out.WalletTransactionRepository;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
@@ -171,7 +172,7 @@ public class PaymentTopupConfirmProcessor {
     @Transactional(readOnly = true)
     public List<TopupMethodCancelTarget> findMethodCancelTargets(LocalDateTime cutoff, TopupReconcileCursor after, int limit) {
         return topupRepository.findStale(TopupStatus.METHOD_CANCELING, cutoff, after.updatedAt(), after.topupId(), PageRequest.of(0, limit)).stream()
-                .map(topup -> new TopupMethodCancelTarget(topup.getId(), topup.getPaymentKey(), topup.getPgProvider(), topup.getAmount(), topup.getCancelAttempts(), topup.getUpdatedAt()))
+                .map(topup -> new TopupMethodCancelTarget(topup.getId(), PgPaymentRef.from(topup), topup.getPgProvider(), topup.getAmount(), topup.getCancelAttempts(), topup.getUpdatedAt()))
                 .toList();
     }
 
@@ -197,7 +198,7 @@ public class PaymentTopupConfirmProcessor {
     @Transactional(readOnly = true)
     public List<TopupReconcileTarget> findReconcileTargets(LocalDateTime cutoff, TopupReconcileCursor after, int limit) {
         return topupRepository.findStale(TopupStatus.PROCESSING, cutoff, after.updatedAt(), after.topupId(), PageRequest.of(0, limit)).stream()
-                .map(topup -> new TopupReconcileTarget(topup.getId(), topup.getPaymentKey(), topup.getPgProvider(), topup.getUpdatedAt()))
+                .map(topup -> new TopupReconcileTarget(topup.getId(), PgPaymentRef.from(topup), topup.getPgProvider(), topup.getUpdatedAt()))
                 .toList();
     }
 }

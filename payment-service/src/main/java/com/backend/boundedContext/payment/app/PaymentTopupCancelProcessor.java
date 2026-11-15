@@ -17,6 +17,7 @@ import com.backend.boundedContext.payment.domain.WalletTransactionType;
 import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.WalletRepository;
 import com.backend.boundedContext.payment.out.WalletTransactionRepository;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
 
@@ -101,7 +102,7 @@ public class PaymentTopupCancelProcessor {
     @Transactional(readOnly = true)
     public List<TopupCancelReconcileTarget> findReconcileTargets(LocalDateTime cutoff, TopupReconcileCursor after, int limit) {
         return topupRepository.findStale(TopupStatus.CANCELING, cutoff, after.updatedAt(), after.topupId(), PageRequest.of(0, limit)).stream()
-                .map(topup -> new TopupCancelReconcileTarget(topup.getId(), topup.getPaymentKey(), topup.getPgProvider(), topup.getCancelAttempts(), topup.getCanceledAmount(), topup.getCancelingAmount(), topup.getUpdatedAt()))
+                .map(topup -> new TopupCancelReconcileTarget(topup.getId(), PgPaymentRef.from(topup), topup.getPgProvider(), topup.getCancelAttempts(), topup.getCanceledAmount(), topup.getCancelingAmount(), topup.getUpdatedAt()))
                 .toList();
     }
 

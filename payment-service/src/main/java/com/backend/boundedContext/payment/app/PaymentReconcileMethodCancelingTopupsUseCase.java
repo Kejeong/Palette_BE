@@ -55,7 +55,7 @@ public class PaymentReconcileMethodCancelingTopupsUseCase {
     private TopupReconcileOutcome reconcile(TopupMethodCancelTarget target) {
         PgPaymentResult result;
         try {
-            result = topupGateways.get(target.pgProvider()).getPayment(target.paymentKey());
+            result = topupGateways.get(target.pgProvider()).getPayment(target.payment());
         } catch (PgPaymentNotFoundException e) {
             // PG가 승인한 결제라 정상이면 PG에 결제가 있음. 결제키·키 설정 등이 잘못된 것이라 사람이 확인
             log.error("허용하지 않은 결제 수단으로 승인된 충전 건의 결제가 PG에 없습니다. 확인이 필요합니다. topupId={}, pg={}", target.topupId(), target.pgProvider());

@@ -23,6 +23,7 @@ import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgDeclinedException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
 import com.backend.boundedContext.payment.out.pg.PgPaymentNotFoundException;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.PgPaymentStatus;
 import com.backend.boundedContext.payment.out.pg.PgResultUnknownException;
@@ -33,6 +34,7 @@ class TossTopupGatewayAdapterTest {
     private static final String PAYMENT_KEY = "pk_1";
     private static final String ORDER_ID = "TOPUP-123e4567-e89b-12d3-a456-426614174000";
     private static final long AMOUNT = 20_000;
+    private static final PgPaymentRef PAYMENT = new PgPaymentRef(ORDER_ID, PAYMENT_KEY, AMOUNT, LocalDateTime.of(2026, 11, 15, 10, 0));
     private static final String REASON = "충전 취소";
     private static final String CANCEL_KEY = "TOPUP-7-CANCEL-0";
 
@@ -91,7 +93,7 @@ class TossTopupGatewayAdapterTest {
     void status(String tossStatus, PgPaymentStatus expected) {
         given(tossPaymentsClient.getPayment(PAYMENT_KEY)).willReturn(toss(tossStatus, "카드", null));
 
-        PgPaymentResult result = adapter.getPayment(PAYMENT_KEY);
+        PgPaymentResult result = adapter.getPayment(PAYMENT);
 
         assertThat(result.status()).isEqualTo(expected);
         assertThat(result.pgStatus()).isEqualTo(tossStatus);   // 원래 값은 기록용으로 그대로 담음
@@ -110,7 +112,7 @@ class TossTopupGatewayAdapterTest {
     void method(String tossMethod, PgPaymentMethod expected) {
         given(tossPaymentsClient.getPayment(PAYMENT_KEY)).willReturn(toss("DONE", tossMethod, null));
 
-        assertThat(adapter.getPayment(PAYMENT_KEY).method()).isEqualTo(expected);
+        assertThat(adapter.getPayment(PAYMENT).method()).isEqualTo(expected);
     }
 
     @Test
@@ -118,7 +120,7 @@ class TossTopupGatewayAdapterTest {
     void method_null() {
         given(tossPaymentsClient.getPayment(PAYMENT_KEY)).willReturn(toss("IN_PROGRESS", null, null));
 
-        PgPaymentResult result = adapter.getPayment(PAYMENT_KEY);
+        PgPaymentResult result = adapter.getPayment(PAYMENT);
 
         assertThat(result.method()).isEqualTo(PgPaymentMethod.OTHER);
         assertThat(result.approvedAt()).isNull();
@@ -183,7 +185,7 @@ class TossTopupGatewayAdapterTest {
         given(tossPaymentsClient.getPayment(PAYMENT_KEY))
                 .willThrow(new TossPaymentException(404, "NOT_FOUND_PAYMENT", "존재하지 않는 결제 정보 입니다.", null));
 
-        assertThatThrownBy(() -> adapter.getPayment(PAYMENT_KEY))
+        assertThatThrownBy(() -> adapter.getPayment(PAYMENT))
                 .isInstanceOf(PgPaymentNotFoundException.class);
     }
 
@@ -198,7 +200,7 @@ class TossTopupGatewayAdapterTest {
         given(tossPaymentsClient.getPayment(PAYMENT_KEY))
                 .willThrow(new TossPaymentException(httpStatus, code, "메시지", null));
 
-        assertThatThrownBy(() -> adapter.getPayment(PAYMENT_KEY))
+        assertThatThrownBy(() -> adapter.getPayment(PAYMENT))
                 .isInstanceOf(PgResultUnknownException.class);
     }
 
@@ -208,7 +210,7 @@ class TossTopupGatewayAdapterTest {
         given(tossPaymentsClient.getPayment(PAYMENT_KEY))
                 .willThrow(new TossTimeoutException(new RuntimeException("Read timed out")));
 
-        assertThatThrownBy(() -> adapter.getPayment(PAYMENT_KEY))
+        assertThatThrownBy(() -> adapter.getPayment(PAYMENT))
                 .isInstanceOf(PgResultUnknownException.class);
     }
 
