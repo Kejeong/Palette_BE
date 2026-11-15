@@ -1,14 +1,22 @@
 // ai-service: 뷰티 설문, 피부 맞춤 상품 추천(피하는 성분 제외·임베딩), 피부가 비슷한 크리에이터 추천.
 // Java 21·Lombok·Boot BOM·테스트 설정은 루트 allprojects에서 온다.
-// Spring AI(임베딩)는 상품 임베딩 단계에서 추가한다. 뼈대는 OpenAI 키 없이 뜬다.
 plugins {
 	id("org.springframework.boot")
+}
+
+// Spring AI 2.0.x는 Spring Boot 4.1 기준이라 우리 Boot 4.1.x와 맞는다. 2.1.x는 Boot 4.2용이라 올리지 않는다
+dependencyManagement {
+	imports {
+		mavenBom("org.springframework.ai:spring-ai-bom:2.0.2")
+	}
 }
 
 dependencies {
 	// webmvc, data-jpa, validation, security, kafka, jjwt, springdoc은 common이 api로 준다
 	implementation(project(":common"))
 	implementation("org.springframework.boot:spring-boot-starter-flyway")
+	// 임베딩(EmbeddingModel)만 쓴다. 벡터 저장·검색은 JdbcTemplate SQL로 한다(피하는 성분 필터를 같은 SQL에 두려고)
+	implementation("org.springframework.ai:spring-ai-starter-model-openai")
 
 	developmentOnly("org.springframework.boot:spring-boot-devtools")
 	runtimeOnly("org.postgresql:postgresql")
