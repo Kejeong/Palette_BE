@@ -1,6 +1,7 @@
 package com.backend.boundedContext.recommend.app;
 
 import com.backend.boundedContext.recommend.app.dto.BeautyProfileDto;
+import com.backend.boundedContext.recommend.app.dto.ProductRecommendationsDto;
 import com.backend.boundedContext.recommend.domain.BeautyCategory;
 import com.backend.boundedContext.recommend.domain.IngredientTag;
 import com.backend.boundedContext.recommend.domain.SkinConcern;
@@ -25,6 +26,7 @@ public class RecommendFacade {
     private final RecommendApplyProductChangeUseCase recommendApplyProductChangeUseCase;
     private final RecommendRetagUseCase recommendRetagUseCase;
     private final RecommendEmbedUseCase recommendEmbedUseCase;
+    private final RecommendGetProductsUseCase recommendGetProductsUseCase;
 
     @Transactional
     public BeautyProfileDto saveSurvey(Long memberId, SkinType skinType, List<SkinConcern> concerns,
@@ -36,6 +38,12 @@ public class RecommendFacade {
     @Transactional(readOnly = true)
     public BeautyProfileDto getSurvey(Long memberId) {
         return recommendGetSurveyUseCase.get(memberId);
+    }
+
+    /** 맞춤 상품 추천. 비회원이면 memberId가 null */
+    @Transactional(readOnly = true)
+    public ProductRecommendationsDto getProducts(Long memberId, int size) {
+        return recommendGetProductsUseCase.getProducts(memberId, size);
     }
 
     /** market의 상품 변경을 추천용 사본에 반영한다. 컨슈머가 이벤트마다 부른다 */
