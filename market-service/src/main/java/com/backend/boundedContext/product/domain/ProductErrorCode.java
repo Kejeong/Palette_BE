@@ -30,6 +30,7 @@ public enum ProductErrorCode implements ErrorCode {
 
     // 옵션
     OPTION_NAME_INVALID(400, "옵션 이름은 최대 3개, 각각 1~20자이며 서로 달라야 합니다."),
+    INGREDIENTS_REQUIRED(400, "뷰티 상품은 전성분을 입력해야 합니다."),
     OPTION_VALUE_INVALID(400, "옵션 값은 옵션 이름마다 하나씩, 각각 1~14자여야 합니다."),
     OPTION_DUPLICATED(409, "같은 조합의 옵션이 이미 있습니다."),
     OPTION_LIMIT_EXCEEDED(400, "옵션 조합은 최대 100개까지 만들 수 있습니다."),

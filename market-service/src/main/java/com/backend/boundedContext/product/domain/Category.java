@@ -26,6 +26,8 @@ import static jakarta.persistence.FetchType.LAZY;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Category extends BaseIdAndTime {
 
+    public static final String BEAUTY_ROOT_NAME = "뷰티";
+
     @ManyToOne(fetch = LAZY)
     @JoinColumn(name = "parent_id")
     private Category parent;
@@ -61,6 +63,11 @@ public class Category extends BaseIdAndTime {
 
     public boolean isRoot() {
         return parent == null;
+    }
+
+    /** 뷰티 대분류의 소분류인지. 대분류는 초기 데이터로만 만들고 바꿀 수 없어 이름으로 비교해도 안전하다 */
+    public boolean isBeauty() {
+        return parent != null && BEAUTY_ROOT_NAME.equals(parent.name);
     }
 
     /** 대분류 1, 소분류 2 */
