@@ -41,6 +41,7 @@ public class SecurityConfig {
             "/error"
     };
     private static final String[] PUBLIC_GET_API_URLS = {
+            "/api/v1/ai/recommendations",   // 맞춤 상품 추천(비회원은 최신순). 정확히 이 경로만, 크리에이터 추천은 로그인 필요
             "/api/v1/products/**",
             "/api/v1/categories/**",
             "/api/v1/influencers/*",   // 인플루언서 프로필
