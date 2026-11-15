@@ -22,6 +22,7 @@ import java.util.List;
  * @param description 상품 설명
  * @param optionNames 옵션 이름 (예: 색상, 사이즈). 최대 {@value Product#MAX_OPTION_NAMES}개, 각각 최대 {@value Product#MAX_OPTION_NAME_LENGTH}자. 없으면 옵션 없는 상품
  * @param options     옵션 조합. 1~{@value ProductOption#MAX_OPTIONS_PER_PRODUCT}개, 같은 조합은 한 번만
+ * @param ingredientsText 전성분 (화장품 용기에 적힌 그대로). 뷰티 소분류면 필수, 그 외 카테고리는 무시
  */
 public record ProductCreateRequest(
         @NotBlank @Size(max = 100) String name,
@@ -29,7 +30,8 @@ public record ProductCreateRequest(
         @NotNull Long categoryId,
         @NotBlank String description,
         @Size(max = Product.MAX_OPTION_NAMES) List<@NotBlank @Size(max = Product.MAX_OPTION_NAME_LENGTH) String> optionNames,
-        @NotNull @Size(min = 1, max = ProductOption.MAX_OPTIONS_PER_PRODUCT) List<@Valid @NotNull ProductOptionRequest> options
+        @NotNull @Size(min = 1, max = ProductOption.MAX_OPTIONS_PER_PRODUCT) List<@Valid @NotNull ProductOptionRequest> options,
+        @Size(max = Product.MAX_INGREDIENTS_TEXT_LENGTH) String ingredientsText
 ) {
     /** 옵션 이름. 보내지 않았으면 빈 목록(옵션 없는 상품) */
     public List<String> optionNamesOrEmpty() {

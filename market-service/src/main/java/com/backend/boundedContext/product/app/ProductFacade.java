@@ -152,22 +152,26 @@ public class ProductFacade {
         return productGetWishlistUseCase.getWishlist(memberId, pageable);
     }
 
-    /** 승인된 판매자의 옵션 없는 상품을 등록하고 상품 ID를 돌려준다. 대표 이미지는 필수, 상세 이미지는 선택이다. */
+    /** 승인된 판매자의 옵션 없는 상품을 전성분 없이 등록하고 상품 ID를 돌려준다. */
     @Transactional
     public Long createProduct(Long memberId, Long categoryId, String name, String description,
                               long price, int stock, ProductImageFile thumbnail, List<ProductImageFile> detailImages) {
-        return createProduct(memberId, categoryId, name, description, price,
-                List.of(), List.of(ProductOptionSpec.single(stock)), thumbnail, detailImages);
+        Long sellerId = productSupport.getSellableSellerId(memberId);
+        return productCreateProductUseCase.createProduct(sellerId, categoryId, name, description, price, stock,
+                thumbnail, detailImages).getId();
     }
 
-    /** 승인된 판매자의 상품을 옵션 조합과 함께 등록하고 상품 ID를 돌려준다. 대표 이미지는 필수, 상세 이미지는 선택이다. */
+    /**
+     * 승인된 판매자의 상품을 옵션 조합과 함께 등록하고 상품 ID를 돌려준다. 대표 이미지는 필수, 상세 이미지는 선택이다.
+     * 뷰티 소분류면 전성분이 필수다.
+     */
     @Transactional
     public Long createProduct(Long memberId, Long categoryId, String name, String description, long price,
                               List<String> optionNames, List<ProductOptionSpec> options,
-                              ProductImageFile thumbnail, List<ProductImageFile> detailImages) {
+                              ProductImageFile thumbnail, List<ProductImageFile> detailImages, String ingredientsText) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
         return productCreateProductUseCase.createProduct(sellerId, categoryId, name, description, price,
-                optionNames, options, thumbnail, detailImages).getId();
+                optionNames, options, thumbnail, detailImages, ingredientsText).getId();
     }
 
     /** 승인된 판매자의 본인 상품 목록 */
@@ -199,10 +203,10 @@ public class ProductFacade {
     @Transactional
     public void modifyProduct(Long memberId, Long productId, String name, Long price, Long categoryId,
                               String description, List<Long> keepDetailImageIds, ProductImageFile thumbnail,
-                              List<ProductImageFile> newDetailImages) {
+                              List<ProductImageFile> newDetailImages, String ingredientsText) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
         productModifyProductUseCase.modifyProduct(sellerId, productId, name, price, categoryId, description,
-                keepDetailImageIds, thumbnail, newDetailImages);
+                keepDetailImageIds, thumbnail, newDetailImages, ingredientsText);
     }
 
     /** 승인된 판매자가 본인 상품을 지운다 (소프트 삭제). 결제 대기 주문 취소와 심사 중인 중지 요청 정리를 함께 한다. */

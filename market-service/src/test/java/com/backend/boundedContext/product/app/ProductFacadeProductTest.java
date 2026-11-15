@@ -1,6 +1,7 @@
 package com.backend.boundedContext.product.app;
 
 import com.backend.boundedContext.product.app.dto.CategoryTreeDto;
+import com.backend.boundedContext.product.app.dto.ProductOptionSpec;
 import com.backend.boundedContext.product.domain.OptionStock;
 import com.backend.boundedContext.product.domain.Product;
 import com.backend.boundedContext.product.domain.ProductOption;
@@ -66,6 +67,19 @@ class ProductFacadeProductTest {
     /** 주문 쪽 구현과 분리하고, 다른 상품 통합 테스트와 mock 조합을 맞춰 테스트 컨텍스트(DB 연결 풀)를 같이 쓴다 */
     @MockitoBean
     private OrderApi orderApi;
+
+    @Test
+    @DisplayName("전성분: 판매자 등록으로 넣은 전성분이 DB(ingredients_text)에 저장되고 수정 폼·구매자 상세에 나온다")
+    void createProductWithIngredients() {
+        givenApprovedSeller();
+
+        Long productId = productFacade.createProduct(MEMBER_ID, skincareId(), "수분 크림", "촉촉한 크림", 25_000,
+                List.of(), List.of(ProductOptionSpec.single(30)), THUMBNAIL, List.of(), "정제수, 나이아신아마이드");
+        productRepository.flush();
+
+        assertThat(productFacade.getSellerProductForm(MEMBER_ID, productId).ingredientsText()).isEqualTo("정제수, 나이아신아마이드");
+        assertThat(productFacade.getProductDetail(productId).ingredientsText()).isEqualTo("정제수, 나이아신아마이드");
+    }
 
     @Test
     @DisplayName("등록하면 상품, 기본 옵션, INIT 재고 이력이 함께 저장된다")

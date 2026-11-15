@@ -289,6 +289,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 400-CATEGORY_DEPTH_EXCEEDED | 소분류 아래에 카테고리 추가 |
 | | 400-CATEGORY_NOT_EDITABLE | 대분류 수정 |
 | | 400-CATEGORY_NOT_SELECTABLE | 상품 등록·수정 시 사용 중인 소분류가 아닌 카테고리 선택 |
+| | 400-INGREDIENTS_REQUIRED | 뷰티 소분류 상품을 전성분 없이(또는 공백으로) 등록·수정. 전성분이 없는 기존 뷰티 상품을 전성분 없이 수정하거나, 의류에서 뷰티로 옮기며 전성분을 안 보낸 경우 포함 |
 | order (은정) | 400-SELF_PURCHASE_NOT_ALLOWED | 본인 상품 담기·주문 |
 | | 400-STOCK_EXCEEDED | 장바구니 수량 > 재고 |
 | | 409-PRICE_CHANGED | 예상 결제 금액(쿠폰 할인 후) ≠ 실제 결제 금액 (`data.currentAmount`) |

@@ -204,7 +204,7 @@ class ProductFacadeOptionTest {
 
     private Long create(List<String> optionNames, ProductOptionSpec... specs) {
         return productFacade.createProduct(MEMBER_ID, skincareId(), "티셔츠", "설명", PRICE,
-                optionNames, List.of(specs), THUMBNAIL, List.of());
+                optionNames, List.of(specs), THUMBNAIL, List.of(), "정제수");
     }
 
     private static ProductOptionSpec spec(long additionalPrice, int stock, String... values) {
