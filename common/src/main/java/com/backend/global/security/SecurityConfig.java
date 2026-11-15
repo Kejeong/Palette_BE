@@ -69,6 +69,7 @@ public class SecurityConfig {
     };
     // 구매자 기능. 관리자는 운영 전용이라 구매·판매자 신청을 막음 (/api/v1/sellers/** (복수, 판매자 신청)는 /api/v1/seller/** (단수, 판매자 전용)와 다른 경로)
     private static final String[] BUYER_API_URLS = {
+            "/api/v1/ai/survey/**",
             "/api/v1/cart/**",
             "/api/v1/orders/**",
             "/api/v1/wishlist/**",
@@ -77,8 +78,7 @@ public class SecurityConfig {
             "/api/v1/users/me/coupon-usages",
             "/api/v1/topups/**",
             "/api/v1/wallet/**",
-            "/api/v1/sellers/**",
-            "/api/v1/ai/survey/**"   // 뷰티 설문(내 뷰티 프로필)
+            "/api/v1/sellers/**"
     };
     // 회원 탈퇴(조건 조회 포함)도 구매자만. 관리자 계정은 탈퇴할 수 없음 (1번 관리자는 수수료를 받는 계정이라 탈퇴하면 정산 지급이 실패)
     private static final String[] WITHDRAWAL_API_URLS = {
