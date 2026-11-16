@@ -38,6 +38,14 @@ spring:
       max-request-size: 60MB
 
   data:
+    # 인기 검색어. 검색 요청 안에서 부르므로 제한 시간을 짧게 두고, 실패해도 검색은 그대로 응답한다
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 500ms
+      connect-timeout: 500ms
+      repositories:
+        enabled: false   # Redis 리포지토리를 쓰지 않는다 (JPA 리포지토리를 Redis용으로도 스캔하지 않게)
     # ES는 리포지토리 없이 ElasticsearchClient로 직접 다룬다 (JPA 리포지토리와 섞이지 않게 스캔도 끈다)
     elasticsearch:
       repositories:
@@ -99,6 +107,14 @@ custom:
       discountBoundaryIntervalSeconds: 10   # 할인 경계 재색인 스케줄러 실행 간격(초). 할인이 시작·종료된 뒤 가격순에 반영되기까지 최대 이만큼 늦어진다
       discountBoundaryOverlapSeconds: 30    # 지난 성공 실행 시각보다 이만큼 앞부터 다시 본다. 실행 지연·커밋 지연·서버 간 시계 차이로 놓치지 않게 겹쳐 읽는다
       discountBoundaryLookbackMinutes: 5    # 앱을 띄운 뒤 첫 실행(지난 실행 시각이 없을 때)만 이만큼 돌아본다. 재시작·배포 동안 지난 경계를 채운다
+    popularKeyword:
+      windowHours: 24     # 인기 검색어 집계 구간(시간). 최근 이만큼의 시간 단위 키를 합친다
+      halfLifeHours: 3    # 반감기(시간). 이만큼 지난 시간의 검색은 절반만 센다(가중치 2^(-지난 시간/반감기)). 작을수록 최근 검색에 민감하다
+      minScore: 0         # 감쇠한 점수가 이보다 작은 검색어는 순위에서 뺀다. 지금은 검색량이 적어 끈다(0: 구간 안에 한 번이라도 검색되면 후보).
+                          # 검색량이 늘어 오래전 한두 번 검색이 순위를 채우는 게 문제가 되면 올린다 (예: 1이면 최근 몇 시간 안에 두 번 이상)
+      limit: 10           # 보여 주는 인기 검색어 수
+      maxLength: 30       # 이보다 긴 검색어(정규화 뒤 글자 수)는 세지 않는다
+      cacheSeconds: 60    # 합친 순위를 이만큼(초) 캐시한다. 새 검색이 순위에 반영되기까지 최대 이만큼 늦어진다
     image:
       maxDetailImages: 10      # 상품 하나의 상세 이미지 최대 개수 (대표 이미지는 별도 1개)
       storage: ${PRODUCT_IMAGE_STORAGE:local}   # 이미지 저장소: local(로컬 파일 시스템, 로컬 개발·테스트) | s3(S3 버킷, 배포 환경)

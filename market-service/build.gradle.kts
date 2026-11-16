@@ -13,6 +13,8 @@ dependencies {
 	implementation("software.amazon.awssdk:s3")
 	// 상품 검색 Elasticsearch (custom.product.search.engine=es일 때만 사용). 버전은 Boot BOM이 서버(9.4.5)와 같은 클라이언트로 고른다
 	implementation("org.springframework.boot:spring-boot-starter-data-elasticsearch")
+	// 인기 검색어 (시간 단위 Redis ZSET)
+	implementation("org.springframework.boot:spring-boot-starter-data-redis")
 
 	developmentOnly("org.springframework.boot:spring-boot-devtools")
 	runtimeOnly("org.postgresql:postgresql")
