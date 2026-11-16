@@ -127,6 +127,8 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)       // csrf 비활성화
                 .httpBasic(AbstractHttpConfigurer::disable)  // Basic 인증 비활성화
                 .formLogin(AbstractHttpConfigurer::disable)  // 로그인 폼 비활성화
+                // HSTS는 HTTPS를 처리하는 nginx 한 곳에서만 붙인다. 앱도 붙이면 헤더가 두 개가 되고 브라우저는 앞의 것(앱 기본 1년)만 쓴다
+                .headers(headers -> headers.httpStrictTransportSecurity(hsts -> hsts.disable()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))  // 세션 방식 비활성화
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(authenticationEntryPoint)  // 401
