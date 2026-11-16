@@ -3,8 +3,17 @@ package com.backend.settlement.client;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
 
+import com.backend.global.exception.DomainException;
+import com.backend.global.exception.GlobalErrorCode;
+import com.backend.global.rsData.RsData;
+import com.backend.global.security.InternalApiKeyFilter;
 import com.backend.shared.payment.dto.PayCommand;
 import com.backend.shared.payment.dto.PayResultDto;
 import com.backend.shared.payment.dto.PaymentAttemptDto;
@@ -14,21 +23,64 @@ import com.backend.shared.payment.dto.WalletSummaryDto;
 import com.backend.shared.payment.out.PaymentApi;
 
 /**
- * payment-service 연결 전 임시 구현.
- * 정산이 쓰는 transfer(지급)는 돈이 움직이는 호출이라, 아무것도 안 한 채 성공을 돌려주면 안 되므로 예외를 던진다.
- * 그래서 연결 전에는 정산 스케줄러를 기본으로 꺼 둔다(application.yaml custom.scheduling.enabled).
- * 정산이 쓰지 않는 메서드도 UnsupportedOperationException.
+ * {@link PaymentApi}를 결제 내부 API(/internal/v1/payments/transfers)로 호출하는 구현 (payment-service)
+ *
+ * 정산이 쓰는 것은 두 가지다.
+ * - transfer: 정산 지급. 결제가 자기 트랜잭션으로 커밋한 뒤 응답한다(정산 트랜잭션에 참여하지 않음)
+ *   2xx인데 지급 결과(data)가 없으면 지급됐는지 알 수 없으므로 502로 바꿔 결과 모름으로 처리한다
+ * - findTransfer: 같은 멱등 키(SETTLEMENT-{정산서 ID})의 지급 내역. 없으면 결제가 200 + data null로 응답 → Optional.empty
+ * 오류 처리는 {@link InternalApiCalls} 참고.
+ *   4xx(HOLDING_INSUFFICIENT, TRANSFER_AMOUNT_MISMATCH 등)는 결제가 거절한 것이라 정산서를 실패로 기록하고,
+ *   5xx, 502(응답 없음, 시간 초과)는 결과 모름이라 정산서를 PROCESSING으로 두고 결제 원장으로 확인한다.
  * 정산 코드는 SettlementPaymentPort → SettlementPaymentApiAdapter를 거쳐 이 구현을 부른다.
- * TODO 서비스 간 연결 작업에서 payment-service 내부 API(/internal/v1/payments/transfers)를 호출하도록 교체
  */
 @Component
 public class PaymentApiClient implements PaymentApi {
 
-    // ── 정산이 쓰는 메서드: 연결 전이라 예외 ──
+    private final RestClient restClient;
+
+    @Autowired
+    public PaymentApiClient(
+            @Value("${custom.payment.baseUrl}") String baseUrl,
+            @Value("${custom.internal.apiKey}") String internalApiKey,
+            @Value("${custom.payment.connectTimeoutMillis}") long connectTimeoutMillis,
+            @Value("${custom.payment.readTimeoutMillis}") long readTimeoutMillis
+    ) {
+        this(RestClient.builder().requestFactory(InternalApiCalls.requestFactory(connectTimeoutMillis, readTimeoutMillis)),
+                baseUrl, internalApiKey);
+    }
+
+    /** 테스트에서 MockRestServiceServer를 연결한 builder를 넘길 수 있게 열어 둔다 */
+    PaymentApiClient(RestClient.Builder builder, String baseUrl, String internalApiKey) {
+        this.restClient = builder
+                .baseUrl(baseUrl)
+                .defaultHeader(InternalApiKeyFilter.HEADER, internalApiKey)
+                .build();
+    }
+
+    // ── 정산이 쓰는 메서드 ──
 
     @Override
     public TransferResultDto transfer(SettlementTransferCommand command) {
-        throw new UnsupportedOperationException("payment-service 연결 전이라 정산 지급을 할 수 없습니다");
+        TransferResultDto result = InternalApiCalls.call(() -> restClient.post()
+                .uri("/internal/v1/payments/transfers")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(command)
+                .retrieve()
+                .body(new ParameterizedTypeReference<RsData<TransferResultDto>>() {}));
+        if (result == null) {
+            // 결과를 읽지 못했으므로 지급됐는지 알 수 없다. null을 돌려주면 결과 기록 단계에서 NPE가 나 결과 모름 이력이 남지 않는다
+            throw new DomainException(GlobalErrorCode.EXTERNAL_SERVICE_ERROR);
+        }
+        return result;
+    }
+
+    @Override
+    public Optional<TransferResultDto> findTransfer(String idempotencyKey) {
+        return Optional.ofNullable(InternalApiCalls.call(() -> restClient.get()
+                .uri("/internal/v1/payments/transfers/{idempotencyKey}", idempotencyKey)
+                .retrieve()
+                .body(new ParameterizedTypeReference<RsData<TransferResultDto>>() {})));
     }
 
     // ── 정산이 쓰지 않는 메서드 ──
@@ -55,11 +107,6 @@ public class PaymentApiClient implements PaymentApi {
 
     @Override
     public List<PaymentAttemptDto> getPaymentAttempts(Long orderId) {
-        throw notUsedInSettlement();
-    }
-
-    @Override
-    public Optional<TransferResultDto> findTransfer(String idempotencyKey) {
         throw notUsedInSettlement();
     }
 

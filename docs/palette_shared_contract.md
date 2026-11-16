@@ -670,13 +670,15 @@ public record TransferResultDto(String idempotencyKey, Long walletTransactionId,
 
 ## 6. settlement
 
-정산은 `settlement-service`(포트 8084, DB 스키마 `settlement`)로 옮겼습니다. 다른 서비스와의 연결은 서비스 간 연결 작업 전까지 임시 구현입니다.
+정산은 `settlement-service`(포트 8084, DB 스키마 `settlement`)입니다. 다른 서비스와는 아래처럼 연결합니다.
 
-| 방향 | 임시 구현 | 동작 |
+| 방향 | 구현 | 동작 |
 | --- | --- | --- |
-| 정산 → 회원 (`getSeller`, `getSellers`, `findSellerByMemberId`) | `settlement-service`의 `MemberApiClient` | 지어낸 판매자를 돌려주지 않음: `getSeller`·`getSellers` 예외, `findSellerByMemberId` empty. 연결 전까지 월 정산 집계(제재 여부 확인), 관리자 정산 목록·미리보기(상호명 조회), 정산 보류 해제(제재 여부 확인)는 실패하고, 판매자 정산 조회는 빈 결과(목록·예상 금액은 빈 목록, 상세는 404), 시드 정산 데이터는 만들어지지 않는다 |
-| 정산 → 결제 (`transfer`) | `settlement-service`의 `PaymentApiClient` | 예외. 그래서 정산 스케줄러는 기본으로 꺼 둔다(`SETTLEMENT_SCHEDULING_ENABLED=false`) |
-| 주문 → 정산 (`OrderConfirmedEvent`) | 없음 (Kafka `order.events`) | 그대로 동작. 앱이 달라도 같은 토픽을 받는다 |
+| 정산 → 회원 (`getSeller`, `getSellers`, `findSellerByMemberId`) | `settlement-service`의 `MemberApiClient` (HTTP, `/internal/v1/sellers`) | 판매자 상태(제재 여부), 지급 대상 회원 ID, 상호명 조회. 회원 서비스가 응답하지 않으면 502로, 지급이라면 그 정산서는 실패로 기록되고 재시도 |
+| 정산 → 결제 (`transfer`, `findTransfer`) | `settlement-service`의 `PaymentApiClient` (HTTP, `/internal/v1/payments/transfers`) | 4xx는 결제가 거절(정산서 실패 기록), 5xx와 응답 없음은 결과 모름(정산서 PROCESSING, 재확인 스케줄러가 `findTransfer`로 확정). 지급 내역이 없으면 `data: null` → `Optional.empty` |
+| 주문 → 정산 (`OrderConfirmedEvent`) | 없음 (Kafka `order.events`) | 그대로 동작 |
+
+정산 스케줄러는 기본으로 켜져 있습니다(`SETTLEMENT_SCHEDULING_ENABLED` 기본 true). 개발 서버의 재시도 간격은 120분입니다(`SETTLEMENT_RETRY_INTERVAL_MINUTES`).
 
 ### SettlementApi
 
