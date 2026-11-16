@@ -41,6 +41,7 @@ public class SecurityConfig {
             "/error"
     };
     private static final String[] PUBLIC_GET_API_URLS = {
+            "/api/v1/ai/recommendations",   // 맞춤 상품 추천(비회원은 최신순). 정확히 이 경로만, 크리에이터 추천은 로그인 필요
             "/api/v1/products/**",
             "/api/v1/categories/**",
             "/api/v1/influencers/*",   // 인플루언서 프로필
@@ -70,6 +71,8 @@ public class SecurityConfig {
     };
     // 구매자 기능. 관리자는 운영 전용이라 구매·판매자 신청을 막음 (/api/v1/sellers/** (복수, 판매자 신청)는 /api/v1/seller/** (단수, 판매자 전용)와 다른 경로)
     private static final String[] BUYER_API_URLS = {
+            "/api/v1/ai/survey/**",
+            "/api/v1/ai/recommendations/creators",   // 피부가 비슷한 크리에이터 추천
             "/api/v1/cart/**",
             "/api/v1/orders/**",
             "/api/v1/wishlist/**",

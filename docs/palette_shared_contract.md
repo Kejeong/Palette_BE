@@ -9,7 +9,7 @@
 | 컨텍스트 | 담당 | 제공하는 Api | 발행하는 이벤트 |
 | --- | --- | --- | --- |
 | member | 시연·지은 | `MemberApi` | `MemberSignedUpEvent`, `SellerSanctionedEvent`, `SellerWithdrawalRequestedEvent`, `SellerWithdrawalRejectedEvent` |
-| product | 유진 | `ProductApi` | `WishAddedEvent`, `WishRemovedEvent` |
+| product | 유진 | `ProductApi` | `WishAddedEvent`, `WishRemovedEvent`, `ProductChangedEvent` |
 | review | 유진 | - | `ReviewCreatedEvent`, `ReviewModifiedEvent`, `ReviewDeletedEvent` |
 | order | 은정 | `OrderApi` | `OrderPaidEvent`, `OrderConfirmedEvent`, `OrderReturnedEvent` |
 | payment | 지은·시연 | `PaymentApi` | - |
@@ -373,10 +373,24 @@ public record WishAddedEvent(Long memberId, Long productId) implements DomainEve
 
 /** 구매자가 찜을 해제함. 찜하지 않은 상품을 해제하면 발행하지 않는다 */
 public record WishRemovedEvent(Long memberId, Long productId) implements DomainEvent { }  // aggregateType PRODUCT, aggregateId productId
+
+/** 상품의 내용이나 판매 상태가 바뀜(등록·수정·삭제·판매 중지·중지 해제). 바뀐 부분이 아니라 상품의 지금 상태 전체를 담는다 */
+public record ProductChangedEvent(
+        Long productId, String name, String description,
+        String categoryName,      // 소분류 이름
+        boolean beauty,           // 뷰티 대분류 상품인지
+        String ingredientsText,   // 전성분 원문. 뷰티가 아니거나 아직 안 넣었으면 null
+        long price,               // 정가
+        String thumbnailUrl,      // 없으면 null
+        boolean onSale            // 판매 중이고 카테고리 사용 중. 삭제·판매 중지면 false
+) implements DomainEvent { }      // aggregateType PRODUCT, aggregateId productId
 ```
 
 - 찜 추가·해제와 같은 트랜잭션에서 outbox에 저장하고, 릴레이가 Kafka 토픽 `product.events`로 발행한다(키 `productId`, 같은 상품의 찜 이벤트는 순서대로 전달된다).
 - 아직 받는 쪽은 없다. 상품 검색 색인(ES)의 찜 수 반영에 쓸 예정이다(TRSS-167).
+- `ProductChangedEvent`는 상품 등록·수정·삭제, 관리자 판매 중지, 판매 중지 요청 승인, 판매자 철회·제재로 인한 전체 중지와 철회 거절로 인한 재개 때 같은 트랜잭션에서 outbox에 저장한다. 재고·옵션·할인만 바뀌면 발행하지 않는다.
+  받는 쪽은 AI 추천(ai-service, TRSS-243)이고, 같은 상품의 더 오래된 이벤트(봉투 `occurredAt`)는 버린다.
+  관리자 API `POST /api/v1/admin/products/change-events`가 판매 중인 상품 전체를 다시 발행한다(AI 서비스를 처음 띄울 때).
 
 ## 3.1 review
 

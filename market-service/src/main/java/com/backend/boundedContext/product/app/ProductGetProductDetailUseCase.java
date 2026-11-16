@@ -47,7 +47,8 @@ public class ProductGetProductDetailUseCase {
                 ProductSupport.isSoldOut(optionStocks),
                 product.getOptionNames(),
                 optionStocks.stream().map(stock -> ProductOptionDto.from(stock, price)).toList(),
-                memberId != null && wishlistRepository.existsByMemberIdAndProductId(memberId, productId));
+                memberId != null && wishlistRepository.existsByMemberIdAndProductId(memberId, productId),
+                product.getIngredientsText());
     }
 
     private String thumbnailUrl(Long productId) {

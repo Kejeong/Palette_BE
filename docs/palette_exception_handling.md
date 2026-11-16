@@ -292,6 +292,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 400-CATEGORY_DEPTH_EXCEEDED | 소분류 아래에 카테고리 추가 |
 | | 400-CATEGORY_NOT_EDITABLE | 대분류 수정 |
 | | 400-CATEGORY_NOT_SELECTABLE | 상품 등록·수정 시 사용 중인 소분류가 아닌 카테고리 선택 |
+| | 400-INGREDIENTS_REQUIRED | 뷰티 소분류 상품을 전성분 없이(또는 공백으로) 등록·수정. 전성분이 없는 기존 뷰티 상품을 전성분 없이 수정하거나, 의류에서 뷰티로 옮기며 전성분을 안 보낸 경우 포함 |
 | order (은정) | 400-SELF_PURCHASE_NOT_ALLOWED | 본인 상품 담기·주문 |
 | | 400-STOCK_EXCEEDED | 장바구니 수량 > 재고 |
 | | 409-PRICE_CHANGED | 예상 결제 금액(쿠폰 할인 후) ≠ 실제 결제 금액 (`data.currentAmount`) |
@@ -361,6 +362,8 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 404-INFLUENCER_NOT_FOUND | 협약 요청 대상 인플루언서가 없음 |
 | | 409-INFLUENCER_STATE_INVALID | 승인되지 않은 인플루언서에게 협약 요청 |
 | | 403-INFLUENCER_NOT_APPROVED | 승인된 인플루언서가 아닌 회원이 인플루언서 API 호출 |
+| recommend (은정, ai) | 404-SURVEY_NOT_FOUND | 뷰티 설문을 아직 하지 않은 회원의 프로필 조회 |
+| | 400-SURVEY_ANSWER_INVALID | 설문 답이 칸에 맞지 않음: 선호 성분 칸에 피하는 성분 코드(또는 반대), 같은 코드 중복, 고민 4개 이상(도메인 검사. 요청 검증에서는 400-VALIDATION_FAILED). 모르는 코드는 400-INVALID_REQUEST |
 
 
 ## 9. 로그 규칙

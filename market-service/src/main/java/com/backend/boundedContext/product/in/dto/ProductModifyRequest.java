@@ -1,5 +1,7 @@
 package com.backend.boundedContext.product.in.dto;
 
+import com.backend.boundedContext.product.domain.Product;
+
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
@@ -14,13 +16,15 @@ import java.util.List;
  * @param categoryId     소분류 ID (사용 중인 소분류만 가능)
  * @param description    상품 설명
  * @param detailImageIds 남길 기존 상세 이미지 ID (원하는 순서대로). 빠진 이미지는 삭제된다. 보내지 않으면(null) 상세 이미지를 그대로 둔다
+ * @param ingredientsText 전성분. 보내지 않으면(null) 그대로 둔다. 수정 후 뷰티 상품이면 결과에 전성분이 있어야 한다
  */
 public record ProductModifyRequest(
         @Size(max = 100) String name,
         @Positive Long price,
         Long categoryId,
         String description,
-        @Size(max = 10) List<Long> detailImageIds
+        @Size(max = 10) List<Long> detailImageIds,
+        @Size(max = Product.MAX_INGREDIENTS_TEXT_LENGTH) String ingredientsText
 ) {
     @AssertTrue(message = "상품명은 공백일 수 없습니다.")
     public boolean isNameNotBlank() {

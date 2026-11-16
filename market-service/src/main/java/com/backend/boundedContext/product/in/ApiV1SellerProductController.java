@@ -73,7 +73,8 @@ public class ApiV1SellerProductController {
                     + "values는 optionNames 순서대로 하나씩(각 14자 이하)이고, 단가는 가격 + 추가금입니다. "
                     + "옵션이 없는 상품은 optionNames를 비우고 options에 values가 빈 조합 1개를 보냅니다. "
                     + "대표 이미지(thumbnail)는 필수, 상세 이미지(detailImages)는 선택(최대 10개)입니다. "
-                    + "이미지는 jpg·png·webp, 장당 5MB까지입니다.",
+                    + "이미지는 jpg·png·webp, 장당 5MB까지입니다. "
+                    + "뷰티 소분류 상품은 전성분(ingredientsText, 최대 5000자)이 필수이고(없으면 400-INGREDIENTS_REQUIRED), 뷰티가 아니면 무시합니다.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(
                     mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
                     encoding = @Encoding(name = "request", contentType = MediaType.APPLICATION_JSON_VALUE))))
@@ -87,7 +88,7 @@ public class ApiV1SellerProductController {
         Long productId = productFacade.createProduct(authMember.memberId(), request.categoryId(),
                 request.name(), request.description(), request.price(),
                 request.optionNamesOrEmpty(), request.toOptionSpecs(),
-                toImageFile(thumbnail), toImageFiles(detailImages));
+                toImageFile(thumbnail), toImageFiles(detailImages), request.ingredientsText());
         return RsData.of("200-1", "상품을 등록했습니다.", new ProductCreateResponse(productId));
     }
 
@@ -133,7 +134,9 @@ public class ApiV1SellerProductController {
             description = "보낸 항목만 수정하며 재고는 바꿀 수 없습니다. 판매 중지·삭제된 상품은 수정할 수 없습니다. "
                     + "thumbnail을 보내면 대표 이미지를 교체합니다. detailImageIds를 보내면 그 상세 이미지만 그 순서대로 남기고 "
                     + "나머지는 지우며(보내지 않으면 그대로), detailImages는 남긴 이미지 뒤에 추가합니다. 상세 이미지는 합쳐서 최대 10개입니다. "
-                    + "할인이 진행 중이거나 예약돼 있으면 가격을 바꿀 수 없습니다(409-PRICE_LOCKED_BY_DISCOUNT).",
+                    + "할인이 진행 중이거나 예약돼 있으면 가격을 바꿀 수 없습니다(409-PRICE_LOCKED_BY_DISCOUNT). "
+                    + "수정 후 카테고리가 뷰티면 전성분이 있어야 합니다. 전성분이 없는 기존 뷰티 상품은 이번 수정에 ingredientsText를 보내야 하고, "
+                    + "아니면 400-INGREDIENTS_REQUIRED입니다. 뷰티가 아닌 카테고리로 옮기면 전성분은 지워집니다.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(
                     mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
                     encoding = @Encoding(name = "request", contentType = MediaType.APPLICATION_JSON_VALUE))))
@@ -147,7 +150,7 @@ public class ApiV1SellerProductController {
     ) {
         productFacade.modifyProduct(authMember.memberId(), productId, request.name(), request.price(),
                 request.categoryId(), request.description(), request.detailImageIds(),
-                toImageFile(thumbnail), toImageFiles(detailImages));
+                toImageFile(thumbnail), toImageFiles(detailImages), request.ingredientsText());
         return RsData.of("200-1", "상품을 수정했습니다.");
     }
 

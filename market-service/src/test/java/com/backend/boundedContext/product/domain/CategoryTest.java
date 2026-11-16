@@ -59,4 +59,14 @@ class CategoryTest {
                 .extracting("resultCode").isEqualTo("400-CATEGORY_NOT_EDITABLE");
         assertThat(root.getName()).isEqualTo("뷰티");
     }
+
+    @Test
+    @DisplayName("뷰티 대분류의 소분류만 isBeauty. 대분류 자신과 의류 소분류는 아니다")
+    void isBeauty() {
+        Category beauty = Category.createRoot("뷰티", 0);
+
+        assertThat(Category.createChild(beauty, "스킨케어", 0).isBeauty()).isTrue();
+        assertThat(beauty.isBeauty()).isFalse();
+        assertThat(Category.createChild(Category.createRoot("의류", 1), "상의", 0).isBeauty()).isFalse();
+    }
 }

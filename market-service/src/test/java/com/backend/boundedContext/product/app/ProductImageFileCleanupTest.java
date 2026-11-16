@@ -127,7 +127,7 @@ class ProductImageFileCleanupTest {
         committedProductIds.add(productId);
         Path oldFile = fileOf(images(productId).getFirst());
 
-        productFacade.modifyProduct(MEMBER_ID, productId, null, null, null, null, null, jpeg(), null);
+        productFacade.modifyProduct(MEMBER_ID, productId, null, null, null, null, null, jpeg(), null, "정제수");
 
         assertThat(oldFile).doesNotExist();
         assertThat(images(productId)).singleElement().satisfies(image -> assertThat(fileOf(image)).exists());

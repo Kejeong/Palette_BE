@@ -115,7 +115,7 @@ class ProductSearchIndexTest {
     @DisplayName("요청: 상품 등록·수정·할인 등록이 그 상품의 색인을 요청한다")
     void requestOnProductAndDiscountChange() {
         Long productId = create();
-        productFacade.modifyProduct(MEMBER_ID, productId, "새이름", null, null, null, null, null, List.of());
+        productFacade.modifyProduct(MEMBER_ID, productId, "새이름", null, null, null, null, null, List.of(), null);
         LocalDateTime start = tomorrow();
         productFacade.createDiscount(MEMBER_ID, productId, 15_000, start, start.plusDays(7));
 
@@ -220,7 +220,7 @@ class ProductSearchIndexTest {
         Long categoryId = categoryRepository.findByParentNameAndName("뷰티", "스킨케어").orElseThrow().getId();
         return productFacade.createProduct(MEMBER_ID, categoryId, "색인테스트셔츠", "설명", PRICE, List.of("색상"),
                 List.of(new ProductOptionSpec(List.of("흰색"), 0, 10), new ProductOptionSpec(List.of("검정"), 3_000, 1)),
-                THUMBNAIL, List.of());
+                THUMBNAIL, List.of(), "정제수");
     }
 
     /** 시작 전으로 등록한 뒤 시작 시각을 1시간 전으로 옮겨 진행 중인 할인을 만든다 */

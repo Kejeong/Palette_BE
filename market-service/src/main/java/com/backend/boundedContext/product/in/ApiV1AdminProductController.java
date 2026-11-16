@@ -4,6 +4,7 @@ import com.backend.boundedContext.product.app.ProductFacade;
 import com.backend.boundedContext.product.app.dto.AdminProductSummaryDto;
 import com.backend.boundedContext.product.domain.AdminProductDisplayStatus;
 import com.backend.boundedContext.product.in.dto.ProductReasonRequest;
+import com.backend.boundedContext.product.in.dto.ProductChangeEventsPublishResponse;
 import com.backend.boundedContext.product.in.dto.SearchIndexRebuildResponse;
 import com.backend.global.page.PageResponse;
 import com.backend.global.rsData.RsData;
@@ -59,6 +60,17 @@ public class ApiV1AdminProductController {
     public RsData<Void> stopProduct(@PathVariable Long productId, @Valid @RequestBody ProductReasonRequest request) {
         productFacade.stopProductByAdmin(productId, request.reason());
         return RsData.of("200-1", "상품 판매를 중지했습니다.");
+    }
+
+    @Operation(
+            summary = "상품 변경 이벤트 전체 재발행",
+            description = "판매 중인 상품 전체의 변경 이벤트(ProductChangedEvent)를 다시 발행합니다. 발행한 상품 수를 줍니다. "
+                    + "AI 추천 서비스를 처음 띄울 때, AI 쪽 상품 사본을 비웠을 때 한 번 부릅니다. "
+                    + "같은 상품을 여러 번 받아도 AI 서비스는 마지막 값으로 덮어쓰므로 다시 불러도 됩니다.")
+    @PostMapping("/change-events")
+    public RsData<ProductChangeEventsPublishResponse> publishProductChangeEvents() {
+        return RsData.of("200-1", "상품 변경 이벤트를 발행했습니다.",
+                new ProductChangeEventsPublishResponse(productFacade.publishAllProductChanges()));
     }
 
     @Operation(

@@ -77,14 +77,14 @@ class ProductTest {
         Product product = Product.create(10L, skincare, "수분 크림", "설명", 25_000);
         Category makeup = Category.createChild(root, "메이크업", 1);
 
-        product.modify(" 진정 크림 ", null, makeup, null);
+        product.modify(" 진정 크림 ", null, makeup, null, "정제수");
 
         assertThat(product.getName()).isEqualTo("진정 크림");
         assertThat(product.getPrice()).isEqualTo(25_000);
         assertThat(product.getCategory()).isSameAs(makeup);
         assertThat(product.getDescription()).isEqualTo("설명");
 
-        product.modify(null, 30_000L, null, " 새 설명 ");
+        product.modify(null, 30_000L, null, " 새 설명 ", null);   // 전성분 null은 그대로 둔다
 
         assertThat(product.getName()).isEqualTo("진정 크림");
         assertThat(product.getPrice()).isEqualTo(30_000);
@@ -99,7 +99,7 @@ class ProductTest {
             Product product = Product.create(10L, skincare, "수분 크림", "설명", 25_000);
             ReflectionTestUtils.setField(product, "status", status);
 
-            assertThatThrownBy(() -> product.modify("새 이름", null, null, null))
+            assertThatThrownBy(() -> product.modify("새 이름", null, null, null, null))
                     .isInstanceOf(DomainException.class)
                     .extracting("resultCode").isEqualTo("409-PRODUCT_NOT_EDITABLE");
             assertThat(product.getName()).isEqualTo("수분 크림");
@@ -114,7 +114,7 @@ class ProductTest {
         makeup.modify(null, false);
 
         for (Category category : List.of(root, makeup)) {
-            assertThatThrownBy(() -> product.modify("새 이름", null, category, null))
+            assertThatThrownBy(() -> product.modify("새 이름", null, category, null, null))
                     .isInstanceOf(DomainException.class)
                     .extracting("resultCode").isEqualTo("400-CATEGORY_NOT_SELECTABLE");
         }
@@ -237,5 +237,90 @@ class ProductTest {
         ProductOption option = ProductOption.createDefault(product);
         ReflectionTestUtils.setField(option, "id", 1L);
         return option;
+    }
+
+    // ── 전성분 ──
+
+    private final Category clothing = Category.createChild(Category.createRoot("의류", 1), "상의", 0);
+
+    @Test
+    @DisplayName("전성분: 뷰티 상품 등록은 전성분이 필수(없거나 공백이면 INGREDIENTS_REQUIRED), 있으면 앞뒤 공백을 지워 저장")
+    void createBeautyIngredients() {
+        for (String blank : new String[]{null, "", "  \n "}) {
+            assertThatThrownBy(() -> Product.create(10L, skincare, "수분 크림", "설명", 25_000, List.of(), blank))
+                    .isInstanceOf(DomainException.class)
+                    .extracting("resultCode").isEqualTo("400-INGREDIENTS_REQUIRED");
+        }
+
+        Product product = Product.create(10L, skincare, "수분 크림", "설명", 25_000, List.of(), "  정제수, 글리세린 ");
+
+        assertThat(product.getIngredientsText()).isEqualTo("정제수, 글리세린");
+    }
+
+    @Test
+    @DisplayName("전성분: 뷰티가 아닌 상품은 보낸 전성분을 버린다")
+    void createClothingIgnoresIngredients() {
+        Product product = Product.create(10L, clothing, "티셔츠", "설명", 20_000, List.of(), "정제수");
+
+        assertThat(product.getIngredientsText()).isNull();
+    }
+
+    @Test
+    @DisplayName("전성분 수정: null이면 그대로 두고, 공백이면 INGREDIENTS_REQUIRED, 값이 있으면 바꾼다")
+    void modifyIngredients() {
+        Product product = Product.create(10L, skincare, "수분 크림", "설명", 25_000, List.of(), "정제수");
+
+        product.modify("진정 크림", null, null, null, null);
+        assertThat(product.getIngredientsText()).isEqualTo("정제수");
+
+        assertThatThrownBy(() -> product.modify(null, null, null, null, " "))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("400-INGREDIENTS_REQUIRED");
+
+        product.modify(null, null, null, null, " 정제수, 나이아신아마이드 ");
+        assertThat(product.getIngredientsText()).isEqualTo("정제수, 나이아신아마이드");
+    }
+
+    @Test
+    @DisplayName("전성분 수정: 전성분 없는 기존 뷰티 상품은 이름만 바꿔도 전성분을 넣어야 하고, 실패하면 아무것도 바뀌지 않는다")
+    void modifyLegacyBeautyProduct() {
+        Product legacy = Product.create(10L, skincare, "수분 크림", "설명", 25_000);   // 전성분 기능 전 상품
+
+        assertThatThrownBy(() -> legacy.modify("진정 크림", null, null, null, null))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("400-INGREDIENTS_REQUIRED");
+        assertThat(legacy.getName()).isEqualTo("수분 크림");
+
+        legacy.modify("진정 크림", null, null, null, "정제수");
+        assertThat(legacy.getIngredientsText()).isEqualTo("정제수");
+    }
+
+    @Test
+    @DisplayName("전성분 수정: 뷰티→의류로 옮기면 지우고, 의류→뷰티로 옮길 때는 전성분이 있어야 한다")
+    void modifyCategoryChangesIngredients() {
+        Product beauty = Product.create(10L, skincare, "수분 크림", "설명", 25_000, List.of(), "정제수");
+        beauty.modify(null, null, clothing, null, null);
+        assertThat(beauty.getIngredientsText()).isNull();
+
+        Product shirt = Product.create(10L, clothing, "티셔츠", "설명", 20_000, List.of(), null);
+        assertThatThrownBy(() -> shirt.modify(null, null, skincare, null, null))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("400-INGREDIENTS_REQUIRED");
+        assertThat(shirt.getCategory()).isSameAs(clothing);
+
+        shirt.modify(null, null, skincare, null, "정제수");
+        assertThat(shirt.getCategory()).isSameAs(skincare);
+        assertThat(shirt.getIngredientsText()).isEqualTo("정제수");
+    }
+
+    @Test
+    @DisplayName("전성분 수정: 판매 중지 상품은 전성분이 잘못돼도 409가 먼저다")
+    void modifyStoppedBeforeIngredients() {
+        Product product = Product.create(10L, skincare, "수분 크림", "설명", 25_000, List.of(), "정제수");
+        ReflectionTestUtils.setField(product, "status", ProductSaleStatus.STOPPED);
+
+        assertThatThrownBy(() -> product.modify(null, null, null, null, " "))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("409-PRODUCT_NOT_EDITABLE");
     }
 }

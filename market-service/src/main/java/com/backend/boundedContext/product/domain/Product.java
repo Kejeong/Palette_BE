@@ -75,10 +75,18 @@ public class Product extends BaseIdAndTime {
     @Column(name = "option_name_3", length = MAX_OPTION_NAME_LENGTH)
     private String optionName3;
 
+    /**
+     * 전성분
+     */
+    @Column(columnDefinition = "TEXT")
+    private String ingredientsText;
+
     /** 옵션 이름은 최대 3개(3단 조합)다. */
     public static final int MAX_OPTION_NAMES = 3;
 
     public static final int MAX_OPTION_NAME_LENGTH = 20;
+
+    public static final int MAX_INGREDIENTS_TEXT_LENGTH = 5000;
 
     /** 옵션이 없는 상품을 만든다. 카테고리는 사용 중인 소분류여야 한다. */
     public static Product create(Long sellerId, Category category, String name, String description, long price) {
@@ -86,8 +94,20 @@ public class Product extends BaseIdAndTime {
     }
 
     /**
+     * 판매자가 상품을 등록한다. {@link #create(Long, Category, String, String, long, List)}에 전성분 규칙을 더한다.
+     * 뷰티 소분류면 전성분이 필수(없거나 공백이면 400)이고, 뷰티가 아니면 보낸 값을 버린다.
+     */
+    public static Product create(Long sellerId, Category category, String name, String description, long price,
+                                 List<String> optionNames, String ingredientsText) {
+        Product product = create(sellerId, category, name, description, price, optionNames);
+        product.ingredientsText = category.isBeauty() ? requireIngredients(ingredientsText) : null;
+        return product;
+    }
+
+    /**
      * 상품을 만든다. 카테고리는 사용 중인 소분류여야 한다.
      * 옵션 이름은 0~{@value #MAX_OPTION_NAMES}개, 각각 1~{@value #MAX_OPTION_NAME_LENGTH}자이고 서로 달라야 한다 (아니면 400).
+     * 전성분은 비워 둔다(전성분 기능 전 상품과 같다). 샘플 데이터·테스트가 쓰고, 판매자 등록은 전성분을 받는 create를 쓴다.
      */
     public static Product create(Long sellerId, Category category, String name, String description, long price,
                                  List<String> optionNames) {
@@ -127,16 +147,31 @@ public class Product extends BaseIdAndTime {
     /**
      * 상품 정보를 수정한다. null이 아닌 값만 반영하고, 재고는 여기서 바꾸지 않는다.
      * 판매 중지·삭제된 상품이면 409, 바꿀 카테고리가 사용 중인 소분류가 아니면 400.
+     * 전성분은 수정 후 카테고리 기준이다. 뷰티면 결과에 전성분이 있어야 하고(전성분 기능 전 상품도 이때 넣어야 함, 아니면 400),
+     * 뷰티가 아니면 지운다.
      */
-    public void modify(String name, Long price, Category category, String description) {
+    public void modify(String name, Long price, Category category, String description, String ingredientsText) {
         checkEditable();
         if (category != null) {
             category.checkSelectable();
-            this.category = category;
         }
+        Category target = category != null ? category : this.category;
+        String ingredients = target.isBeauty()
+                ? requireIngredients(ingredientsText != null ? ingredientsText : this.ingredientsText)
+                : null;
+
+        if (category != null) this.category = category;
         if (name != null) this.name = name.strip();
         if (price != null) this.price = price;
         if (description != null) this.description = description.strip();
+        this.ingredientsText = ingredients;
+    }
+
+    private static String requireIngredients(String ingredientsText) {
+        if (ingredientsText == null || ingredientsText.isBlank()) {
+            throw new DomainException(ProductErrorCode.INGREDIENTS_REQUIRED);
+        }
+        return ingredientsText.strip();
     }
 
     /**
