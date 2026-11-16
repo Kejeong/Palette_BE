@@ -161,7 +161,14 @@ public class SecurityConfig {
         configuration.setAllowedHeaders(List.of("*"));  // 모든 헤더값 허용
         configuration.setAllowCredentials(true);   // 자격 증명 허용 (Refresh Token 쿠키 전송)
 
+        // 헥토 결제창 결과(브라우저 폼 POST)는 결제창 출처(헥토 도메인)에서 오므로 출처를 가리지 않음. 쿠키 없이 받고 프론트로 넘기기만 함
+        CorsConfiguration hecto = new CorsConfiguration();
+        hecto.setAllowedOriginPatterns(List.of("*"));
+        hecto.setAllowedMethods(List.of("POST"));
+        hecto.setAllowCredentials(false);
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/v1/topups/hecto/**", hecto);  // "/**"보다 먼저 등록해야 먼저 매칭됨
         source.registerCorsConfiguration("/**", configuration);  // 모든 url 패턴에 대해서 cors 허용 설정
         return source;
     }

@@ -86,6 +86,31 @@ class ApiV1HectoTopupControllerTest {
     }
 
     @Test
+    @DisplayName("결제창이 보낸 폼 POST처럼 헥토 출처(Origin)가 붙어 와도 CORS로 막지 않는다")
+    void next_fromHectoOrigin() throws Exception {
+        given(hectoCrypto.decryptAmount("enc")).willReturn(20_000L);
+
+        mockMvc.perform(post("/api/v1/topups/hecto/next")
+                        .header("Origin", "https://tbnpg.settlebank.co.kr")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("outStatCd", "0061")
+                        .param("mchtTrdNo", ORDER_ID)
+                        .param("trdNo", TRD_NO)
+                        .param("trdAmt", "enc"))
+                .andExpect(status().isSeeOther());
+    }
+
+    @Test
+    @DisplayName("결제창 취소도 출처가 null(Origin: null)로 와도 막지 않는다")
+    void cancel_nullOrigin() throws Exception {
+        mockMvc.perform(post("/api/v1/topups/hecto/canc")
+                        .header("Origin", "null")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("mchtTrdNo", ORDER_ID))
+                .andExpect(status().isSeeOther());
+    }
+
+    @Test
     @DisplayName("결제창을 닫으면 USER_CANCEL 실패 값으로 넘긴다")
     void cancel() throws Exception {
         mockMvc.perform(post("/api/v1/topups/hecto/canc")
