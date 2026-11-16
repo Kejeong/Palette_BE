@@ -27,6 +27,7 @@ import com.backend.global.page.PageResponse;
 import org.springframework.data.domain.Pageable;
 import com.backend.boundedContext.product.app.dto.ProductSampleDto;
 import com.backend.boundedContext.product.domain.Category;
+import com.backend.boundedContext.product.domain.OptionStock;
 import com.backend.shared.product.dto.OptionSnapshotDto;
 import com.backend.shared.product.dto.ProductSnapshotDto;
 import com.backend.shared.product.dto.StockChangeDto;
@@ -36,9 +37,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 
 @Service
@@ -59,6 +63,10 @@ public class ProductFacade {
     private final ProductAddOptionUseCase productAddOptionUseCase;
     private final ProductModifyOptionUseCase productModifyOptionUseCase;
     private final ProductDeleteOptionUseCase productDeleteOptionUseCase;
+    private final ProductCreateDiscountUseCase productCreateDiscountUseCase;
+    private final ProductModifyDiscountUseCase productModifyDiscountUseCase;
+    private final ProductDeleteDiscountUseCase productDeleteDiscountUseCase;
+    private final ProductEndDiscountUseCase productEndDiscountUseCase;
     private final ProductSearchProductsUseCase productSearchProductsUseCase;
     private final ProductGetProductDetailUseCase productGetProductDetailUseCase;
     private final ProductGetSellerProductsUseCase productGetSellerProductsUseCase;
@@ -71,6 +79,8 @@ public class ProductFacade {
     private final ProductAddWishlistUseCase productAddWishlistUseCase;
     private final ProductRemoveWishlistUseCase productRemoveWishlistUseCase;
     private final ProductGetWishlistUseCase productGetWishlistUseCase;
+    private final ProductSearchIndexSupport productSearchIndexSupport;
+    private final ProductChangeEventSupport productChangeEventSupport;
 
     // 내부 API (ProductApiAdapter). 호출한 쪽 트랜잭션에 참여한다
 
@@ -87,12 +97,12 @@ public class ProductFacade {
 
     @Transactional
     public void deductStock(List<StockChangeDto> items) {
-        productDeductStockUseCase.deductStock(items);
+        productSearchIndexSupport.requestIndex(productDeductStockUseCase.deductStock(items));
     }
 
     @Transactional
     public void restoreStock(List<StockChangeDto> items, StockRestoreReason reason) {
-        productRestoreStockUseCase.restoreStock(items, reason);
+        productSearchIndexSupport.requestIndex(productRestoreStockUseCase.restoreStock(items, reason));
     }
 
     /** 호출한 쪽 트랜잭션이 끝날 때까지 잠금을 유지해야 하므로 트랜잭션 없이 부르면 예외가 난다 */
@@ -103,12 +113,12 @@ public class ProductFacade {
 
     @Transactional
     public void stopAllBySeller(Long sellerId, String reason) {
-        productStopAllBySellerUseCase.stopAllBySeller(sellerId, reason);
+        productChanged(productStopAllBySellerUseCase.stopAllBySeller(sellerId, reason));
     }
 
     @Transactional
     public void resumeAllBySeller(Long sellerId) {
-        productResumeAllBySellerUseCase.resumeAllBySeller(sellerId);
+        productChanged(productResumeAllBySellerUseCase.resumeAllBySeller(sellerId));
     }
 
     @Transactional(readOnly = true)
@@ -147,22 +157,30 @@ public class ProductFacade {
         return productGetWishlistUseCase.getWishlist(memberId, pageable);
     }
 
-    /** 승인된 판매자의 옵션 없는 상품을 등록하고 상품 ID를 돌려준다. 대표 이미지는 필수, 상세 이미지는 선택이다. */
+    /** 승인된 판매자의 옵션 없는 상품을 전성분 없이 등록하고 상품 ID를 돌려준다. */
     @Transactional
     public Long createProduct(Long memberId, Long categoryId, String name, String description,
                               long price, int stock, ProductImageFile thumbnail, List<ProductImageFile> detailImages) {
-        return createProduct(memberId, categoryId, name, description, price,
-                List.of(), List.of(ProductOptionSpec.single(stock)), thumbnail, detailImages);
+        Long sellerId = productSupport.getSellableSellerId(memberId);
+        Long productId = productCreateProductUseCase.createProduct(sellerId, categoryId, name, description, price, stock,
+                thumbnail, detailImages).getId();
+        productChanged(Set.of(productId));
+        return productId;
     }
 
-    /** 승인된 판매자의 상품을 옵션 조합과 함께 등록하고 상품 ID를 돌려준다. 대표 이미지는 필수, 상세 이미지는 선택이다. */
+    /**
+     * 승인된 판매자의 상품을 옵션 조합과 함께 등록하고 상품 ID를 돌려준다. 대표 이미지는 필수, 상세 이미지는 선택이다.
+     * 뷰티 소분류면 전성분이 필수다.
+     */
     @Transactional
     public Long createProduct(Long memberId, Long categoryId, String name, String description, long price,
                               List<String> optionNames, List<ProductOptionSpec> options,
-                              ProductImageFile thumbnail, List<ProductImageFile> detailImages) {
+                              ProductImageFile thumbnail, List<ProductImageFile> detailImages, String ingredientsText) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
-        return productCreateProductUseCase.createProduct(sellerId, categoryId, name, description, price,
-                optionNames, options, thumbnail, detailImages).getId();
+        Long productId = productCreateProductUseCase.createProduct(sellerId, categoryId, name, description, price,
+                optionNames, options, thumbnail, detailImages, ingredientsText).getId();
+        productChanged(Set.of(productId));
+        return productId;
     }
 
     /** 승인된 판매자의 본인 상품 목록 */
@@ -194,10 +212,11 @@ public class ProductFacade {
     @Transactional
     public void modifyProduct(Long memberId, Long productId, String name, Long price, Long categoryId,
                               String description, List<Long> keepDetailImageIds, ProductImageFile thumbnail,
-                              List<ProductImageFile> newDetailImages) {
+                              List<ProductImageFile> newDetailImages, String ingredientsText) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
         productModifyProductUseCase.modifyProduct(sellerId, productId, name, price, categoryId, description,
-                keepDetailImageIds, thumbnail, newDetailImages);
+                keepDetailImageIds, thumbnail, newDetailImages, ingredientsText);
+        productChanged(Set.of(productId));
     }
 
     /** 승인된 판매자가 본인 상품을 지운다 (소프트 삭제). 결제 대기 주문 취소와 심사 중인 중지 요청 정리를 함께 한다. */
@@ -205,6 +224,7 @@ public class ProductFacade {
     public void deleteProduct(Long memberId, Long productId) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
         productDeleteProductUseCase.deleteProduct(sellerId, productId);
+        productChanged(Set.of(productId));
     }
 
     /** 승인된 판매자가 본인 상품의 판매 중지를 요청한다. 관리자가 승인해야 중지된다. */
@@ -225,7 +245,9 @@ public class ProductFacade {
     @Transactional
     public Long addOption(Long memberId, Long productId, ProductOptionSpec spec) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
-        return productAddOptionUseCase.addOption(sellerId, productId, spec).getId();
+        Long optionId = productAddOptionUseCase.addOption(sellerId, productId, spec).getId();
+        productSearchIndexSupport.requestIndex(productId);   // 재고 있는 옵션이 생기면 품절이 풀린다
+        return optionId;
     }
 
     /** 승인된 판매자가 본인 상품 옵션의 추가금을 바꾼다. */
@@ -240,13 +262,53 @@ public class ProductFacade {
     public void deleteOption(Long memberId, Long productId, Long optionId) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
         productDeleteOptionUseCase.deleteOption(sellerId, productId, optionId);
+        productSearchIndexSupport.requestIndex(productId);   // 재고 있는 옵션을 지우면 품절이 될 수 있다
+    }
+
+    /** 승인된 판매자가 본인 상품에 기간 할인을 걸고, 만든 할인 ID를 돌려준다. */
+    @Transactional
+    public Long createDiscount(Long memberId, Long productId, long salePrice, LocalDateTime startsAt, LocalDateTime endsAt) {
+        Long sellerId = productSupport.getSellableSellerId(memberId);
+        Long discountId = productCreateDiscountUseCase.createDiscount(sellerId, productId, salePrice, startsAt, endsAt).getId();
+        productSearchIndexSupport.requestIndex(productId);
+        return discountId;
+    }
+
+    /** 승인된 판매자가 본인 상품의 할인을 부분 수정한다 (null인 값은 그대로, 진행 중이면 끝 시각만). */
+    @Transactional
+    public void modifyDiscount(Long memberId, Long productId, Long discountId, Long salePrice,
+                               LocalDateTime startsAt, LocalDateTime endsAt) {
+        Long sellerId = productSupport.getSellableSellerId(memberId);
+        productModifyDiscountUseCase.modifyDiscount(sellerId, productId, discountId, salePrice, startsAt, endsAt);
+        productSearchIndexSupport.requestIndex(productId);
+    }
+
+    /** 승인된 판매자가 본인 상품의 시작 전인 할인을 지운다. */
+    @Transactional
+    public void deleteDiscount(Long memberId, Long productId, Long discountId) {
+        Long sellerId = productSupport.getSellableSellerId(memberId);
+        productDeleteDiscountUseCase.deleteDiscount(sellerId, productId, discountId);
+        productSearchIndexSupport.requestIndex(productId);
+    }
+
+    /** 승인된 판매자가 본인 상품의 진행 중인 할인을 지금 끝낸다. */
+    @Transactional
+    public void endDiscount(Long memberId, Long productId, Long discountId) {
+        Long sellerId = productSupport.getSellableSellerId(memberId);
+        productEndDiscountUseCase.endDiscount(sellerId, productId, discountId);
+        productSearchIndexSupport.requestIndex(productId);
     }
 
     /** 승인된 판매자가 자기 상품 옵션의 재고를 증감량만큼 조정하고, 조정 후 재고를 돌려준다. */
     @Transactional
     public OptionStockDto adjustStock(Long memberId, Long productId, Long optionId, int changeQty) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
-        return OptionStockDto.from(productAdjustStockUseCase.adjustStock(sellerId, productId, optionId, changeQty));
+        OptionStock stock = productAdjustStockUseCase.adjustStock(sellerId, productId, optionId, changeQty);
+        boolean wasSoldOut = stock.getStock() - changeQty == 0;
+        if (wasSoldOut != stock.isSoldOut()) {
+            productSearchIndexSupport.requestIndex(productId);
+        }
+        return OptionStockDto.from(stock);
     }
 
     // 관리자 상품 관리
@@ -262,6 +324,7 @@ public class ProductFacade {
     @Transactional
     public void stopProductByAdmin(Long productId, String reason) {
         productStopByAdminUseCase.stopProduct(productId, reason);
+        productChanged(Set.of(productId));
     }
 
     /** 관리자 판매 중지 요청 목록 (오래된 순) */
@@ -273,7 +336,9 @@ public class ProductFacade {
     /** 판매 중지 요청을 승인해 상품을 판매 중지한다 */
     @Transactional
     public AdminProductStopRequestDto approveStopRequest(Long requestId) {
-        return AdminProductStopRequestDto.from(productApproveStopRequestUseCase.approve(requestId));
+        AdminProductStopRequestDto approved = AdminProductStopRequestDto.from(productApproveStopRequestUseCase.approve(requestId));
+        productChanged(Set.of(approved.productId()));
+        return approved;
     }
 
     /** 판매 중지 요청을 반려한다. 상품은 그대로 판매 중이다 */
@@ -313,11 +378,54 @@ public class ProductFacade {
         Optional<Long> sellerId = productSupport.findSellableSellerId(sellerMemberId);
         if (sellerId.isEmpty()) return 0;
 
+        List<Long> productIds = new ArrayList<>();
         for (ProductSampleDto sample : samples) {
             Category category = productSupport.getChildCategory(sample.parentCategoryName(), sample.categoryName());
-            productCreateProductUseCase.createProduct(sellerId.get(), category.getId(), sample.name(),
-                    sample.name() + " 샘플 상품입니다.", sample.price(), sample.stock(), sampleThumbnail, List.of());
+            productIds.add(productCreateProductUseCase.createProduct(sellerId.get(), category.getId(), sample.name(),
+                    sample.name() + " 샘플 상품입니다.", sample.price(), sample.stock(), sampleThumbnail, List.of()).getId());
         }
+        productChanged(productIds);
         return samples.size();
+    }
+
+    /**
+     * 상품의 내용이나 판매 상태가 바뀌었을 때 부른다(등록·수정·삭제·판매 중지·중지 해제).
+     * 검색 색인을 요청하고, 같은 트랜잭션에서 상품 변경 이벤트(AI 추천용)를 outbox에 저장한다.
+     * 재고·옵션·할인만 바뀐 경우는 검색 색인만 요청한다(requestIndex).
+     */
+    private void productChanged(Collection<Long> productIds) {
+        productSearchIndexSupport.requestIndex(productIds);
+        productChangeEventSupport.publishChanged(productIds);
+    }
+
+    /** 판매 중인 상품 전체의 변경 이벤트를 다시 발행한다. AI 서비스를 처음 띄울 때 관리자가 부른다 */
+    @Transactional
+    public int publishAllProductChanges() {
+        return productChangeEventSupport.publishAllOnSale();
+    }
+
+    // 상품 검색 색인 (ES). 변경한 트랜잭션이 커밋된 뒤에 부른다
+
+    /** 상품들을 DB의 지금 값으로 다시 색인한다. 커밋 뒤 리스너에서 부르므로 새 트랜잭션에서 읽는다 */
+    @Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
+    public void indexProducts(Collection<Long> productIds) {
+        productSearchIndexSupport.indexProducts(productIds);
+    }
+
+    /**
+     * 지난 성공 실행 뒤로 할인이 시작했거나 끝난 상품을 다시 색인하고, 그 상품 수를 돌려준다 (할인 경계 스케줄러).
+     * lastSucceededAt이 null이면(기동 후 첫 실행) 정해 둔 구간만큼 돌아본다
+     */
+    @Transactional(readOnly = true)
+    public int reindexDiscountBoundaries(LocalDateTime lastSucceededAt, LocalDateTime now) {
+        List<Long> productIds = productSearchIndexSupport.findDiscountBoundaryProductIds(lastSucceededAt, now);
+        productSearchIndexSupport.indexProducts(productIds);
+        return productIds.size();
+    }
+
+    /** 판매 중인 상품 전체를 새 인덱스에 색인하고 검색 alias를 옮긴다. 색인한 상품 수를 돌려준다 (관리자) */
+    @Transactional(readOnly = true)
+    public int rebuildSearchIndex() {
+        return productSearchIndexSupport.rebuildIndex();
     }
 }

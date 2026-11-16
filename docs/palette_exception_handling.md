@@ -184,7 +184,7 @@ Order order = orderRepository.findByIdAndBuyerId(orderId, memberId)
 
 예외가 나면 트랜잭션이 롤백되므로, 같은 트랜잭션 안에서 저장한 실패 기록도 사라진다. 실패 상태를 남겨야 하면(예: 결제 `FAILED_INSUFFICIENT_BALANCE`) **별도 빈의 `@Transactional(propagation = REQUIRES_NEW)` 메서드**로 기록한다.
 
-결제는 잔액 부족을 예외가 아니라 결과로 돌려준다. 결제 모듈이 실패를 별도 트랜잭션으로 기록하고 FAILED 결과를 반환하면, 주문 모듈이 `402-INSUFFICIENT_BALANCE`를 던져 자기 트랜잭션(주문 PAID 변경)을 롤백한다. 실패 기록은 이미 커밋돼 남는다.
+결제는 잔액 부족을 예외가 아니라 결과로 돌려준다. 결제 모듈이 실패를 별도 트랜잭션으로 기록하고 FAILED 결과를 반환하면, 주문 모듈은 결과 반영 트랜잭션에서 주문을 PAYMENT_FAILED로 바꿔 커밋한 뒤 `402-INSUFFICIENT_BALANCE`를 던진다. 결제는 HTTP라 주문 트랜잭션에 참여하지 않는다(주문 PAYING 커밋 → 결제 요청 → 결과 반영, `palette_shared_contract.md` 9.1).
 
 ```java
 // PaymentPayUseCase (결제 모듈)
@@ -280,7 +280,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 409-BUSINESS_NUMBER_DUPLICATED | 다른 판매자가 이 사업자등록번호로 심사 중·판매 중·철회 심사 중이거나 제재됨 |
 | | 409-SELLER_STATE_INVALID | 입점 승인·반려, 철회 요청·승인·거절, 제재를 할 수 없는 상태 |
 | | 409-UNSETTLED_AMOUNT_EXISTS | 미정산 금액이 있어 철회 요청·철회 승인 불가 |
-| | 409-ACTIVE_SALES_EXIST | 철회 승인 시 판매자 상품이 들어간 진행 중 주문(CREATED·PAYMENT_FAILED·PAID·RETURN_REQUESTED)이 있음 |
+| | 409-ACTIVE_SALES_EXIST | 철회 승인 시 판매자 상품이 들어간 진행 중 주문(CREATED·PAYING·PAYMENT_FAILED·PAID·RETURN_REQUESTED)이 있음 |
 | product (유진) | 404-PRODUCT_NOT_FOUND | 없거나 다른 판매자의 상품, 구매자에게 보이지 않는 상품(판매 중지·삭제·카테고리 사용 중지) |
 | | 409-PRODUCT_NOT_ON_SALE | 판매 중이 아닌 상품 차감(주문), 관리자 즉시 중지 시 이미 중지·삭제된 상품 |
 | | 409-PRODUCT_NOT_EDITABLE | 판매 중지·삭제된 상품의 수정·삭제·재고 조정·중지 요청 |
@@ -301,17 +301,21 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 400-CATEGORY_DEPTH_EXCEEDED | 소분류 아래에 카테고리 추가 |
 | | 400-CATEGORY_NOT_EDITABLE | 대분류 수정 |
 | | 400-CATEGORY_NOT_SELECTABLE | 상품 등록·수정 시 사용 중인 소분류가 아닌 카테고리 선택 |
+| | 400-INGREDIENTS_REQUIRED | 뷰티 소분류 상품을 전성분 없이(또는 공백으로) 등록·수정. 전성분이 없는 기존 뷰티 상품을 전성분 없이 수정하거나, 의류에서 뷰티로 옮기며 전성분을 안 보낸 경우 포함 |
 | order (은정) | 400-SELF_PURCHASE_NOT_ALLOWED | 본인 상품 담기·주문 |
 | | 400-STOCK_EXCEEDED | 장바구니 수량 > 재고 |
 | | 409-PRICE_CHANGED | 예상 결제 금액(쿠폰 할인 후) ≠ 실제 결제 금액 (`data.currentAmount`) |
-| | 409-CART_ITEM_IN_PENDING_ORDER | 결제 대기 주문에 포함된 장바구니 항목 (`data.pendingOrderIds`: 그 결제 대기 주문 ID, 오름차순) |
+| | 409-CART_ITEM_IN_PENDING_ORDER | 결제 대기·결제 중(PAYING) 주문에 포함된 장바구니 항목 (`data.pendingOrderIds`: 그 주문 ID, 오름차순) |
 | | 400-IDEMPOTENCY_KEY_INVALID | 주문 생성 `Idempotency-Key`가 비어 있거나 64자 초과 |
 | | 409-IDEMPOTENCY_KEY_EXPIRED | 같은 `Idempotency-Key`로 만든 주문이 이미 취소(만료 포함)됨. 새 키로 다시 주문 |
 | | 404-ORDER_NOT_FOUND | |
-| | 409-ORDER_STATE_INVALID | 상태 전이 불가(취소·확정·반품 등) |
+| | 409-ORDER_STATE_INVALID | 상태 전이 불가(취소·확정·반품 등). 반품 승인·거절은 반품 요청 중(RETURN_REQUESTED)이 아니면(이미 승인·거절됨 포함) 이 코드 |
 | | 409-ORDER_EXPIRED | 결제 시점에 15분 경과 |
-| | 409-RETURN_ALREADY_REQUESTED | 반품 1회 사용 |
-| | 409-ORDER_NOT_DELIVERED | 배송지가 있는 주문을 배송 완료(`deliveredAt`) 전에 구매 확정 |
+| | 409-PAYMENT_IN_PROGRESS | 결제 확인 중(PAYING)인 주문에 다시 결제·취소 요청. 결제 결과를 서버가 확인하는 중이므로 잠시 뒤 주문 상태를 다시 조회한다 |
+| | 409-RETURN_ALREADY_REQUESTED | 반품 1회 사용 (거절된 뒤 다시 요청 포함) |
+| | 400-RETURN_REASON_REQUIRED | 반품 사유 코드가 기타(OTHER)인데 상세 사유가 비어 있음 |
+| | 400-RETURN_ITEMS_MISMATCH | 관리자 반품 승인에서 주문 항목마다 재고 복원 여부를 한 번씩 보내지 않음(항목 누락·중복·다른 주문의 항목) |
+| | 409-ORDER_NOT_DELIVERED | 배송지가 있는 주문을 배송 완료(`deliveredAt`) 전에 구매 확정·반품 요청 |
 | | 409-ORDER_COUPON_NOT_AVAILABLE | 주문에 쿠폰 반영이 꺼져 있을 때(custom.order.couponEnabled = false) 주문 생성에 쿠폰을 보냄 |
 | payment (지은·시연) | 402-INSUFFICIENT_BALANCE | 잔액 부족. API 응답은 주문 결제가 order의 `OrderErrorCode.INSUFFICIENT_BALANCE`로 던진다(`data.shortage`·`recommendedTopupAmount`·`remainingSeconds`). payment 코드는 `Wallet` 출금 안전장치 |
 | | 400-PAYMENT_PERIOD_INVALID | 조회 시작일 > 종료일 (거래 내역, 관리자 결제·충전 조회) |
@@ -336,7 +340,9 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 400-SETTLEMENT_CANDIDATE_AMOUNT_INVALID | 주문 항목 금액이 올바르지 않아 정산 후보를 만들 수 없는 상태 |
 | | 500-SETTLEMENT_JOB_FAILED | JOB에 문제가 생긴 상태 |
 | | 409-SETTLEMENT_CANDIDATE_AMOUNT_TAMPERED | 판별 단계: 정산 후보 금액 스냅샷(판매가·수수료·지급액)이 서로 맞지 않아 확정하지 않음 (처리 이력에만 남음) |
+| | 409-SETTLEMENT_CANDIDATE_FEE_RATE_MISMATCH | 판별 단계: 정산 후보의 수수료율이 후보를 만든 시점의 정책 수수료율과 달라 확정하지 않음 (처리 이력에만 남음) |
 | | 409-SETTLEMENT_LEDGER_MISSING / 409-SETTLEMENT_LEDGER_REPLACED / 409-SETTLEMENT_LEDGER_AMOUNT_CHANGED | 원장 재대조: 지급된 정산서의 원장 기록 없음 / 원장 행 교체 / 금액 변경 (처리 이력에만 남고, 그 판매자의 다음 지급을 보류) |
+| | 409-SETTLEMENT_LEDGER_PAID_NOT_RECORDED | 출력 대사: 결제 원장에는 지급 기록이 있는데 정산서가 PAID가 아님 (처리 이력 RECONCILE에 남고 ERROR 로그로 알림, 정산 데이터는 고치지 않음) |
 | | 400-SETTLEMENT_MONTH_RANGE_INVALID | 정산서 기간 조회·엑셀 다운로드 기간 오류(시작월 > 끝월, 최대 개월 수 초과, 정산월과 기간 동시 사용) |
 | | 400-SETTLEMENT_EXPORT_TOO_LARGE | 정산서 엑셀에 담을 품목 수가 `custom.settlement.exportMaxRows`(기본 200,000)를 넘음(파일을 만들기 전에 거절) 또는 한 시트가 엑셀 최대 행 수를 넘음 |
 | | 500-SETTLEMENT_EXPORT_FAILED | 정산서 엑셀 파일 생성 실패 |
@@ -367,6 +373,8 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 404-INFLUENCER_NOT_FOUND | 협약 요청 대상 인플루언서가 없음 |
 | | 409-INFLUENCER_STATE_INVALID | 승인되지 않은 인플루언서에게 협약 요청 |
 | | 403-INFLUENCER_NOT_APPROVED | 승인된 인플루언서가 아닌 회원이 인플루언서 API 호출 |
+| recommend (은정, ai) | 404-SURVEY_NOT_FOUND | 뷰티 설문을 아직 하지 않은 회원의 프로필 조회 |
+| | 400-SURVEY_ANSWER_INVALID | 설문 답이 칸에 맞지 않음: 선호 성분 칸에 피하는 성분 코드(또는 반대), 같은 코드 중복, 고민 4개 이상(도메인 검사. 요청 검증에서는 400-VALIDATION_FAILED). 모르는 코드는 400-INVALID_REQUEST |
 
 
 ## 9. 로그 규칙

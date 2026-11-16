@@ -39,6 +39,10 @@ public class Partnership extends BaseIdAndTime {
     @Column(nullable = false, length = 20)
     private PartnershipStatus status;
 
+    // 인플루언서 수수료율(%), 15~30. 요청할 때 정하고 바꿀 수 없다 (바꾸려면 종료 뒤 다시 요청)
+    @Column(nullable = false)
+    private Integer commissionRate;
+
     @Column(length = 500)
     private String requestMessage;
 
@@ -56,10 +60,11 @@ public class Partnership extends BaseIdAndTime {
     private PartnershipEndedBy endedBy;
 
     // 판매자가 인플루언서에게 협약 요청
-    public static Partnership request(Long sellerId, Long influencerId, String message, LocalDateTime now) {
+    public static Partnership request(Long sellerId, Long influencerId, Integer commissionRate, String message, LocalDateTime now) {
         Partnership partnership = new Partnership();
         partnership.sellerId = sellerId;
         partnership.influencerId = influencerId;
+        partnership.commissionRate = commissionRate;
         partnership.requestMessage = message;
         partnership.status = PartnershipStatus.REQUESTED;
         partnership.requestedAt = now;
@@ -87,6 +92,7 @@ public class Partnership extends BaseIdAndTime {
     }
 
     // 판매자 제재로 자동 종료. 요청 중인 협약도 함께 닫는다
+    // 제재가 해지돼도 종료된 협약은 되살리지 않는다(정책). 협약을 이어 가려면 판매자가 다시 요청하고 인플루언서가 수락한다
     public void endBySystem(LocalDateTime now) {
         if (!isOpen()) {
             throw new DomainException(CouponErrorCode.PARTNERSHIP_STATE_INVALID);

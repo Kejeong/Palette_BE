@@ -41,8 +41,10 @@ public class SecurityConfig {
             "/error"
     };
     private static final String[] PUBLIC_GET_API_URLS = {
+            "/api/v1/ai/recommendations",   // 맞춤 상품 추천(비회원은 최신순). 정확히 이 경로만, 크리에이터 추천은 로그인 필요
             "/api/v1/products/**",
             "/api/v1/categories/**",
+            "/api/v1/influencers/*",   // 인플루언서 프로필
             "/images/**"   // 로컬 저장소의 상품 이미지 파일
     };
     private static final String[] PUBLIC_POST_API_URLS = {
@@ -64,12 +66,14 @@ public class SecurityConfig {
     private static final String[] SELLER_API_URLS = {
             "/api/v1/seller/**"
     };
-    // 인플루언서 전용 (/api/v1/influencers/** (복수, 인플루언서 신청, 검색)와 다른 경로)
+    // 인플루언서 전용 (/api/v1/influencers/** (복수, 인플루언서 신청, 프로필)와 다른 경로)
     private static final String[] INFLUENCER_API_URLS = {
             "/api/v1/influencer/**"
     };
     // 구매자 기능. 관리자는 운영 전용이라 구매·판매자 신청을 막음 (/api/v1/sellers/** (복수, 판매자 신청)는 /api/v1/seller/** (단수, 판매자 전용)와 다른 경로)
     private static final String[] BUYER_API_URLS = {
+            "/api/v1/ai/survey/**",
+            "/api/v1/ai/recommendations/creators",   // 피부가 비슷한 크리에이터 추천
             "/api/v1/cart/**",
             "/api/v1/orders/**",
             "/api/v1/wishlist/**",
@@ -78,7 +82,8 @@ public class SecurityConfig {
             "/api/v1/users/me/coupon-usages",
             "/api/v1/topups/**",
             "/api/v1/wallet/**",
-            "/api/v1/sellers/**"
+            "/api/v1/sellers/**",
+            "/api/v1/influencers/**"   // 인플루언서 신청 (프로필 GET은 위에서 공개)
     };
     // 회원 탈퇴(조건 조회 포함)도 구매자만. 관리자 계정은 탈퇴할 수 없음 (1번 관리자는 수수료를 받는 계정이라 탈퇴하면 정산 지급이 실패)
     private static final String[] WITHDRAWAL_API_URLS = {
@@ -128,6 +133,8 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)       // csrf 비활성화
                 .httpBasic(AbstractHttpConfigurer::disable)  // Basic 인증 비활성화
                 .formLogin(AbstractHttpConfigurer::disable)  // 로그인 폼 비활성화
+                // HSTS는 HTTPS를 처리하는 nginx 한 곳에서만 붙인다. 앱도 붙이면 헤더가 두 개가 되고 브라우저는 앞의 것(앱 기본 1년)만 쓴다
+                .headers(headers -> headers.httpStrictTransportSecurity(hsts -> hsts.disable()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))  // 세션 방식 비활성화
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(authenticationEntryPoint)  // 401
@@ -135,6 +142,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(SWAGGER_URLS).permitAll()
                         .requestMatchers(PUBLIC_API_URLS).permitAll()
+                        // 인플루언서 프로필(/api/v1/influencers/*)은 공개지만 내 신청 정보는 로그인 필요. 공개 규칙보다 먼저 둔다
+                        .requestMatchers(HttpMethod.GET, "/api/v1/influencers/me").hasRole("USER")
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_API_URLS).permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST_API_URLS).permitAll()
                         .requestMatchers(ADMIN_API_URLS).hasRole("ADMIN")

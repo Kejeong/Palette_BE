@@ -1,6 +1,7 @@
 package com.backend.boundedContext.settlement.out;
 
 import com.backend.boundedContext.settlement.domain.Settlement;
+import com.backend.boundedContext.settlement.domain.SettlementHoldType;
 import com.backend.boundedContext.settlement.domain.SettlementStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
@@ -41,6 +42,18 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long>, J
     List<Long> findMonthlyPayoutTargetIds(@Param("month") String month, @Param("afterId") Long afterId,
                                           Pageable pageable);
 
+    /**
+     * 지급 결과 재확인 대상: PROCESSING(결과 모름)이 된 지 오래된 정산서. 오래된 순
+     * @param before processingStartedAt이 이 시각 이전(포함)인 건만
+     */
+    @Query("""
+            select s.id from Settlement s
+             where s.status = com.backend.boundedContext.settlement.domain.SettlementStatus.PROCESSING
+               and s.processingStartedAt <= :before
+             order by s.processingStartedAt, s.id
+            """)
+    List<Long> findProcessingOverdueIds(@Param("before") LocalDateTime before, Pageable pageable);
+
     /** 재시도 스케줄러 대상: 다음 재시도 일시가 지난 FAILED + READY(보류 해제·집계 후 지급 전에 멈춘 건) */
     @Query("""
             select s.id from Settlement s
@@ -65,6 +78,20 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long>, J
                                           Pageable pageable);
 
     /**
+     * 출력 대사 대상: 지급을 한 번 이상 시도했지만(retryCount > 0) PAID가 아닌 정산서. afterId 커서로 한 번씩만 본다
+     * 지급 요청 결과를 기다리는 정산서(결과 모름)는 지급 결과 재확인이 따로 보므로 대상 상태에 넣지 않는다
+     */
+    @Query("""
+            select s.id from Settlement s
+             where s.status in :statuses
+               and s.retryCount > 0
+               and s.id > :afterId
+             order by s.id
+            """)
+    List<Long> findOutputReconcileTargetIds(@Param("statuses") Collection<SettlementStatus> statuses,
+                                            @Param("afterId") Long afterId, Pageable pageable);
+
+    /**
      * 이 판매자의 정산서 중 원장 재대조 불일치가 아직 풀리지 않은 것이 있는지
      * (정산서별 가장 마지막 VERIFY 이력이 MANUAL_REQUIRED. SettlementProcessHistoryRepository.findUnresolvedLedgerMismatchSettlementIds와 같은 기준)
      * 지급 직전 확인·보류 해제·불일치 해소 후 자동 해제가 쓴다
@@ -83,14 +110,37 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long>, J
             """)
     boolean existsUnresolvedLedgerMismatchBySellerId(@Param("sellerId") Long sellerId);
 
-    /** 이 사유로 보류(HOLD)된 정산서가 있는 판매자 ID (원장 불일치 보류 정리: 불일치가 없는데 남은 보류를 찾는다) */
+    /** 이 종류로 보류(HOLD)된 정산서가 있는 판매자 ID (원장 불일치 보류 정리: 불일치가 없는데 남은 보류를 찾는다) */
     @Query("""
             select distinct s.sellerId from Settlement s
              where s.status = com.backend.boundedContext.settlement.domain.SettlementStatus.HOLD
-               and s.holdReason = :holdReason
+               and s.holdType = :holdType
              order by s.sellerId
             """)
-    List<Long> findSellerIdsByHoldReason(@Param("holdReason") String holdReason);
+    List<Long> findSellerIdsByHoldType(@Param("holdType") SettlementHoldType holdType);
+
+    /** 판매자의 이 종류 보류 정산서(잠금). 제재 해지 시 제재 보류만 골라 푼다 */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select s from Settlement s
+             where s.sellerId = :sellerId
+               and s.status = com.backend.boundedContext.settlement.domain.SettlementStatus.HOLD
+               and s.holdType = :holdType
+             order by s.id
+            """)
+    List<Settlement> findWithLockBySellerIdAndHoldType(@Param("sellerId") Long sellerId,
+                                                       @Param("holdType") SettlementHoldType holdType);
+
+    /** 판매자의 이 종류 보류 정산서 ID. 제재 해지 때 남은 관리자 보류를 알린다 */
+    @Query("""
+            select s.id from Settlement s
+             where s.sellerId = :sellerId
+               and s.status = com.backend.boundedContext.settlement.domain.SettlementStatus.HOLD
+               and s.holdType = :holdType
+             order by s.id
+            """)
+    List<Long> findIdsBySellerIdAndHoldType(@Param("sellerId") Long sellerId,
+                                            @Param("holdType") SettlementHoldType holdType);
 
     /** 정산서 ID들의 판매자 ID (원장 불일치가 남은 판매자 찾기) */
     @Query("select distinct s.sellerId from Settlement s where s.id in :ids")
@@ -158,4 +208,7 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long>, J
 
     /** 관리자 정산 미리보기: 대상월에 이미 만들어진 정산서(판매자별 상태 표시용) */
     List<Settlement> findBySettlementMonthAndSellerIdIn(String settlementMonth, Collection<Long> sellerIds);
+
+    /** 운영 알림: 이 상태의 정산서 수 (MANUAL_REQUIRED 점검) */
+    long countByStatus(SettlementStatus status);
 }

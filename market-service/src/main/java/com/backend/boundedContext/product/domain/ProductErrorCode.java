@@ -30,10 +30,21 @@ public enum ProductErrorCode implements ErrorCode {
 
     // 옵션
     OPTION_NAME_INVALID(400, "옵션 이름은 최대 3개, 각각 1~20자이며 서로 달라야 합니다."),
+    INGREDIENTS_REQUIRED(400, "뷰티 상품은 전성분을 입력해야 합니다."),
     OPTION_VALUE_INVALID(400, "옵션 값은 옵션 이름마다 하나씩, 각각 1~14자여야 합니다."),
     OPTION_DUPLICATED(409, "같은 조합의 옵션이 이미 있습니다."),
     OPTION_LIMIT_EXCEEDED(400, "옵션 조합은 최대 100개까지 만들 수 있습니다."),
     LAST_OPTION_NOT_DELETABLE(409, "마지막 남은 옵션은 삭제할 수 없습니다."),
+
+    // 할인
+    DISCOUNT_NOT_FOUND(404, "할인을 찾을 수 없습니다."),
+    DISCOUNT_PRICE_INVALID(400, "할인가는 정가의 10~99%여야 합니다 (할인율 1~90%)."),
+    DISCOUNT_PERIOD_INVALID(400, "할인 시작 시각은 지금 이후, 종료 시각은 지금 이후이면서 시작 시각 뒤 1년 이내여야 합니다."),
+    DISCOUNT_PERIOD_OVERLAPPED(409, "기간이 겹치는 할인이 이미 있습니다."),
+    DISCOUNT_NOT_SCHEDULED(409, "시작 전인 할인만 삭제하거나 할인가·시작 시각을 바꿀 수 있습니다."),
+    DISCOUNT_ENDED(409, "끝난 할인은 수정할 수 없습니다."),
+    DISCOUNT_NOT_ACTIVE(409, "진행 중인 할인만 종료할 수 있습니다."),
+    PRICE_LOCKED_BY_DISCOUNT(409, "진행 중이거나 예약된 할인이 있으면 가격을 바꿀 수 없습니다."),
 
     // 판매 중지 요청
     STOP_REQUEST_PENDING(409, "심사 중인 판매 중지 요청이 이미 있습니다."),
@@ -43,7 +54,10 @@ public enum ProductErrorCode implements ErrorCode {
     OPTION_DELETED(409, "삭제된 옵션입니다."),
 
     // 찜
-    SELF_WISH_NOT_ALLOWED(400, "본인이 판매하는 상품은 찜할 수 없습니다.");
+    SELF_WISH_NOT_ALLOWED(400, "본인이 판매하는 상품은 찜할 수 없습니다."),
+
+    // 검색 색인
+    SEARCH_INDEX_DISABLED(409, "검색 색인을 쓰지 않는 설정입니다 (DB 검색).");
 
     private final int status;
     private final String msg;

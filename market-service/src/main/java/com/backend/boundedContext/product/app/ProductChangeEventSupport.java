@@ -1,0 +1,71 @@
+package com.backend.boundedContext.product.app;
+
+import com.backend.boundedContext.product.domain.Product;
+import com.backend.boundedContext.product.domain.ProductSaleStatus;
+import com.backend.boundedContext.product.out.ProductRepository;
+import com.backend.global.eventPublisher.EventPublisher;
+import com.backend.shared.product.event.ProductChangedEvent;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Limit;
+import org.springframework.stereotype.Service;
+
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 상품 변경 이벤트(ProductChangedEvent)를 만든다. 상품을 바꾼 트랜잭션 안에서 불러 outbox에 같이 저장한다.
+ * 상품의 지금 값(DB)을 읽어 담으므로, 바꾼 뒤에 부른다.
+ */
+@Service
+@RequiredArgsConstructor
+public class ProductChangeEventSupport {
+    private static final int PUBLISH_ALL_BATCH_SIZE = 500;
+
+    private final ProductRepository productRepository;
+    private final ProductImageSupport productImageSupport;
+    private final EventPublisher eventPublisher;
+
+    public void publishChanged(Collection<Long> productIds) {
+        if (productIds.isEmpty()) return;
+
+        List<Product> products = productRepository.findAllById(productIds).stream()
+                .sorted(Comparator.comparing(Product::getId))
+                .toList();
+        Map<Long, String> thumbnails = productImageSupport.getThumbnailUrls(productIds);
+        products.forEach(product -> eventPublisher.publish(toEvent(product, thumbnails.get(product.getId()))));
+    }
+
+    /**
+     * 판매 중인 상품 전체의 변경 이벤트를 다시 발행하고 발행 수를 돌려준다.
+     * AI 서비스를 처음 띄우거나 AI 쪽 상품 사본을 비웠을 때 관리자가 부른다.
+     * shortcut: 한 트랜잭션에서 전부 발행한다. 상품이 수만 개가 되면 배치마다 트랜잭션을 나눈다.
+     */
+    public int publishAllOnSale() {
+        long afterId = 0L;
+        int published = 0;
+        while (true) {
+            List<Long> ids = productRepository.findIdsByStatusAfter(ProductSaleStatus.ON_SALE, afterId, Limit.of(PUBLISH_ALL_BATCH_SIZE));
+            if (ids.isEmpty()) break;
+            publishChanged(ids);
+            published += ids.size();
+            afterId = ids.getLast();
+            if (ids.size() < PUBLISH_ALL_BATCH_SIZE) break;
+        }
+        return published;
+    }
+
+    private static ProductChangedEvent toEvent(Product product, String thumbnailUrl) {
+        return new ProductChangedEvent(
+                product.getId(),
+                product.getName(),
+                product.getDescription(),
+                product.getCategory().getName(),
+                product.getCategory().isBeauty(),
+                product.getIngredientsText(),
+                product.getPrice(),
+                thumbnailUrl,
+                product.isDisplayable());
+    }
+}

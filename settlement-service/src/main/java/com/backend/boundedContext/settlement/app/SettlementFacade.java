@@ -5,6 +5,7 @@ import com.backend.boundedContext.settlement.domain.SettlementCandidateStatus;
 import com.backend.boundedContext.settlement.domain.SettlementJudgement;
 import com.backend.boundedContext.settlement.domain.SettlementLedgerCheckResult;
 import com.backend.boundedContext.settlement.domain.SettlementSellerStatus;
+import com.backend.boundedContext.settlement.domain.SettlementPolicy;
 import com.backend.boundedContext.settlement.domain.SettlementStatus;
 import com.backend.boundedContext.settlement.domain.SettlementTrigger;
 import com.backend.boundedContext.settlement.in.dto.SettlementLedgerMismatchConfirmResponse;
@@ -46,6 +47,7 @@ import java.util.Set;
 public class SettlementFacade {
 
     private final SettlementSupport settlementSupport;
+    private final SettlementPolicy settlementPolicy;
     private final SettlementCreateCandidatesUseCase settlementCreateCandidatesUseCase;
     private final SettlementAggregateUseCase settlementAggregateUseCase;
     private final SettlementPayoutUseCase settlementPayoutUseCase;
@@ -60,6 +62,7 @@ public class SettlementFacade {
     private final SettlementHoldUseCase settlementHoldUseCase;
     private final SettlementReleaseUseCase settlementReleaseUseCase;
     private final SettlementHoldSellerUseCase settlementHoldSellerUseCase;
+    private final SettlementReleaseSanctionHoldsUseCase settlementReleaseSanctionHoldsUseCase;
     private final SettlementExcludeCandidateUseCase settlementExcludeCandidateUseCase;
     private final SettlementJudgeUseCase settlementJudgeUseCase;
     private final SettlementLedgerRecheckUseCase settlementLedgerRecheckUseCase;
@@ -67,6 +70,7 @@ public class SettlementFacade {
     private final SettlementExportUseCase settlementExportUseCase;
     private final SettlementGetSummaryUseCase settlementGetSummaryUseCase;
     private final SettlementGetRunnableMonthsUseCase settlementGetRunnableMonthsUseCase;
+    private final SettlementOutputReconcileUseCase settlementOutputReconcileUseCase;
 
     // ================= 정산 후보 생성 (구매 확정 이벤트) =================
 
@@ -82,6 +86,17 @@ public class SettlementFacade {
     }
 
     // ================= 원장 재대조 스케줄러 (매일 03:35) =================
+
+    /** 출력 대사 대상(지급을 시도했지만 PAID가 아닌 정산서) */
+    @Transactional(readOnly = true)
+    public List<Long> findOutputReconcileTargetIds(Long afterSettlementId, int limit) {
+        return settlementOutputReconcileUseCase.findTargetIds(afterSettlementId, limit);
+    }
+
+    /** 출력 대사 1건. 결제 원장 조회가 있어 트랜잭션을 길게 잡지 않도록 이력 저장만 리포지토리 트랜잭션으로 한다 */
+    public boolean reconcileOutput(Long settlementId) {
+        return settlementOutputReconcileUseCase.reconcile(settlementId);
+    }
 
     @Transactional(readOnly = true)
     public List<Long> findLedgerRecheckTargetIds(LocalDateTime since, Long afterSettlementId, int limit) {
@@ -161,9 +176,20 @@ public class SettlementFacade {
         return settlementSupport.findRetryTargetIds(LocalDateTime.now(), limit);
     }
 
-    /** 지급 트랜잭션과 실패 기록 트랜잭션은 UseCase가 TransactionTemplate으로 연다 */
+    /** 선점·결과 기록·실패 기록 트랜잭션은 UseCase가 TransactionTemplate으로 연다(결제 지급 요청은 트랜잭션 밖) */
     public SettlementPayoutResult payout(Long settlementId, SettlementTrigger trigger, Long batchExecutionId) {
         return settlementPayoutUseCase.payout(settlementId, trigger, batchExecutionId, null);
+    }
+
+    /** 지급 결과 재확인 대상: PROCESSING이 된 지 processingRecheckMinutes가 지난 정산서 */
+    public List<Long> findProcessingOverdueIds(int limit) {
+        return settlementSupport.findProcessingOverdueIds(
+                LocalDateTime.now().minusMinutes(settlementPolicy.getProcessingRecheckMinutes()), limit);
+    }
+
+    /** 지급 결과 재확인. 결제 원장 조회는 트랜잭션 밖, 확정은 UseCase가 TransactionTemplate으로 연다 */
+    public SettlementPayoutResult reconcileProcessing(Long settlementId) {
+        return settlementPayoutUseCase.reconcileProcessing(settlementId);
     }
 
     /** 관리자 수동 재처리(MANUAL_REQUIRED만, 사유 필수) */
@@ -325,5 +351,17 @@ public class SettlementFacade {
     @Transactional
     public int holdSellerBySanctionEvent(Long sellerId, String reason) {
         return settlementHoldSellerUseCase.holdSeller(sellerId, reason, SettlementTrigger.EVENT);
+    }
+
+    /** 판매자 제재 해지 이벤트: 제재 보류 정산서를 READY로 되돌리고 시도 횟수를 초기화한다(이벤트 처리 트랜잭션에 참여) */
+    @Transactional
+    public int releaseSanctionHoldsByEvent(Long sellerId, String reason) {
+        return settlementReleaseSanctionHoldsUseCase.releaseSanctionHolds(sellerId, reason, SettlementTrigger.EVENT);
+    }
+
+    /** 운영 알림: 사람이 처리해야 하는(MANUAL_REQUIRED) 정산서 수 */
+    @Transactional(readOnly = true)
+    public long countManualRequired() {
+        return settlementSupport.countByStatus(SettlementStatus.MANUAL_REQUIRED);
     }
 }

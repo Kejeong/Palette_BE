@@ -1,6 +1,7 @@
 package com.backend.boundedContext.settlement.app;
 
 import com.backend.boundedContext.settlement.domain.Settlement;
+import com.backend.boundedContext.settlement.domain.SettlementHoldType;
 import com.backend.boundedContext.settlement.domain.SettlementProcessHistory;
 import com.backend.boundedContext.settlement.in.dto.SettlementResponse;
 import com.backend.boundedContext.settlement.out.SettlementProcessHistoryRepository;
@@ -28,7 +29,7 @@ public class SettlementHoldUseCase {
     public SettlementResponse hold(Long settlementId, String reason) {
         String strippedReason = reason.strip();
         Settlement settlement = settlementSupport.getSettlementWithLock(settlementId);
-        settlement.hold(strippedReason);   // 지급 전 상태가 아니면 409
+        settlement.hold(SettlementHoldType.ADMIN, strippedReason);   // 지급 전 상태가 아니면 409
         settlementProcessHistoryRepository.save(
                 SettlementProcessHistory.held(settlementId, strippedReason, LocalDateTime.now()));
         log.info("정산서 보류 settlementId={} sellerId={}", settlementId, settlement.getSellerId());

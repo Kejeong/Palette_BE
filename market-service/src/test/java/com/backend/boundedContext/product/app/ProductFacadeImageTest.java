@@ -261,7 +261,7 @@ class ProductFacadeImageTest {
     }
 
     private void modify(Long productId, ProductImageFile thumbnail, List<Long> keepIds, List<ProductImageFile> newDetails) {
-        productFacade.modifyProduct(MEMBER_ID, productId, null, null, null, null, keepIds, thumbnail, newDetails);
+        productFacade.modifyProduct(MEMBER_ID, productId, null, null, null, null, keepIds, thumbnail, newDetails, "정제수");   // 전성분 없이 만든 뷰티 상품이라 같이 넣는다
     }
 
     private List<ProductImage> images(Long productId, ProductImageType type) {

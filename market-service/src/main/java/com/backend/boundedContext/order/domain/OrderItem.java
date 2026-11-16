@@ -54,6 +54,13 @@ public class OrderItem extends BaseIdAndTime {
     @Column(nullable = false)
     private long lineAmount;
 
+    // 주문 시점 정가 단가 (상품 가격 + 추가금). 표시용이고 금액 계산은 unitPrice만 쓴다
+    @Column(nullable = false)
+    private long listUnitPrice;
+
+    // 주문 시점 할인율 (%). 할인 중이 아니었으면 null. 표시용이고 (listUnitPrice - unitPrice)로 다시 계산하지 않는다
+    private Integer discountRate;
+
     // 상품 쿠폰 할인액 (상품 쿠폰이 붙지 않은 항목은 0). 항목 금액을 넘지 않는다
     @Column(nullable = false)
     private long discountAmount;
@@ -76,6 +83,8 @@ public class OrderItem extends BaseIdAndTime {
         item.sellerName = spec.sellerName();
         item.unitPrice = spec.unitPrice();
         item.quantity = spec.quantity();
+        item.listUnitPrice = spec.listUnitPrice();
+        item.discountRate = spec.discountRate();
         item.lineAmount = Math.multiplyExact(spec.unitPrice(), spec.quantity());
 
         return item;
@@ -91,6 +100,11 @@ public class OrderItem extends BaseIdAndTime {
         this.discountAmount = discountAmount;
     }
 
+    // 반품 승인 때 재고 복원 여부 기록 (Order.approveReturn에서만 부른다)
+    void decideRestoreStock(boolean restore) {
+        this.restoreStock = restore;
+    }
+
     // 상품 쿠폰 할인 후 항목 금액
     public long getDiscountedLineAmount() {
         return lineAmount - discountAmount;
@@ -103,7 +117,7 @@ public class OrderItem extends BaseIdAndTime {
 
     // 구매 확정 이벤트 항목으로 변환 (정산 후보 생성용)
     public ConfirmedOrderItemDto toConfirmedOrderItemDto() {
-        return new ConfirmedOrderItemDto(getId(), productId, sellerId, unitPrice, quantity, lineAmount);
+        return new ConfirmedOrderItemDto(getId(), productId, sellerId, unitPrice, quantity, lineAmount, discountAmount);
     }
 
     // 결제 완료 이벤트 항목으로 변환 (배송 피킹 목록용)

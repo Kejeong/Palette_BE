@@ -39,6 +39,82 @@ class SettlementTest {
     }
 
     @Test
+    @DisplayName("PROCESSING: 지급 가능 상태에서만 선점하고, 보류·재시도·후보 추가 대상이 아니며, 결과에 따라 PAID·FAILED·MANUAL_REQUIRED로 끝난다")
+    void markProcessing() {
+        Settlement s = ready();
+        s.markProcessing(NOW);
+
+        assertEquals(SettlementStatus.PROCESSING, s.getStatus());
+        assertEquals(NOW, s.getProcessingStartedAt());
+        assertFalse(s.isPayable(false, NOW));
+        assertFalse(s.isPayable(true, NOW));
+        assertFalse(s.canAcceptCandidates());
+        assertThrows(DomainException.class, () -> s.hold("제재"));
+        assertThrows(DomainException.class, () -> s.markProcessing(NOW));   // 이미 요청 중
+
+        assertFalse(s.isProcessingOverdue(NOW.plusMinutes(4), 5));
+        assertTrue(s.isProcessingOverdue(NOW.plusMinutes(5), 5));
+
+        s.markFailed("결과 확인: 기록 없음", NOW.plusMinutes(5), MAX_ATTEMPTS, RETRY_MINUTES);
+        assertEquals(SettlementStatus.FAILED, s.getStatus());
+        assertNull(s.getProcessingStartedAt());
+
+        ReflectionTestUtils.setField(s, "nextRetryAt", NOW);
+        s.markProcessing(NOW.plusMinutes(30));
+        s.markPaid(501L, NOW.plusMinutes(31));
+        assertEquals(SettlementStatus.PAID, s.getStatus());
+        assertNull(s.getProcessingStartedAt());
+    }
+
+    @Test
+    @DisplayName("보류 종류: 보류하면 종류와 사유가 남고, 해제하면 둘 다 지운다. 시도 횟수는 그대로")
+    void holdType_holdAndRelease() {
+        Settlement s = ready();
+        s.markFailed("1차", NOW, MAX_ATTEMPTS, RETRY_MINUTES);
+        s.hold(SettlementHoldType.LEDGER_MISMATCH, "원장 불일치");
+
+        assertTrue(s.isHeldBy(SettlementHoldType.LEDGER_MISMATCH));
+        assertFalse(s.isHeldBy(SettlementHoldType.SANCTION));
+        s.release();
+        assertEquals(SettlementStatus.READY, s.getStatus());
+        assertNull(s.getHoldType());
+        assertNull(s.getHoldReason());
+        assertEquals(1, s.getRetryCount());
+    }
+
+    @Test
+    @DisplayName("제재 해지: 제재 보류만 풀 수 있고, 풀면 READY + 시도 횟수 0 (MANUAL_REQUIRED였어도 자동 지급을 처음부터)")
+    void releaseSanctionHold_resetsAttempts() {
+        Settlement s = ready();
+        s.markFailed("1차", NOW, MAX_ATTEMPTS, RETRY_MINUTES);
+        s.markManualRequired("3회 실패");
+        s.hold(SettlementHoldType.SANCTION, "판매자 제재");
+
+        s.releaseSanctionHold();
+
+        assertEquals(SettlementStatus.READY, s.getStatus());
+        assertEquals(0, s.getRetryCount());
+        assertNull(s.getHoldType());
+
+        Settlement admin = ready();
+        admin.hold("관리자 보류");
+        assertEquals(SettlementHoldType.ADMIN, admin.getHoldType());
+        assertThrows(DomainException.class, admin::releaseSanctionHold);   // 관리자 보류는 이 경로로 풀지 않는다
+    }
+
+    @Test
+    @DisplayName("보류 종류로 만들면 처음부터 HOLD, 종류가 없으면 READY(사유도 남기지 않음)")
+    void createWithHoldType() {
+        Settlement sanctioned = Settlement.create(7L, "2026-09", SettlementHoldType.SANCTION, "판매자 제재");
+        assertEquals(SettlementStatus.HOLD, sanctioned.getStatus());
+        assertEquals(SettlementHoldType.SANCTION, sanctioned.getHoldType());
+
+        Settlement normal = Settlement.create(7L, "2026-09", null, "무시되는 사유");
+        assertEquals(SettlementStatus.READY, normal.getStatus());
+        assertNull(normal.getHoldReason());
+    }
+
+    @Test
     @DisplayName("holdReason이 있으면 처음부터 HOLD로 만들고, HOLD에도 후보를 담을 수 있다")
     void createHold() {
         Settlement s = Settlement.create(7L, "2026-09", "제재");
@@ -179,6 +255,20 @@ class SettlementTest {
         Settlement paid = ready();
         paid.markPaid(1L, NOW);
         assertThrows(DomainException.class, () -> paid.hold("지급 후"));
+    }
+
+    @Test
+    @DisplayName("보류 중 지급 확인은 HOLD에서만 PAID로 바꾸고 보류 사유를 지운다(다른 상태는 409)")
+    void markPaidWhileHeld() {
+        Settlement held = settlementIn(SettlementStatus.HOLD);
+        held.markPaidWhileHeld(501L, NOW);
+        assertEquals(SettlementStatus.PAID, held.getStatus());
+        assertEquals(501L, held.getWalletTxId());
+        assertNull(held.getHoldReason());
+
+        Settlement ready = settlementIn(SettlementStatus.READY);
+        assertThrows(DomainException.class, () -> ready.markPaidWhileHeld(501L, NOW));
+        assertEquals(SettlementStatus.READY, ready.getStatus());
     }
 
     @Test

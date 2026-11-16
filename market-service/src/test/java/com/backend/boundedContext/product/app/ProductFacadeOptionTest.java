@@ -123,6 +123,8 @@ class ProductFacadeOptionTest {
 
         assertThat(snapshot.optionName()).isEqualTo("흰색 / L");
         assertThat(snapshot.price()).isEqualTo(22_000);
+        assertThat(snapshot.listPrice()).isEqualTo(22_000);
+        assertThat(snapshot.discountRate()).isNull();
     }
 
     @Test
@@ -202,7 +204,7 @@ class ProductFacadeOptionTest {
 
     private Long create(List<String> optionNames, ProductOptionSpec... specs) {
         return productFacade.createProduct(MEMBER_ID, skincareId(), "티셔츠", "설명", PRICE,
-                optionNames, List.of(specs), THUMBNAIL, List.of());
+                optionNames, List.of(specs), THUMBNAIL, List.of(), "정제수");
     }
 
     private static ProductOptionSpec spec(long additionalPrice, int stock, String... values) {

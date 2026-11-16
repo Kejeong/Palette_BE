@@ -33,6 +33,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -76,7 +77,7 @@ class ApiV1SellerProductControllerTest {
     @Test
     @DisplayName("상품 등록: 토큰의 회원 ID로 등록하고 상품 ID를 돌려준다. 옵션 없는 상품은 optionNames 없이 값이 빈 조합 1개를 보낸다")
     void createProduct_success() throws Exception {
-        given(productFacade.createProduct(eq(2L), eq(5L), eq("수분 크림"), eq("촉촉한 크림"), eq(25_000L), eq(List.of()), eq(List.of(ProductOptionSpec.single(30))), any(), any()))
+        given(productFacade.createProduct(eq(2L), eq(5L), eq("수분 크림"), eq("촉촉한 크림"), eq(25_000L), eq(List.of()), eq(List.of(ProductOptionSpec.single(30))), any(), any(), isNull()))
                 .willReturn(11L);
 
         create(MemberRole.USER, jsonPart(VALID_REQUEST))
@@ -95,7 +96,7 @@ class ApiV1SellerProductControllerTest {
                     .andExpect(jsonPath("$.data.fieldErrors[0].field").value("options[0].stock"));
         }
 
-        verify(productFacade, never()).createProduct(any(), any(), any(), any(), anyLong(), any(), any(), any(), any());
+        verify(productFacade, never()).createProduct(any(), any(), any(), any(), anyLong(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -125,7 +126,7 @@ class ApiV1SellerProductControllerTest {
         create(MemberRole.USER, new MockMultipartFile[]{jsonPart(VALID_REQUEST)}).andExpect(status().isOk());
         create(MemberRole.USER, jsonPart(VALID_REQUEST), emptyThumbnail).andExpect(status().isOk());
 
-        verify(productFacade, times(2)).createProduct(any(), any(), any(), any(), anyLong(), any(), any(), isNull(), eq(List.of()));
+        verify(productFacade, times(2)).createProduct(any(), any(), any(), any(), anyLong(), any(), any(), isNull(), eq(List.of()), any());
     }
 
     @Test
@@ -140,7 +141,7 @@ class ApiV1SellerProductControllerTest {
 
         ArgumentCaptor<ProductImageFile> thumbnail = ArgumentCaptor.captor();
         ArgumentCaptor<List<ProductImageFile>> details = ArgumentCaptor.captor();
-        verify(productFacade).createProduct(eq(2L), eq(5L), any(), any(), anyLong(), any(), any(), thumbnail.capture(), details.capture());
+        verify(productFacade).createProduct(eq(2L), eq(5L), any(), any(), anyLong(), any(), any(), thumbnail.capture(), details.capture(), any());
         assertThat(thumbnail.getValue().content()).isEqualTo(THUMBNAIL.getBytes());
         assertThat(details.getValue()).extracting(ProductImageFile::content)
                 .containsExactly(new byte[]{1}, new byte[]{2});
@@ -181,7 +182,7 @@ class ApiV1SellerProductControllerTest {
     @DisplayName("상품 수정 폼 조회: 이미지 자리(thumbnail, detailImages)를 포함해 돌려준다")
     void getSellerProductForm() throws Exception {
         given(productFacade.getSellerProductForm(2L, 11L)).willReturn(
-                new SellerProductFormDto(11L, "수분 크림", 25_000, "설명", 1L, 5L, null, List.of(), List.of(), List.of()));
+                new SellerProductFormDto(11L, "수분 크림", 25_000, "설명", 1L, 5L, null, List.of(), List.of(), List.of(), List.of(), null));
 
         getAsSeller("/api/v1/seller/products/11")
                 .andExpect(status().isOk())
@@ -200,7 +201,7 @@ class ApiV1SellerProductControllerTest {
                 .andExpect(jsonPath("$.resultCode").value("200-1"));
 
         verify(productFacade).modifyProduct(eq(2L), eq(11L), eq("진정 크림"), eq(30_000L), isNull(), isNull(),
-                isNull(), isNull(), eq(List.of()));
+                isNull(), isNull(), eq(List.of()), isNull());
     }
 
     @Test
@@ -220,7 +221,7 @@ class ApiV1SellerProductControllerTest {
         ArgumentCaptor<ProductImageFile> thumbnail = ArgumentCaptor.captor();
         ArgumentCaptor<List<ProductImageFile>> details = ArgumentCaptor.captor();
         verify(productFacade).modifyProduct(eq(2L), eq(11L), isNull(), isNull(), isNull(), isNull(),
-                eq(List.of(7L, 5L)), thumbnail.capture(), details.capture());
+                eq(List.of(7L, 5L)), thumbnail.capture(), details.capture(), isNull());
         assertThat(thumbnail.getValue().content()).isEqualTo(THUMBNAIL.getBytes());
         assertThat(details.getValue()).extracting(ProductImageFile::content).containsExactly(new byte[]{3});
     }
@@ -238,7 +239,7 @@ class ApiV1SellerProductControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.data.fieldErrors[0].field").value("price"));
 
-        verify(productFacade, never()).modifyProduct(any(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(productFacade, never()).modifyProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -356,7 +357,7 @@ class ApiV1SellerProductControllerTest {
         verify(productFacade).createProduct(eq(2L), eq(5L), eq("티셔츠"), eq("면 티셔츠"), eq(20_000L),
                 eq(List.of("색상", "사이즈")),
                 eq(List.of(new ProductOptionSpec(List.of("흰색", "M"), 0, 10), new ProductOptionSpec(List.of("흰색", "L"), 0, 5))),
-                any(), any());
+                any(), any(), isNull());
     }
 
     @Test
@@ -379,7 +380,7 @@ class ApiV1SellerProductControllerTest {
                     .andExpect(jsonPath("$.resultCode").value("400-VALIDATION_FAILED"));
         }
 
-        verify(productFacade, never()).createProduct(any(), any(), any(), any(), anyLong(), any(), any(), any(), any());
+        verify(productFacade, never()).createProduct(any(), any(), any(), any(), anyLong(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -407,6 +408,67 @@ class ApiV1SellerProductControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.resultCode").value("400-VALIDATION_FAILED"));
         }
+    }
+
+    @Test
+    @DisplayName("할인 등록: 할인가와 기간을 넘기고 만든 할인 ID를 돌려준다")
+    void createDiscount() throws Exception {
+        LocalDateTime start = LocalDateTime.of(2026, 12, 1, 0, 0);
+        given(productFacade.createDiscount(2L, 11L, 15_000L, start, start.plusDays(7))).willReturn(41L);
+
+        sendAsSeller(post("/api/v1/seller/products/11/discounts"), """
+                {"salePrice":15000,"startsAt":"2026-12-01T00:00:00","endsAt":"2026-12-08T00:00:00"}""")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.discountId").value(41));
+    }
+
+    @Test
+    @DisplayName("할인 등록은 세 값 모두 필수, 수정은 하나 이상. 할인가가 0 이하면 400 VALIDATION_FAILED")
+    void discountValidation() throws Exception {
+        for (String json : List.of(
+                """
+                {"startsAt":"2026-12-01T00:00:00","endsAt":"2026-12-08T00:00:00"}""",
+                """
+                {"salePrice":0,"startsAt":"2026-12-01T00:00:00","endsAt":"2026-12-08T00:00:00"}""",
+                """
+                {"salePrice":15000,"endsAt":"2026-12-08T00:00:00"}""",
+                """
+                {"salePrice":15000,"startsAt":"2026-12-01T00:00:00"}""")) {
+            sendAsSeller(post("/api/v1/seller/products/11/discounts"), json)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.resultCode").value("400-VALIDATION_FAILED"));
+        }
+
+        // 수정은 바꿀 값만 보내지만, 하나도 없거나 할인가가 0 이하면 400
+        for (String json : List.of("{}", "{\"salePrice\":0}")) {
+            sendAsSeller(patch("/api/v1/seller/products/11/discounts/41"), json)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.resultCode").value("400-VALIDATION_FAILED"));
+        }
+    }
+
+    @Test
+    @DisplayName("할인 수정·삭제·종료: 경로의 상품·할인 ID로 처리한다")
+    void modifyDeleteEndDiscount() throws Exception {
+        LocalDateTime start = LocalDateTime.of(2026, 12, 1, 0, 0);
+        sendAsSeller(patch("/api/v1/seller/products/11/discounts/41"), """
+                {"salePrice":14000,"startsAt":"2026-12-01T00:00:00","endsAt":"2026-12-08T00:00:00"}""")
+                .andExpect(status().isOk());
+        verify(productFacade).modifyDiscount(2L, 11L, 41L, 14_000L, start, start.plusDays(7));
+
+        // 끝 시각만 보내면 나머지는 null로 넘긴다
+        sendAsSeller(patch("/api/v1/seller/products/11/discounts/41"), "{\"endsAt\":\"2026-12-15T00:00:00\"}")
+                .andExpect(status().isOk());
+        verify(productFacade).modifyDiscount(2L, 11L, 41L, null, null, start.plusDays(14));
+
+        String token = jwtTokenProvider.createAccessToken(2L, MemberRole.USER);
+        mockMvc.perform(delete("/api/v1/seller/products/11/discounts/41").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        verify(productFacade).deleteDiscount(2L, 11L, 41L);
+
+        mockMvc.perform(post("/api/v1/seller/products/11/discounts/41/end").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        verify(productFacade).endDiscount(2L, 11L, 41L);
     }
 
     @Test
@@ -461,5 +523,24 @@ class ApiV1SellerProductControllerTest {
     private ResultActions getAsSeller(String url) throws Exception {
         String token = jwtTokenProvider.createAccessToken(2L, MemberRole.USER);
         return mockMvc.perform(get(url).header("Authorization", "Bearer " + token));
+    }
+
+    @Test
+    @DisplayName("상품 등록·수정: 전성분을 그대로 넘기고, 5000자를 넘으면 400 VALIDATION_FAILED")
+    void ingredientsText() throws Exception {
+        create(MemberRole.USER, jsonPart(VALID_REQUEST.replace("}]}", "}],\"ingredientsText\":\"정제수, 글리세린\"}")))
+                .andExpect(status().isOk());
+        verify(productFacade).createProduct(eq(2L), eq(5L), any(), any(), anyLong(), any(), any(), any(), any(), eq("정제수, 글리세린"));
+
+        modify(MemberRole.USER, jsonPart("""
+                {"ingredientsText":"정제수"}"""))
+                .andExpect(status().isOk());
+        verify(productFacade).modifyProduct(eq(2L), eq(11L), isNull(), isNull(), isNull(), isNull(),
+                isNull(), isNull(), eq(List.of()), eq("정제수"));
+
+        String tooLong = "가".repeat(5001);
+        create(MemberRole.USER, jsonPart(VALID_REQUEST.replace("}]}", "}],\"ingredientsText\":\"" + tooLong + "\"}")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.resultCode").value("400-VALIDATION_FAILED"));
     }
 }

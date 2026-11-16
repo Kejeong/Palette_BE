@@ -64,7 +64,7 @@ spring:
   task:
     scheduling:
       pool:
-        size: 3          # 스케줄 작업(정산 2, outbox 릴레이 1)이 서로 기다리지 않게 작업 수만큼. 월 정산 Job이 오래 돌아도 재시도 스케줄러가 멈추지 않는다
+        size: 5          # 스케줄 작업(월 정산, 지급 재시도, 원장 재대조, 운영 알림 등 정산 작업과 outbox 릴레이)이 서로 오래 기다리지 않게. 월 정산 Job이 오래 돌아도 나머지가 멈추지 않는다
 
 
 # 정책 값. 코드에 숫자를 직접 쓰지 않고 각 컨텍스트의 <Ctx>Policy에서 읽는다.
@@ -75,21 +75,33 @@ custom:
     accessTokenExpireMinutes: 30          # Access Token 유효 시간(분)
   internal:
     # 서비스 간 호출(/internal/**) 인증 키. X-Internal-Key 헤더로 보낸다. 모든 서비스가 같은 값을 쓰고, 기본값 없이 환경변수(.env)로만 주입한다.
-    # 정산이 받는 내부 API(/internal/v1/settlements) 검사에 쓴다
+    # 정산이 받는 내부 API(/internal/v1/settlements) 검사와 회원, 결제 내부 API 호출(MemberApiClient, PaymentApiClient)에 함께 쓴다
     apiKey: ${INTERNAL_API_KEY}
+  # 회원 내부 API(/internal/v1/sellers). member-service(8081). 판매자 상태(제재 여부), 지급 대상 회원 ID, 상호명 조회
+  member:
+    baseUrl: ${MEMBER_SERVICE_URL:http://localhost:8081}
+    connectTimeoutMillis: 1000   # 회원 서비스 접속 제한 시간(밀리초)
+    readTimeoutMillis: 3000      # 응답 대기 제한 시간(밀리초). 판매자 조회는 가벼워 짧게 둔다
+  # 결제 내부 API(/internal/v1/payments/transfers). payment-service(8083). 정산 지급(transfer), 지급 내역 조회(findTransfer)
+  # 응답 시간 안에 오지 않으면 결과 모름으로 보고 정산서를 PROCESSING으로 둔다. 재확인 스케줄러가 같은 키로 지급 내역을 조회해 확정한다
+  payment:
+    baseUrl: ${PAYMENT_SERVICE_URL:http://localhost:8083}
+    connectTimeoutMillis: 1000   # 결제 서비스 접속 제한 시간(밀리초)
+    readTimeoutMillis: 10000     # 응답 대기 제한 시간(밀리초). 지급은 홀딩, 지갑 잠금을 기다릴 수 있어 길게 둔다. processingRecheckMinutes보다 충분히 짧아야 한다
   cors:
     allowedOrigins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}   # 프론트 주소(쉼표로 구분)
   settlement:
     feeRate: 10                # 수수료율(%)
     payDayOfMonth: 10          # 매월 정산일
     maxAttempts: 3             # 최초 1회 + 재시도 2회
-    retryIntervalMinutes: 10   # 재시도 간격(분), 운영 120, 테스트 10
+    retryIntervalMinutes: ${SETTLEMENT_RETRY_INTERVAL_MINUTES:10}   # 재시도 간격(분). 로컬, 테스트 10, 개발 서버 120(compose.prod.yaml)
     batchChunkSize: 100        # 월 정산 Job이 한 번에 처리하는 판매자·정산서 수
     retryBatchSize: 50         # 재시도 스케줄러가 한 번에 처리하는 정산서 수
     maxSearchMonths: 12        # 정산서 목록 기간 조회·엑셀 다운로드에서 한 번에 볼 수 있는 최대 개월 수
+    processingRecheckMinutes: 5  # 지급 요청 결과 모름(PROCESSING) 뒤 몇 분 지나면 재확인 스케줄러가 결제 원장으로 확정할지
     exportMaxRows: 200000      # 엑셀 다운로드 한 번에 담을 최대 품목 수(넘으면 파일을 만들기 전에 400 SETTLEMENT_EXPORT_TOO_LARGE)
     ledgerRecheck:
-      enabled: false           # 원장 재대조(매일 03:35 스케줄러). payment-service 연결 후 true로 켠다(연결 전엔 findTransfer가 예외)
+      enabled: ${SETTLEMENT_LEDGER_RECHECK_ENABLED:true}   # 원장 재대조(매일 03:35)와 출력 대사(매일 03:45). 결제 지급 내역 조회(findTransfer)로 확인한다
       lookbackDays: 2          # 지급일이 오늘부터 며칠 전까지인 PAID 정산서를 다시 읽을지(2 = T+1, 늦은 시각 지급 포함)
   outbox:
     relayEnabled: true          # false면 릴레이 스케줄러를 등록하지 않는다(테스트에서 끔: src/test/resources/application.properties)
@@ -105,8 +117,6 @@ custom:
       retryInitialIntervalMillis: 1000  # 첫 재시도 전 대기(밀리초)
       retryMultiplier: 2.0              # 재시도마다 대기 시간에 곱하는 값
   scheduling:
-    # false면 모든 스케줄러(월 정산, 지급 재시도, outbox 릴레이)가 멈춘다.
-    # 결제 서비스 연결 전에는 PaymentApiClient.transfer가 예외를 던져서, 스케줄러가 돌면 정산서가 FAILED → MANUAL_REQUIRED로 굳는다.
-    # 그래서 기본값을 false로 두고, 켜야 할 때만 SETTLEMENT_SCHEDULING_ENABLED=true로 켠다.
-    # TODO 서비스 간 연결 작업에서 결제 지급이 연결되면 기본값을 true로 바꾼다
-    enabled: ${SETTLEMENT_SCHEDULING_ENABLED:false}
+    # false면 모든 스케줄러(월 정산, 지급 재시도, 결과 모름 재확인, 원장 재대조, 운영 알림, outbox 릴레이)가 멈춘다.
+    # 회원, 결제와 HTTP로 연결돼 기본으로 켠다. 문제가 생기면 서버 .env에 SETTLEMENT_SCHEDULING_ENABLED=false 한 줄로 끈다(코드 배포 없이)
+    enabled: ${SETTLEMENT_SCHEDULING_ENABLED:true}
