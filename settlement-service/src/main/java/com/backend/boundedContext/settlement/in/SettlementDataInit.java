@@ -1,5 +1,6 @@
 package com.backend.boundedContext.settlement.in;
 
+import com.backend.global.exception.DomainException;
 import com.backend.boundedContext.settlement.app.SettlementFacade;
 import com.backend.boundedContext.settlement.out.SettlementMemberPort;
 import com.backend.shared.member.dto.SellerDto;
@@ -25,9 +26,9 @@ import java.util.List;
  * 대신 컨슈머(SettlementEventListener)가 이벤트를 받았을 때와 같은 메서드(SettlementFacade.createCandidates)를 직접 불러
  * 지난달 확정분 3건을 만든다. 후보가 만들어지는 결과는 이벤트 경로와 같다.
  *
- * 결제 시드(PaymentDataInit)가 같은 주문 -1(25,000원)·-2(9,999원)로 HELD 홀딩을 만들어 두지만, 결제는 아직 다른 앱이라
- * 결제 서비스 연결 전에는 월 정산을 실행해도 지급 단계에서 실패한다(PaymentApiClient.transfer 예외).
- * 시드 판매자(회원 2번)의 sellerId는 SettlementMemberPort로 찾는다. 회원 서비스 연결 전에는 임시 구현(MemberApiClient)이 empty를 돌려주므로 시드를 건너뛴다.
+ * 결제 시드(PaymentDataInit)가 같은 주문 -1(25,000원), -2(9,999원)로 HELD 홀딩을 만들어 두어서,
+ * member, payment를 함께 띄우면 이 후보로 월 정산을 실행해 지급까지 확인할 수 있다.
+ * 시드 판매자(회원 2번)의 sellerId는 회원 내부 API로 찾는다. 회원 서비스가 떠 있지 않으면 시드를 건너뛰고 정산은 그대로 뜬다.
  *
  * TODO 주문 서비스가 실제로 구매 확정 이벤트를 발행하게 되면 PaymentDataInit의 홀딩 시드와 함께 지우기
  */
@@ -49,9 +50,16 @@ public class SettlementDataInit implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         if (settlementFacade.hasAnyCandidate()) return;
 
-        Long sellerId = settlementMemberPort.findSellerByMemberId(SEED_SELLER_MEMBER_ID)
-                .map(SellerDto::sellerId)
-                .orElse(null);
+        Long sellerId;
+        try {
+            sellerId = settlementMemberPort.findSellerByMemberId(SEED_SELLER_MEMBER_ID)
+                    .map(SellerDto::sellerId)
+                    .orElse(null);
+        } catch (DomainException e) {
+            // 회원 서비스가 아직 안 떠 있으면(502) 시드 때문에 정산이 못 뜨지 않게 건너뛴다
+            log.warn("회원 서비스에 연결할 수 없어 정산 후보 시드를 건너뜀 [{}]", e.getResultCode());
+            return;
+        }
         if (sellerId == null) {
             log.info("시드 판매자(회원 {}번)가 없어 정산 후보 시드를 건너뜀", SEED_SELLER_MEMBER_ID);
             return;
