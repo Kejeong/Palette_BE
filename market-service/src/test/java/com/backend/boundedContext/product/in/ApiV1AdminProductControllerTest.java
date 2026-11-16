@@ -143,4 +143,17 @@ class ApiV1AdminProductControllerTest {
         String token = jwtTokenProvider.createAccessToken(1L, role);
         return mockMvc.perform(request.header("Authorization", "Bearer " + token));
     }
+
+    @Test
+    @DisplayName("상품 변경 이벤트 전체 재발행: 관리자만 부를 수 있고 발행 수를 돌려준다")
+    void publishChangeEvents() throws Exception {
+        given(productFacade.publishAllProductChanges()).willReturn(3);
+
+        perform(MemberRole.ADMIN, post("/api/v1/admin/products/change-events"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultCode").value("200-1"))
+                .andExpect(jsonPath("$.data.publishedCount").value(3));
+        perform(MemberRole.USER, post("/api/v1/admin/products/change-events"))
+                .andExpect(status().isForbidden());
+    }
 }

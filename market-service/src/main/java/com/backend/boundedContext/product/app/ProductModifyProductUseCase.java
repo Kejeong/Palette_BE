@@ -21,10 +21,11 @@ public class ProductModifyProductUseCase {
      * 가격을 바꾸려는데 진행 중이거나 예약된 할인이 있으면 409(할인가는 정가 기준으로 검사했으므로).
      * 가격을 바꿀 때는 상품을 쓰기 잠금한 뒤 할인을 보므로, 동시에 할인을 등록해도 둘 중 하나만 반영된다.
      * 이미지 규칙은 {@link ProductImageSupport#modifyImages}를 따른다.
+     * 전성분은 {@link Product#modify}를 따른다(수정 후 뷰티면 필수, 전성분 기능 전 뷰티 상품도 이때 넣어야 함).
      */
     public Product modifyProduct(Long sellerId, Long productId, String name, Long price, Long categoryId,
                                  String description, List<Long> keepDetailImageIds, ProductImageFile thumbnail,
-                                 List<ProductImageFile> newDetailImages) {
+                                 List<ProductImageFile> newDetailImages, String ingredientsText) {
         Product product = productSupport.getSellerProduct(sellerId, productId);
         // 가격이 실제로 바뀔 때만 쓰기 잠금한다 (폼이 같은 가격을 보내도 주문 재고 차감과 기다리지 않게)
         if (price != null && price != product.getPrice()) {
@@ -37,7 +38,7 @@ public class ProductModifyProductUseCase {
             productDiscountSupport.checkNoPendingDiscount(productId);
         }
 
-        product.modify(name, price, category, description);   // 판매 중지·삭제 상품이면 여기서 막힌다
+        product.modify(name, price, category, description, ingredientsText);   // 판매 중지·삭제 상품이면 여기서 막힌다
         productImageSupport.modifyImages(product, thumbnail, keepDetailImageIds, newDetailImages);
         return product;
     }

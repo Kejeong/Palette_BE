@@ -9,7 +9,7 @@
 | 컨텍스트 | 담당 | 제공하는 Api | 발행하는 이벤트 |
 | --- | --- | --- | --- |
 | member | 시연·지은 | `MemberApi` | `MemberSignedUpEvent`, `SellerSanctionedEvent`, `SellerWithdrawalRequestedEvent`, `SellerWithdrawalRejectedEvent` |
-| product | 유진 | `ProductApi` | `WishAddedEvent`, `WishRemovedEvent` |
+| product | 유진 | `ProductApi` | `WishAddedEvent`, `WishRemovedEvent`, `ProductChangedEvent` |
 | review | 유진 | - | `ReviewCreatedEvent`, `ReviewModifiedEvent`, `ReviewDeletedEvent` |
 | order | 은정 | `OrderApi` | `OrderPaidEvent`, `OrderConfirmedEvent`, `OrderReturnedEvent` |
 | payment | 지은·시연 | `PaymentApi` | - |
@@ -71,6 +71,7 @@ X-Internal-Key: <INTERNAL_API_KEY 값>
 | 배송 시작 | delivery | 물류 담당 송장 등록 → 배송 SHIPPED → `DeliveryShippedEvent` → (Kafka `delivery.events`) 알림이 구매자에게 배송 시작 알림 | 이벤트, 별도 Tx (송장 수정은 이벤트 없음) |
 | 배송 완료 | delivery | Delivery Tracker로 배송 완료 확인 → 배송 DELIVERED → `DeliveryCompletedEvent` → (Kafka `delivery.events`) market이 주문 `deliveredAt` 기록, 알림이 구매자에게 배송 완료 알림 | 이벤트, 별도 Tx |
 | 주문 상세의 배송 정보 | order | `DeliveryApi.findByOrderId(orderId)` (배송지 있고 PAID 이후 주문만) | 동기 조회 (조회 실패 시 주문 상세는 200 + `deliveryUnavailable: true`) |
+| 주문 상세의 항목 이미지 | order | `ProductApi.getOptions(optionIds)` → 항목별 상품의 현재 대표 이미지(`items[].thumbnailUrl`, 판매 중지·삭제 상품 포함) (TRSS-242) | 동기 조회 (조회 실패 시 주문 상세는 200 + 이미지 null) |
 | 주문 취소·15분 만료 | order | `ProductApi.lockProductsForOrderChange(productIds)` → 주문 잠금·상태 다시 확인 → 주문 CANCELED → `ProductApi.restoreStock(ORDER_RESTORE)` | 동기, 같은 Tx |
 | 반품 승인 | order | 주문 RETURNED → 복원 선택 항목만 `ProductApi.restoreStock(RETURN_RESTORE)` → `OrderReturnedEvent` → (커밋 뒤 Kafka `order.events`) | 동기, 같은 Tx + 이벤트 (재고 복원과 outbox 저장이 승인과 같은 트랜잭션) |
 | 반품 환불 | payment | `OrderReturnedEvent` 수신(Kafka `order.events`) → 홀딩 → 구매자 지갑(REFUND), 플랫폼 지갑 → 구매자 지갑(배송비, SHIPPING_FEE_REFUND), 홀딩 → 플랫폼 지갑(장바구니 쿠폰 지원금, COUPON_SUBSIDY_CANCEL) → 결제 REFUNDED, 홀딩 RELEASED (결제 담당 구현 예정, 지금은 받는 코드 없음) | 이벤트, 별도 Tx |
@@ -82,7 +83,7 @@ X-Internal-Key: <INTERNAL_API_KEY 값>
 | 판매자 철회 승인 | member | `OrderApi.hasActiveSales(sellerId)` · `SettlementApi.getUnsettledAmount(sellerId)` 확인 → 판매자 WITHDRAWN (상품은 철회 요청 때 이미 중지) | 동기 조회 (조회 실패 시 503) |
 | 판매자 철회 거절 | member | 판매자 APPROVED로 되돌림 → `SellerWithdrawalRejectedEvent` → (market) 철회로 중지된 상품만 판매 중으로 | 이벤트 |
 | 관리자 제재 | member | 판매자 SANCTIONED → `SellerSanctionedEvent` → (market) 판매 중 상품 STOPPED · (settlement) 지급 전 정산서 HOLD | 이벤트 |
-| 회원 탈퇴 | member | 판매자 상태가 PENDING·APPROVED·WITHDRAW_REQUESTED면 거절(SELLER_ACTIVE) → `OrderApi.hasActiveOrders` · `PaymentApi.getWallet`(잔액 0) · `PaymentApi.hasPendingTopups`(READY·PROCESSING·CANCELING 충전 건) · 판매자 정보가 있으면 상태와 무관하게 `OrderApi.hasActiveSales` · `SettlementApi.getUnsettledAmount` | 동기 조회 (조회 실패 시 503, 지갑이 없으면 잔액 0) |
+| 회원 탈퇴 | member | 판매자 상태가 PENDING·APPROVED·WITHDRAW_REQUESTED면 거절(SELLER_ACTIVE) → `OrderApi.hasActiveOrders` · `PaymentApi.getWallet`(잔액 0) · `PaymentApi.hasPendingTopups`(READY·PROCESSING·CANCELING·METHOD_CANCELING 충전 건) · 판매자 정보가 있으면 상태와 무관하게 `OrderApi.hasActiveSales` · `SettlementApi.getUnsettledAmount` | 동기 조회 (조회 실패 시 503, 지갑이 없으면 잔액 0) |
 | 충전 준비·승인, 주문 생성·결제 | payment, order | `MemberApi.checkActiveMember(memberId)`: 탈퇴한 회원이면 401 (탈퇴 후 남은 Access Token 차단) | 동기 조회 |
 | 관리자 회원 상세 | member | `PaymentApi.getWallet` · `OrderApi.getRecentOrders(memberId, 5)` | 동기 조회 (조회 실패 시 해당 영역만 null) |
 | 관리자 결제·충전 조회 | payment | `MemberApi.findMemberByEmail`(이메일 검색) · `MemberApi.getMembers`(이메일 표시) | 동기 조회 |
@@ -372,10 +373,24 @@ public record WishAddedEvent(Long memberId, Long productId) implements DomainEve
 
 /** 구매자가 찜을 해제함. 찜하지 않은 상품을 해제하면 발행하지 않는다 */
 public record WishRemovedEvent(Long memberId, Long productId) implements DomainEvent { }  // aggregateType PRODUCT, aggregateId productId
+
+/** 상품의 내용이나 판매 상태가 바뀜(등록·수정·삭제·판매 중지·중지 해제). 바뀐 부분이 아니라 상품의 지금 상태 전체를 담는다 */
+public record ProductChangedEvent(
+        Long productId, String name, String description,
+        String categoryName,      // 소분류 이름
+        boolean beauty,           // 뷰티 대분류 상품인지
+        String ingredientsText,   // 전성분 원문. 뷰티가 아니거나 아직 안 넣었으면 null
+        long price,               // 정가
+        String thumbnailUrl,      // 없으면 null
+        boolean onSale            // 판매 중이고 카테고리 사용 중. 삭제·판매 중지면 false
+) implements DomainEvent { }      // aggregateType PRODUCT, aggregateId productId
 ```
 
 - 찜 추가·해제와 같은 트랜잭션에서 outbox에 저장하고, 릴레이가 Kafka 토픽 `product.events`로 발행한다(키 `productId`, 같은 상품의 찜 이벤트는 순서대로 전달된다).
 - 아직 받는 쪽은 없다. 상품 검색 색인(ES)의 찜 수 반영에 쓸 예정이다(TRSS-167).
+- `ProductChangedEvent`는 상품 등록·수정·삭제, 관리자 판매 중지, 판매 중지 요청 승인, 판매자 철회·제재로 인한 전체 중지와 철회 거절로 인한 재개 때 같은 트랜잭션에서 outbox에 저장한다. 재고·옵션·할인만 바뀌면 발행하지 않는다.
+  받는 쪽은 AI 추천(ai-service, TRSS-243)이고, 같은 상품의 더 오래된 이벤트(봉투 `occurredAt`)는 버린다.
+  관리자 API `POST /api/v1/admin/products/change-events`가 판매 중인 상품 전체를 다시 발행한다(AI 서비스를 처음 띄울 때).
 
 ## 3.1 review
 
@@ -551,7 +566,7 @@ public interface PaymentApi {
     /** 잔액과 홀딩 중 금액. 지갑이 없으면 404 WALLET_NOT_FOUND */
     WalletSummaryDto getWallet(Long memberId);
 
-    /** 결과가 정해지지 않은 충전 건(READY·PROCESSING·CANCELING)이 있는지. 회원 탈퇴 검사용 (반영 전이거나 취소가 거절되면 잔액이 다시 들어올 수 있음) */
+    /** 결과가 정해지지 않은 충전 건(READY·PROCESSING·CANCELING·METHOD_CANCELING)이 있는지. 회원 탈퇴 검사용 (반영 전이거나 취소가 거절되면 잔액이 다시 들어올 수 있음) */
     boolean hasPendingTopups(Long memberId);
 
     /**

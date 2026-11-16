@@ -308,7 +308,8 @@ public class ProductSupport {
                 productImageSupport.getThumbnail(productId), productImageSupport.getDetailImages(productId),
                 product.getOptionNames(), stocks.stream().map(SellerOptionDto::from).toList(),
                 productDiscountSupport.getPendingDiscounts(productId, now).stream()
-                        .map(discount -> SellerDiscountDto.from(discount, now)).toList());
+                        .map(discount -> SellerDiscountDto.from(discount, now)).toList(),
+                product.getIngredientsText());
     }
 
     /** 옵션 조합 하나를 만들고 초기 재고와 재고 이력 INIT을 남긴다. 값이 옵션 이름과 맞지 않거나 초기 재고가 범위 밖이면 예외. */

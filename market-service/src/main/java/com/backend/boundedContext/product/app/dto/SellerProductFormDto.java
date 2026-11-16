@@ -10,6 +10,7 @@ import java.util.List;
  * @param optionNames  옵션 이름 (순서대로). 옵션이 없는 상품이면 빈 목록
  * @param options      삭제되지 않은 옵션 조합 (옵션 ID 순)
  * @param discounts    진행 중·예약 할인 (시작 시각 순, 끝난 할인은 빠짐)
+ * @param ingredientsText 전성분. 뷰티가 아니거나 아직 넣지 않았으면 null
  */
 public record SellerProductFormDto(
         Long productId,
@@ -22,6 +23,7 @@ public record SellerProductFormDto(
         List<ProductImageDto> detailImages,
         List<String> optionNames,
         List<SellerOptionDto> options,
-        List<SellerDiscountDto> discounts
+        List<SellerDiscountDto> discounts,
+        String ingredientsText
 ) {
 }

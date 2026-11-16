@@ -240,7 +240,7 @@ class ProductFacadeDiscountTest {
 
         assertCode(() -> modifyPrice(productId, 25_000), "409-PRICE_LOCKED_BY_DISCOUNT");
         modifyPrice(productId, PRICE);
-        productFacade.modifyProduct(MEMBER_ID, productId, "새 이름", null, null, null, null, null, List.of());
+        productFacade.modifyProduct(MEMBER_ID, productId, "새 이름", null, null, null, null, null, List.of(), null);
 
         productFacade.deleteDiscount(MEMBER_ID, productId, discountId);
         modifyPrice(productId, 25_000);
@@ -281,7 +281,7 @@ class ProductFacadeDiscountTest {
     private Long create() {
         return productFacade.createProduct(MEMBER_ID, skincareId(), NAME, "설명", PRICE, List.of("색상"),
                 List.of(new ProductOptionSpec(List.of("흰색"), 0, 10), new ProductOptionSpec(List.of("검정"), 3_000, 10)),
-                THUMBNAIL, List.of());
+                THUMBNAIL, List.of(), "정제수, 나이아신아마이드");
     }
 
     /** 시작 전으로 등록한 뒤 시작 시각을 1시간 전으로 옮겨 진행 중인 할인을 만든다 */
@@ -295,7 +295,7 @@ class ProductFacadeDiscountTest {
     }
 
     private void modifyPrice(Long productId, long price) {
-        productFacade.modifyProduct(MEMBER_ID, productId, null, price, null, null, null, null, List.of());
+        productFacade.modifyProduct(MEMBER_ID, productId, null, price, null, null, null, null, List.of(), null);
     }
 
     private List<ProductOption> options(Long productId) {

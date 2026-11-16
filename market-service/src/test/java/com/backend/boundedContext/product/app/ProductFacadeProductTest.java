@@ -1,6 +1,7 @@
 package com.backend.boundedContext.product.app;
 
 import com.backend.boundedContext.product.app.dto.CategoryTreeDto;
+import com.backend.boundedContext.product.app.dto.ProductOptionSpec;
 import com.backend.boundedContext.product.domain.OptionStock;
 import com.backend.boundedContext.product.domain.Product;
 import com.backend.boundedContext.product.domain.ProductOption;
@@ -17,6 +18,7 @@ import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
 import com.backend.shared.member.out.MemberApi;
 import com.backend.shared.order.out.OrderApi;
+import jakarta.persistence.EntityManager;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.Accessors;
@@ -60,12 +62,50 @@ class ProductFacadeProductTest {
     @Autowired
     private StockHistoryRepository stockHistoryRepository;
 
+    @Autowired
+    private EntityManager entityManager;
+
     @MockitoBean
     private MemberApi memberApi;
 
     /** 주문 쪽 구현과 분리하고, 다른 상품 통합 테스트와 mock 조합을 맞춰 테스트 컨텍스트(DB 연결 풀)를 같이 쓴다 */
     @MockitoBean
     private OrderApi orderApi;
+
+    @Test
+    @DisplayName("전성분: 판매자 등록으로 넣은 전성분이 DB(ingredients_text)에 저장되고 수정 폼·구매자 상세에 나온다")
+    void createProductWithIngredients() {
+        givenApprovedSeller();
+
+        Long productId = productFacade.createProduct(MEMBER_ID, skincareId(), "수분 크림", "촉촉한 크림", 25_000,
+                List.of(), List.of(ProductOptionSpec.single(30)), THUMBNAIL, List.of(), "정제수, 나이아신아마이드");
+        productRepository.flush();
+
+        assertThat(productFacade.getSellerProductForm(MEMBER_ID, productId).ingredientsText()).isEqualTo("정제수, 나이아신아마이드");
+        assertThat(productFacade.getProductDetail(productId).ingredientsText()).isEqualTo("정제수, 나이아신아마이드");
+    }
+
+    @Test
+    @DisplayName("전성분: 영속성 컨텍스트에 대분류가 없어 부모가 지연 로딩 프록시여도 뷰티로 판단해 전성분 없는 등록·수정은 400이다")
+    void ingredientsRequiredWhenParentCategoryIsLazyProxy() {
+        givenApprovedSeller();
+        Long skincareId = skincareId();
+        Long productId = productFacade.createProduct(MEMBER_ID, skincareId, "수분 크림", "촉촉한 크림", 25_000,
+                List.of(), List.of(ProductOptionSpec.single(30)), THUMBNAIL, List.of(), "정제수");
+        entityManager.flush();
+        entityManager.clear();   // 카테고리 트리 조회로 올라온 대분류를 비워 parent가 프록시가 되게 한다
+
+        assertThatThrownBy(() -> productFacade.createProduct(MEMBER_ID, skincareId, "토너", "설명", 15_000,
+                List.of(), List.of(ProductOptionSpec.single(10)), THUMBNAIL, List.of(), null))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("400-INGREDIENTS_REQUIRED");
+
+        entityManager.clear();
+        productFacade.modifyProduct(MEMBER_ID, productId, "새 이름", null, null, null, null, null, List.of(), null);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(productRepository.findById(productId).orElseThrow().getIngredientsText()).isEqualTo("정제수");
+    }
 
     @Test
     @DisplayName("등록하면 상품, 기본 옵션, INIT 재고 이력이 함께 저장된다")

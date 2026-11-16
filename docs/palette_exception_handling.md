@@ -214,6 +214,7 @@ if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
   - 401·`INVALID_API_KEY`·`UNAUTHORIZED_KEY`(키 오류) → 충전 FAILED_SYSTEM_ERROR, `502-EXTERNAL_SERVICE_ERROR`
   - 그 밖의 4xx(카드 거절 등) → 충전 FAILED_PG_DECLINED, `400-TOPUP_PAYMENT_DECLINED`(`data.code`·`message`)
   - 5xx·`ALREADY_PROCESSED_PAYMENT`·승인 후 DB 반영 실패 → 충전 PROCESSING, `200-1` + `data.status: "PROCESSING"`
+  - 승인됐지만 허용하지 않은 결제 수단(카드·간편결제·계좌이체 외) → 예치금에 반영하지 않고 토스 전액 취소, `400-TOPUP_METHOD_NOT_ALLOWED`. 취소 결과를 모르거나 실패하면 충전 METHOD_CANCELING으로 두고 대사 스케줄러가 다시 취소(`TOPUP-{id}-METHOD-CANCEL-{회차}`, 첫 시도 포함 최대 3회. 3회 모두 실패하면 ERROR 로그 한 번 후 사람이 확인)
   - 연결 5초·응답 30초 제한 (`custom.toss`)
 - 토스 충전 취소의 오류 처리 (취소 시작 때 잔액을 먼저 빼고, 확정 실패면 되돌린다):
   - 401·`INVALID_API_KEY`·`UNAUTHORIZED_KEY`(키 오류) → 잔액·남은 금액 되돌림(원장 `CHARGE_CANCEL_RESTORE`), `502-EXTERNAL_SERVICE_ERROR`
@@ -231,6 +232,8 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 - **건별로 잡는다.** 한 건의 실패가 전체 작업을 멈추지 않게 건마다 try-catch하고, 실패 건은 로그를 남긴 뒤 다음 실행에서 다시 처리한다.
 - **실패 사유를 저장한다.** 정산서 `last_fail_reason`, 충전·결제 `fail_reason`(환불 `fail_reason`은 환불 구현 때) 등에 남겨 관리자 화면에서 보이게 한다.
 - **재시도할 실패와 아닌 실패를 나눈다.** 일시 장애(타임아웃, 락 경합)는 재시도하고, 데이터 문제(금액 불일치 등)는 바로 `FAILED`·`MANUAL_REQUIRED`로 둔다.
+- **충전 대사는 밀린 건을 한 번에 처리한다.** PROCESSING·CANCELING·METHOD_CANCELING 대사는 `topupReconcileBatchSize`(100)건씩 가져오고, 배치를 다 채우면 같은 실행에서 마지막 건 다음부터 이어서 가져온다(수정 시각·ID 순). 토스 조회 결과를 모르는 건(응답 없음 등)이 나오면 토스 장애일 수 있어 그 배치까지만 처리한다. 장애 중 한 번 실행이 길어져 같은 스케줄러 스레드를 쓰는 다른 작업이 밀리지 않게 하기 위함이다.
+- **오래 남은 충전 건은 알린다.** 결과가 정해지지 않은 상태(PROCESSING·CANCELING·METHOD_CANCELING)로 `topupStuckWarnMinutes`(60분)가 넘게 남은 충전 건은 대사 간격마다 상태별로 ERROR 로그 한 줄(건수·가장 작은 충전 건 ID)을 남긴다. Grafana가 같은 알림을 1시간마다 다시 보내므로, 남아 있는 동안 1시간마다 알리고 정리되면 멈춘다. 이런 건이 있으면 회원 탈퇴가 막힌다(`PENDING_TOPUPS`).
 
 ## 7. Spring Security를 추가할 때
 
@@ -289,6 +292,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 400-CATEGORY_DEPTH_EXCEEDED | 소분류 아래에 카테고리 추가 |
 | | 400-CATEGORY_NOT_EDITABLE | 대분류 수정 |
 | | 400-CATEGORY_NOT_SELECTABLE | 상품 등록·수정 시 사용 중인 소분류가 아닌 카테고리 선택 |
+| | 400-INGREDIENTS_REQUIRED | 뷰티 소분류 상품을 전성분 없이(또는 공백으로) 등록·수정. 전성분이 없는 기존 뷰티 상품을 전성분 없이 수정하거나, 의류에서 뷰티로 옮기며 전성분을 안 보낸 경우 포함 |
 | order (은정) | 400-SELF_PURCHASE_NOT_ALLOWED | 본인 상품 담기·주문 |
 | | 400-STOCK_EXCEEDED | 장바구니 수량 > 재고 |
 | | 409-PRICE_CHANGED | 예상 결제 금액(쿠폰 할인 후) ≠ 실제 결제 금액 (`data.currentAmount`) |
@@ -311,6 +315,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 400-TOPUP_PAYMENT_DECLINED | 토스가 결제를 승인하지 않음(카드 거절·한도 초과 등) (`data.code`·`message`: 토스 오류 코드·메시지) |
 | | 409-TOPUP_ALREADY_PROCESSED | READY가 아닌 충전 건(승인 중·완료·실패·만료)에 승인·실패 기록 요청, 이미 쓰인 결제키 |
 | | 409-TOPUP_NOT_CANCELABLE | 승인 완료(DONE)가 아니거나 취소할 남은 금액이 없는 충전 건에 취소 요청 |
+| | 400-TOPUP_METHOD_NOT_ALLOWED | 승인된 결제가 충전에 허용하지 않은 결제 수단(카드·간편결제·계좌이체 외). 예치금에 반영하지 않고 결제를 자동 취소 |
 | | 400-TOPUP_CANCEL_DECLINED | 토스가 충전 취소를 거절함(환불 기간 지남·부분 취소 불가 등). 잔액은 되돌림 (`data.code`·`message`: 토스 오류 코드·메시지) |
 | | 409-PAYMENT_ALREADY_PAID | 다른 멱등 키로 이미 PAID인 주문을 결제 (내부 `PaymentApi.pay`) |
 | | 404-HOLDING_NOT_FOUND / 409-HOLDING_INSUFFICIENT / 409-TRANSFER_AMOUNT_MISMATCH | 정산 지급(`PaymentApi.transfer`)에서 홀딩 없음 / 홀딩 남은 금액 부족 / 주문별 금액 합 ≠ 지급액 + 수수료 |
@@ -359,6 +364,8 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 404-INFLUENCER_NOT_FOUND | 협약 요청 대상 인플루언서가 없음 |
 | | 409-INFLUENCER_STATE_INVALID | 승인되지 않은 인플루언서에게 협약 요청 |
 | | 403-INFLUENCER_NOT_APPROVED | 승인된 인플루언서가 아닌 회원이 인플루언서 API 호출 |
+| recommend (은정, ai) | 404-SURVEY_NOT_FOUND | 뷰티 설문을 아직 하지 않은 회원의 프로필 조회 |
+| | 400-SURVEY_ANSWER_INVALID | 설문 답이 칸에 맞지 않음: 선호 성분 칸에 피하는 성분 코드(또는 반대), 같은 코드 중복, 고민 4개 이상(도메인 검사. 요청 검증에서는 400-VALIDATION_FAILED). 모르는 코드는 400-INVALID_REQUEST |
 
 
 ## 9. 로그 규칙
@@ -406,6 +413,6 @@ public RsData<PayResponse> pay(...) { ... }
 | 실패 응답을 `RsData`로 통일, 405·415 처리 | 완료 |
 | 성공 응답 HTTP 200 통일 | 완료 (별도 코드 없음) |
 | Security `AuthenticationEntryPoint`·`AccessDeniedHandler` | 완료 (`JwtAuthenticationEntryPoint`·`JwtAccessDeniedHandler`) |
-| 토스 연동 예외(`TossPaymentException`·`TossTimeoutException`)·충전 대사 스케줄러(승인·취소) | 완료 |
+| 토스 연동 예외(`TossPaymentException`·`TossTimeoutException`)·충전 대사 스케줄러(승인·취소·허용하지 않은 결제 수단 취소) | 완료 |
 | 요청별 `traceId`(MDC, `X-Trace-Id` 헤더) | 미구현 |
 | 운영 프로필에서 `show-sql` 끄기 | 미구현 |

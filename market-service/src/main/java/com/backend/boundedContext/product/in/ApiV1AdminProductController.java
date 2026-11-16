@@ -4,6 +4,8 @@ import com.backend.boundedContext.product.app.ProductFacade;
 import com.backend.boundedContext.product.app.dto.AdminProductSummaryDto;
 import com.backend.boundedContext.product.domain.AdminProductDisplayStatus;
 import com.backend.boundedContext.product.in.dto.ProductReasonRequest;
+import com.backend.boundedContext.product.in.dto.ProductChangeEventsPublishResponse;
+import com.backend.boundedContext.product.in.dto.SearchIndexRebuildResponse;
 import com.backend.global.page.PageResponse;
 import com.backend.global.rsData.RsData;
 import io.swagger.v3.oas.annotations.Operation;
@@ -58,5 +60,28 @@ public class ApiV1AdminProductController {
     public RsData<Void> stopProduct(@PathVariable Long productId, @Valid @RequestBody ProductReasonRequest request) {
         productFacade.stopProductByAdmin(productId, request.reason());
         return RsData.of("200-1", "상품 판매를 중지했습니다.");
+    }
+
+    @Operation(
+            summary = "상품 변경 이벤트 전체 재발행",
+            description = "판매 중인 상품 전체의 변경 이벤트(ProductChangedEvent)를 다시 발행합니다. 발행한 상품 수를 줍니다. "
+                    + "AI 추천 서비스를 처음 띄울 때, AI 쪽 상품 사본을 비웠을 때 한 번 부릅니다. "
+                    + "같은 상품을 여러 번 받아도 AI 서비스는 마지막 값으로 덮어쓰므로 다시 불러도 됩니다.")
+    @PostMapping("/change-events")
+    public RsData<ProductChangeEventsPublishResponse> publishProductChangeEvents() {
+        return RsData.of("200-1", "상품 변경 이벤트를 발행했습니다.",
+                new ProductChangeEventsPublishResponse(productFacade.publishAllProductChanges()));
+    }
+
+    @Operation(
+            summary = "상품 검색 전체 재색인",
+            description = "판매 중인 상품 전체를 새 검색 인덱스에 색인한 뒤 검색에 쓰는 인덱스를 바꿉니다. 색인한 상품 수를 줍니다. "
+                    + "검색을 처음 켤 때, 색인 매핑을 바꿨을 때, ES 장애 뒤 색인이 어긋났을 때 부릅니다. "
+                    + "재색인 중에 바뀐 상품은 반영되지 않을 수 있으므로 상품 변경이 적은 시간에 부릅니다. "
+                    + "DB 검색 설정(engine=jpa)이면 409-SEARCH_INDEX_DISABLED입니다.")
+    @PostMapping("/search-index/rebuild")
+    public RsData<SearchIndexRebuildResponse> rebuildSearchIndex() {
+        return RsData.of("200-1", "상품 검색 색인을 다시 만들었습니다.",
+                new SearchIndexRebuildResponse(productFacade.rebuildSearchIndex()));
     }
 }
