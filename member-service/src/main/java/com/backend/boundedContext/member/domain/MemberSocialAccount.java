@@ -40,13 +40,23 @@ public class MemberSocialAccount extends BaseIdAndTime {
     @Column(nullable = false, length = 100)
     private String providerUserId;
 
-    private MemberSocialAccount(Member member, SocialProvider provider, String providerUserId) {
+    // 제공자 프로필 이미지 주소. 동의하지 않았거나 기본 이미지면 null. 연결할 때와 소셜 로그인할 때마다 갱신함
+    @Column(length = 500)
+    private String profileImageUrl;
+
+    private MemberSocialAccount(Member member, SocialProvider provider, String providerUserId, String profileImageUrl) {
         this.member = member;
         this.provider = provider;
         this.providerUserId = providerUserId;
+        this.profileImageUrl = profileImageUrl;
     }
 
-    public static MemberSocialAccount link(Member member, SocialProvider provider, String providerUserId) {
-        return new MemberSocialAccount(member, provider, providerUserId);
+    public static MemberSocialAccount link(Member member, SocialProvider provider, String providerUserId, String profileImageUrl) {
+        return new MemberSocialAccount(member, provider, providerUserId, profileImageUrl);
+    }
+
+    // 제공자 쪽 최신 이미지로 바꿈. 동의를 철회했거나 기본 이미지로 바꿨으면 null로 지워짐
+    public void updateProfileImage(String profileImageUrl) {
+        this.profileImageUrl = profileImageUrl;
     }
 }
