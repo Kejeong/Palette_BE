@@ -28,6 +28,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.backend.boundedContext.payment.app.dto.TopupPrepareDto;
 import com.backend.boundedContext.payment.app.dto.TopupReconcileResult;
+import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Topup;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
@@ -238,7 +239,7 @@ class TopupReconcileIntegrationTest {
 
     // 충전 준비 후 승인 시작(Tx1)까지 진행해 PROCESSING 건을 만든다
     private Processing processing() {
-        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, AMOUNT);
+        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, AMOUNT, PgProvider.TOSS);
         paymentTopupConfirmProcessor.start(memberId, prepared.orderId(), "pk_reconcile_" + prepared.topupId(), AMOUNT);
         return new Processing(prepared.topupId(), prepared.orderId(), "pk_reconcile_" + prepared.topupId());
     }

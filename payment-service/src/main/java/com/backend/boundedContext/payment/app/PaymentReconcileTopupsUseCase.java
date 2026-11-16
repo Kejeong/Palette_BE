@@ -52,7 +52,7 @@ public class PaymentReconcileTopupsUseCase {
     private TopupReconcileOutcome reconcile(TopupReconcileTarget target) {
         PgPaymentResult result;
         try {
-            result = topupGateways.get(target.pgProvider()).getPayment(target.paymentKey());
+            result = topupGateways.get(target.pgProvider()).getPayment(target.payment());
         } catch (PgPaymentNotFoundException e) {
             paymentTopupConfirmProcessor.fail(target.topupId(), TopupStatus.FAILED_SYSTEM_ERROR, "PG에 결제 내역이 없어 승인되지 않은 것으로 처리했습니다.");
             return TopupReconcileOutcome.FAILED;

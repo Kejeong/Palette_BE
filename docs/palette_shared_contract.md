@@ -69,7 +69,7 @@ X-Internal-Key: <INTERNAL_API_KEY 값>
 | 결제 | order | 판매 가능·만료·예약 쿠폰 확인 → 주문 PAYING(멱등키·시작 시각) 커밋 → `PaymentApi.pay(command)`(HTTP): 배송비는 구매자 지갑 → 플랫폼 지갑(SHIPPING_FEE), 나머지는 홀딩(PAYMENT), 장바구니 쿠폰 지원금은 플랫폼 지갑 → 홀딩(COUPON_SUBSIDY) → 주문을 다시 잠가 아직 PAYING이고 같은 키일 때만 결과 반영(PAID: 쿠폰 사용 처리·장바구니 삭제·`OrderPaidEvent` / FAILED_*: PAYMENT_FAILED). 결과를 모르면 PAYING으로 두고 재확인 스케줄러가 같은 키로 `pay`를 다시 불러 정리 (9.1) | 동기 HTTP, Tx 2개 |
 | 결제 후 배송 생성 | order | 결제 성공 + 배송지가 있는 주문이면 `OrderPaidEvent` → (커밋 뒤 Kafka `order.events`) delivery가 배송(READY) 생성, 알림이 구매자에게 주문 완료 알림 | 이벤트, 별도 Tx (주문 PAID 반영과 같은 트랜잭션에서 outbox에 저장) |
 | 배송 시작 | delivery | 물류 담당 송장 등록 → 배송 SHIPPED → `DeliveryShippedEvent` → (Kafka `delivery.events`) 알림이 구매자에게 배송 시작 알림 | 이벤트, 별도 Tx (송장 수정은 이벤트 없음) |
-| 배송 완료 | delivery | Delivery Tracker로 배송 완료 확인 → 배송 DELIVERED → `DeliveryCompletedEvent` → (Kafka `delivery.events`) market이 주문 `deliveredAt` 기록, 알림이 구매자에게 배송 완료 알림 | 이벤트, 별도 Tx |
+| 배송 완료 | delivery | Delivery Tracker로 배송 완료 확인(또는 관리자 수동 완료 `POST /api/v1/admin/deliveries/{deliveryId}/complete`, 같은 이벤트) → 배송 DELIVERED → `DeliveryCompletedEvent` → (Kafka `delivery.events`) market이 주문 `deliveredAt` 기록, 알림이 구매자에게 배송 완료 알림 | 이벤트, 별도 Tx |
 | 주문 상세의 배송 정보 | order | `DeliveryApi.findByOrderId(orderId)` (배송지 있고 PAID 이후 주문만) | 동기 조회 (조회 실패 시 주문 상세는 200 + `deliveryUnavailable: true`) |
 | 주문 상세의 항목 이미지 | order | `ProductApi.getOptions(optionIds)` → 항목별 상품의 현재 대표 이미지(`items[].thumbnailUrl`, 판매 중지·삭제 상품 포함) (TRSS-242) | 동기 조회 (조회 실패 시 주문 상세는 200 + 이미지 null) |
 | 주문 취소·15분 만료 | order | `ProductApi.lockProductsForOrderChange(productIds)` → 주문 잠금·상태 다시 확인 → 주문 CANCELED → `ProductApi.restoreStock(ORDER_RESTORE)` | 동기, 같은 Tx |
@@ -530,7 +530,7 @@ public interface CouponApi {
 ```java
 package com.backend.shared.order.event;
 
-/** 결제 완료. 배송지가 있는 주문만 발행한다. 배송 컨텍스트가 배송(READY)을 만든다. aggregate: ORDER / orderId */
+/** 결제 완료. 배송지가 있는 주문만 발행한다(새 주문은 생성 요청에서 배송지가 필수라 항상 있다. 배송지 없이 만든 예전 주문만 빠진다). 배송 컨텍스트가 배송(READY)을 만든다. aggregate: ORDER / orderId */
 public record OrderPaidEvent(Long orderId, String orderNumber, Long buyerId, LocalDateTime paidAt,
                              ShippingAddressDto shippingAddress, List<PaidOrderItemDto> items) implements DomainEvent { }
 
@@ -560,10 +560,12 @@ package com.backend.shared.order.dto;
  *   하위 호환: 이 필드가 없는 이전 형식 메시지(outbox PENDING·Kafka 보관분)는 0으로 읽는다.
  *   (그래서 Long으로 받고 값이 없으면 0으로 본다. long으로 하면 값이 빠진 JSON을 읽을 때 오류가 난다.)
  *   6개 인자 생성자는 할인 0으로 채운다.
+ * productName, optionName = 주문할 때의 상품명·옵션명 스냅샷(주문 항목 product_name, option_name). 정산 내역·엑셀 표시용.
+ *   하위 호환: 이 필드가 없는 이전 형식 메시지는 null로 읽는다. 6·7개 인자 생성자는 이름을 null로 채운다.
  */
 public record ConfirmedOrderItemDto(Long orderItemId, Long productId, Long sellerId,
                                     long unitPrice, int quantity, long lineAmount,
-                                    Long productCouponDiscount) { }
+                                    Long productCouponDiscount, String productName, String optionName) { }
 
 /** 주문 배송지 스냅샷 (주문할 때 받은 값 그대로). 로그에 남기지 않는다 */
 public record ShippingAddressDto(String receiverName, String receiverPhone, String zipCode,
@@ -820,7 +822,7 @@ public record DeliveryCompletedEvent(Long deliveryId, Long orderId, Long buyerId
 | 이벤트 | 발행 시점 | 받는 쪽 |
 | --- | --- | --- |
 | `DeliveryShippedEvent` | 물류 담당이 송장을 등록해 배송이 READY → SHIPPED가 될 때 (`DeliveryShipUseCase`). **송장 수정(`changeTracking`)에서는 발행하지 않는다** | 알림(groupId `notification`) |
-| `DeliveryCompletedEvent` | 확인 워커가 Delivery Tracker 조회로 배송 완료를 확인해 SHIPPED → DELIVERED가 될 때 (`DeliveryCheckTrackingUseCase`) | market(groupId `market`), 알림(groupId `notification`) |
+| `DeliveryCompletedEvent` | 확인 워커가 Delivery Tracker 조회로 배송 완료를 확인해 SHIPPED → DELIVERED가 될 때 (`DeliveryCheckTrackingUseCase`). 관리자 수동 완료(`DeliveryCompleteManuallyUseCase`)도 같은 이벤트를 낸다. 둘 다 배송 행을 잠근 뒤 SHIPPED일 때만 완료하므로 한 배송에 한 번만 나간다 | market(groupId `market`), 알림(groupId `notification`) |
 
 필드 설명
 
@@ -832,7 +834,7 @@ public record DeliveryCompletedEvent(Long deliveryId, Long orderId, Long buyerId
 | `carrierName` | Shipped | 택배사 표시 이름(예: "CJ대한통운"). `DeliveryDto.carrierName`과 같은 값 |
 | `trackingNumber` | Shipped | 송장번호. 하이픈·공백을 지운 정규화 값(숫자만) |
 | `shippedAt` | Shipped | 송장 등록 시각(KST, `LocalDateTime`) |
-| `deliveredAt` | Completed | 배송 완료 시각(KST). 택배사 이벤트 시각, 없거나 미래면 확인 시각 |
+| `deliveredAt` | Completed | 배송 완료 시각(KST). 택배사 이벤트 시각, 없거나 미래면 확인 시각. 수동 완료는 관리자가 입력한 시각 |
 
 - 배송 상태 변경과 같은 트랜잭션에서 outbox에 저장하고, 릴레이가 커밋 뒤 Kafka 토픽 `delivery.events`로 발행한다(키 `deliveryId`, 헤더 `eventType`). 송장 등록이 실패하면(READY가 아님·송장 중복·형식 오류) 이벤트도 남지 않는다.
 - 같은 배송 건의 이벤트는 키가 같아 보낸 순서(시작 → 완료)대로 받는다.

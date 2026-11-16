@@ -210,6 +210,62 @@ class DeliveryTest {
         assertThat(shipped).isEqualTo(new DeliveryDto(5L, DeliveryStatus.SHIPPED, "우체국택배", "6896123456789", NOW, null));
     }
 
+    @Test
+    @DisplayName("completeManually: READY에서는 DELIVERY_STATE_INVALID")
+    void completeManually_ready() {
+        Delivery delivery = Delivery.create(paidEvent(10L, 100L));
+
+        assertStateInvalid(() -> delivery.completeManually(NOW, "수령 확인", NOW));
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.READY);
+        assertThat(delivery.getManualCompletionReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("completeManually: SHIPPED → DELIVERED, 배송 완료 시각·사유·처리 시각을 기록하고 확인 요청을 지운다")
+    void completeManually_shipped() {
+        Delivery delivery = Delivery.create(paidEvent(10L, 100L));
+        delivery.ship(Courier.CJ, "123456789012", NOW);
+        ReflectionTestUtils.setField(delivery, "trackingCheckRequestedAt", NOW.plusHours(1));
+        LocalDateTime deliveredAt = NOW.plusDays(1);
+        LocalDateTime processedAt = NOW.plusDays(3);
+
+        delivery.completeManually(deliveredAt, "택배사 조회가 멈춰 구매자 수령을 확인함", processedAt);
+
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.DELIVERED);
+        assertThat(delivery.getDeliveredAt()).isEqualTo(deliveredAt);
+        assertThat(delivery.getManualCompletionReason()).isEqualTo("택배사 조회가 멈춰 구매자 수령을 확인함");
+        assertThat(delivery.getManuallyCompletedAt()).isEqualTo(processedAt);
+        assertThat(delivery.getTrackingCheckRequestedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("completeManually: 발송 시각과 같은 시각은 통과, 발송 시각보다 이르면 400 DELIVERY_DELIVERED_AT_INVALID")
+    void completeManually_beforeShipped() {
+        Delivery early = Delivery.create(paidEvent(10L, 100L));
+        early.ship(Courier.CJ, "123456789012", NOW);
+
+        assertThatThrownBy(() -> early.completeManually(NOW.minusSeconds(1), "수령 확인", NOW.plusDays(1)))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("400-DELIVERY_DELIVERED_AT_INVALID");
+        assertThat(early.getStatus()).isEqualTo(DeliveryStatus.SHIPPED);
+
+        early.completeManually(NOW, "수령 확인", NOW.plusDays(1));
+        assertThat(early.getStatus()).isEqualTo(DeliveryStatus.DELIVERED);
+    }
+
+    @Test
+    @DisplayName("completeManually: 이미 DELIVERED면 DELIVERY_STATE_INVALID, 기존 완료 기록은 그대로")
+    void completeManually_alreadyDelivered() {
+        Delivery delivery = Delivery.create(paidEvent(10L, 100L));
+        delivery.ship(Courier.CJ, "123456789012", NOW);
+        delivery.complete(NOW.plusDays(1));
+
+        assertStateInvalid(() -> delivery.completeManually(NOW.plusDays(2), "수령 확인", NOW.plusDays(3)));
+        assertThat(delivery.getDeliveredAt()).isEqualTo(NOW.plusDays(1));
+        assertThat(delivery.getManualCompletionReason()).isNull();
+        assertThat(delivery.getManuallyCompletedAt()).isNull();
+    }
+
     private static void assertStateInvalid(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
         assertThatThrownBy(call)
                 .isInstanceOf(DomainException.class)

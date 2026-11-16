@@ -38,9 +38,24 @@ public class SettlementCandidate extends BaseIdAndTime {
     @Column(nullable = false, updatable = false)
     private Long sellerId;
 
-    /** 판매 금액 = 주문 항목 금액(단가 × 수량) */
+    /**
+     * 판매 금액 = 주문 항목 금액(단가 × 수량) - 상품 쿠폰 할인액
+     * 상품 쿠폰은 판매자 부담이라 판매가에서 뺀다. 장바구니 쿠폰은 플랫폼 부담(결제 지원금)이라 빼지 않는다
+     */
     @Column(nullable = false, updatable = false)
     private long salePrice;
+
+    /** 판매가에서 뺀 상품 쿠폰 할인액(판매자 부담, 없으면 0). 할인 전 금액 = salePrice + productCouponDiscount */
+    @Column(nullable = false, updatable = false)
+    private long productCouponDiscount;
+
+    /** 주문할 때의 상품명 스냅샷(정산 내역·엑셀 표시용). 이름이 실리기 전 구매 확정 이벤트로 만든 후보는 null */
+    @Column(length = 100, updatable = false)
+    private String productName;
+
+    /** 주문할 때의 옵션명 스냅샷. productName과 같이 이전 후보는 null */
+    @Column(length = 50, updatable = false)
+    private String optionName;
 
     /** 생성 당시 수수료율. 정책이 바뀌어도 과거 후보는 이 값으로 계산된 금액을 유지한다 */
     @Column(nullable = false, updatable = false)
@@ -73,12 +88,16 @@ public class SettlementCandidate extends BaseIdAndTime {
     @Column(length = 300)
     private String excludedReason;
 
-    private SettlementCandidate(Long orderId, Long orderItemId, Long sellerId, long salePrice, int feeRate,
+    private SettlementCandidate(Long orderId, Long orderItemId, Long sellerId, long salePrice,
+                                long productCouponDiscount, String productName, String optionName, int feeRate,
                                 LocalDateTime confirmedAt) {
         this.orderId = orderId;
         this.orderItemId = orderItemId;
         this.sellerId = sellerId;
         this.salePrice = salePrice;
+        this.productCouponDiscount = productCouponDiscount;
+        this.productName = productName;
+        this.optionName = optionName;
         this.feeRate = feeRate;
         this.fee = SettlementPolicy.calculateFee(salePrice, feeRate);
         this.payoutAmount = salePrice - this.fee;
@@ -92,10 +111,33 @@ public class SettlementCandidate extends BaseIdAndTime {
      */
     public static SettlementCandidate create(Long orderId, Long orderItemId, Long sellerId, long salePrice,
                                              int feeRate, LocalDateTime confirmedAt) {
+        return create(orderId, orderItemId, sellerId, salePrice, 0L, feeRate, confirmedAt);
+    }
+
+    /**
+     * 상품 쿠폰 할인이 있는 후보(이름 없음). salePrice는 할인 뒤 금액, productCouponDiscount는 뺀 할인액(기록용)
+     */
+    public static SettlementCandidate create(Long orderId, Long orderItemId, Long sellerId, long salePrice,
+                                             long productCouponDiscount, int feeRate, LocalDateTime confirmedAt) {
+        return create(orderId, orderItemId, sellerId, salePrice, productCouponDiscount, null, null, feeRate,
+                confirmedAt);
+    }
+
+    /**
+     * 구매 확정 항목으로 만드는 후보. salePrice는 할인 뒤 금액, productCouponDiscount는 뺀 할인액(기록용),
+     * productName·optionName은 주문할 때의 이름 스냅샷(없으면 null)
+     */
+    public static SettlementCandidate create(Long orderId, Long orderItemId, Long sellerId, long salePrice,
+                                             long productCouponDiscount, String productName, String optionName,
+                                             int feeRate, LocalDateTime confirmedAt) {
         if (orderId == null || orderItemId == null || sellerId == null || confirmedAt == null) {
             throw new IllegalArgumentException("정산 후보 필수 값이 비어 있습니다.");
         }
-        return new SettlementCandidate(orderId, orderItemId, sellerId, salePrice, feeRate, confirmedAt);
+        if (productCouponDiscount < 0) {
+            throw new IllegalArgumentException("상품 쿠폰 할인액은 0 이상이어야 합니다.");
+        }
+        return new SettlementCandidate(orderId, orderItemId, sellerId, salePrice, productCouponDiscount, productName,
+                optionName, feeRate, confirmedAt);
     }
 
     /** 정산서에 묶는다. READY 후보만 가능하다 */

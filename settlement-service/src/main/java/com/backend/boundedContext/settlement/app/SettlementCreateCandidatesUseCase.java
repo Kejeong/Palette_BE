@@ -28,7 +28,9 @@ public class SettlementCreateCandidatesUseCase {
     /**
      * 구매 확정된 주문 항목마다 정산 후보(READY)를 만든다
      *  같은 주문 항목이 다시 오면 건너뛴다(order_item_id로 먼저 확인, DB 유니크는 동시 요청 안전망)
-     *  금액 이상(단가 × 수량 불일치, 0원 이하)이면 후보를 만들지 않고 처리 이력에 실패를 남긴다. 구매 확정은 되돌리지 않는다
+     *  금액 이상(단가 × 수량 불일치, 0원 이하, 상품 쿠폰 할인액이 0 미만이거나 항목 금액 이상)이면
+     *  후보를 만들지 않고 처리 이력에 실패를 남긴다. 구매 확정은 되돌리지 않는다
+     *  판매가 = 항목 금액 - 상품 쿠폰 할인액(판매자 부담). 장바구니 쿠폰은 플랫폼 부담이라 이벤트에도 없고 빼지 않는다
      *  만든 후보는 처리 이력에 성공으로 남긴다
      *
      * @return 새로 만든 후보 수
@@ -49,9 +51,20 @@ public class SettlementCreateCandidatesUseCase {
                 log.warn("정산 후보 생성 거절 {}", reason);
                 continue;
             }
+            long discount = item.productCouponDiscount();   // 이전 형식 이벤트는 0으로 들어온다(ConfirmedOrderItemDto)
+            if (!SettlementPolicy.isValidCouponDiscount(discount, item.lineAmount())) {
+                String reason = "orderId=%d orderItemId=%d 상품 쿠폰 할인액 %d이 0 미만이거나 항목 금액 %d 이상".formatted(
+                        orderId, item.orderItemId(), discount, item.lineAmount());
+                settlementProcessHistoryRepository.save(SettlementProcessHistory.candidateRejected(
+                        SettlementErrorCode.SETTLEMENT_CANDIDATE_AMOUNT_INVALID.resultCode(), reason, now));
+                log.warn("정산 후보 생성 거절 {}", reason);
+                continue;
+            }
             // 10/14 리뷰 반영: 수수료율은 주입받은 정책 빈 값을 엔티티에 인자로 넘긴다(엔티티는 정적 값을 읽지 않는다)
+            // 판매가 = 항목 금액 - 상품 쿠폰 할인액. 수수료와 지급액은 할인 뒤 판매가로 계산한다
             SettlementCandidate candidate = settlementCandidateRepository.save(SettlementCandidate.create(orderId,
-                    item.orderItemId(), item.sellerId(), item.lineAmount(), settlementPolicy.getFeeRate(), confirmedAt));
+                    item.orderItemId(), item.sellerId(), item.lineAmount() - discount, discount, item.productName(),
+                    item.optionName(), settlementPolicy.getFeeRate(), confirmedAt));
             settlementProcessHistoryRepository.save(SettlementProcessHistory.candidateCreated(candidate.getId(), now));
             created++;
         }

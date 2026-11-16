@@ -37,6 +37,7 @@ import com.backend.boundedContext.payment.app.dto.TopupPrepareDto;
 import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.TopupStatus;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.global.exception.DomainException;
 import com.backend.global.page.PageResponse;
 import com.backend.global.security.JwtAccessDeniedHandler;
@@ -63,22 +64,47 @@ class ApiV1TopupControllerTest {
     private PaymentFacade paymentFacade;
 
     @Test
-    @DisplayName("충전 준비: 토큰의 회원 ID로 준비하고 충전 ID·주문번호·금액을 돌려준다")
+    @DisplayName("충전 준비: PG를 보내지 않으면 토스로 준비하고 충전 ID·주문번호·금액·PG를 돌려준다 (결제창 값 없음)")
     void prepareTopup_success() throws Exception {
-        given(paymentFacade.prepareTopup(3L, 20_000)).willReturn(new TopupPrepareDto(5L, ORDER_ID, 20_000));
+        given(paymentFacade.prepareTopup(3L, 20_000, PgProvider.TOSS)).willReturn(new TopupPrepareDto(5L, ORDER_ID, 20_000, PgProvider.TOSS, null));
 
         prepare(3L, "{\"amount\":20000}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.resultCode").value("200-1"))
                 .andExpect(jsonPath("$.data.topupId").value(5))
                 .andExpect(jsonPath("$.data.orderId").value(ORDER_ID))
-                .andExpect(jsonPath("$.data.amount").value(20000));
+                .andExpect(jsonPath("$.data.amount").value(20000))
+                .andExpect(jsonPath("$.data.pgProvider").value("TOSS"))
+                .andExpect(jsonPath("$.data.checkout").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("충전 준비: HECTO를 고르면 헥토로 준비하고 결제창 주소·요청 값을 돌려준다")
+    void prepareTopup_hecto() throws Exception {
+        TopupPrepareDto.Checkout checkout = new TopupPrepareDto.Checkout("https://tbnpg.settlebank.co.kr/card/main.do", Map.of("mchtTrdNo", ORDER_ID, "trdAmt", "enc"));
+        given(paymentFacade.prepareTopup(3L, 20_000, PgProvider.HECTO)).willReturn(new TopupPrepareDto(5L, ORDER_ID, 20_000, PgProvider.HECTO, checkout));
+
+        prepare(3L, "{\"amount\":20000,\"pgProvider\":\"HECTO\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.pgProvider").value("HECTO"))
+                .andExpect(jsonPath("$.data.checkout.url").value("https://tbnpg.settlebank.co.kr/card/main.do"))
+                .andExpect(jsonPath("$.data.checkout.params.mchtTrdNo").value(ORDER_ID))
+                .andExpect(jsonPath("$.data.checkout.params.trdAmt").value("enc"));
+    }
+
+    @Test
+    @DisplayName("충전 준비: 지원하지 않는 PG 값이면 400이고 충전 건을 만들지 않는다")
+    void prepareTopup_unknownPg() throws Exception {
+        prepare(3L, "{\"amount\":20000,\"pgProvider\":\"KAKAO\"}")
+                .andExpect(status().isBadRequest());
+
+        verify(paymentFacade, never()).prepareTopup(anyLong(), anyLong(), any());
     }
 
     @Test
     @DisplayName("충전 준비: 금액이 정책에 맞지 않으면 400 TOPUP_AMOUNT_INVALID")
     void prepareTopup_invalidAmount() throws Exception {
-        given(paymentFacade.prepareTopup(3L, 15_000))
+        given(paymentFacade.prepareTopup(3L, 15_000, PgProvider.TOSS))
                 .willThrow(new DomainException(PaymentErrorCode.TOPUP_AMOUNT_INVALID));
 
         prepare(3L, "{\"amount\":15000}")
@@ -93,7 +119,7 @@ class ApiV1TopupControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.resultCode").value("400-VALIDATION_FAILED"));
 
-        verify(paymentFacade, never()).prepareTopup(anyLong(), anyLong());
+        verify(paymentFacade, never()).prepareTopup(anyLong(), anyLong(), any());
     }
 
     @Test
@@ -225,7 +251,7 @@ class ApiV1TopupControllerTest {
     @DisplayName("충전 취소: 결과 확인 중이면 200-1에 status CANCELING, 취소된 금액·잔액은 null")
     void cancelTopup_canceling() throws Exception {
         given(paymentFacade.cancelTopup(3L, 5L)).willReturn(TopupCancelDto.canceling(
-                new TopupCancelStartResult(5L, ORDER_ID, PgProvider.TOSS, "pk_1", 20_000, 1, "TOPUP-5-CANCEL-1")));
+                new TopupCancelStartResult(5L, PgProvider.TOSS, new PgPaymentRef(ORDER_ID, "pk_1", 20_000, LocalDateTime.of(2026, 11, 15, 10, 0)), 20_000, 1, "TOPUP-5-CANCEL-1")));
 
         cancel(3L, 5L)
                 .andExpect(status().isOk())

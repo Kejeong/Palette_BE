@@ -67,8 +67,8 @@ class OrderConfirmSupportTest {
         assertThat(event.confirmedAt()).isEqualTo(confirmedAt);
         assertThat(event.confirmType()).isEqualTo(ConfirmType.MANUAL);
         assertThat(event.items()).containsExactly(
-                new ConfirmedOrderItemDto(1001L, 10L, 2L, 10_000, 2, 20_000),
-                new ConfirmedOrderItemDto(1002L, 20L, 7L, 5_000, 1, 5_000));
+                new ConfirmedOrderItemDto(1001L, 10L, 2L, 10_000, 2, 20_000, 0L, "립스틱", "기본"),
+                new ConfirmedOrderItemDto(1002L, 20L, 7L, 5_000, 1, 5_000, 0L, "틴트", "기본"));
     }
 
     @Test

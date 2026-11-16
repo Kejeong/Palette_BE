@@ -24,6 +24,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.backend.boundedContext.payment.app.dto.AdminTopupDto;
 import com.backend.boundedContext.payment.app.dto.TopupPrepareDto;
+import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.out.PaymentMemberPort;
 import com.backend.boundedContext.payment.out.TopupRepository;
@@ -166,14 +167,14 @@ class AdminTopupQueryIntegrationTest {
     }
 
     private TopupPrepareDto prepare(long amount) {
-        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, amount);
+        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, amount, PgProvider.TOSS);
         topupIds.add(prepared.topupId());
         return prepared;
     }
 
     // 앞부분이 같은 충전번호를 만들기 위해 발급된 번호를 바꿈
     private void changeOrderId(Long topupId, String orderId) {
-        jdbcTemplate.update("update topup set toss_order_id = ? where id = ?", orderId, topupId);
+        jdbcTemplate.update("update topup set order_id = ? where id = ?", orderId, topupId);
     }
 
     // created_at은 앱(KST) 기준 LocalDateTime으로 저장되므로 앱 시각으로 넣음
