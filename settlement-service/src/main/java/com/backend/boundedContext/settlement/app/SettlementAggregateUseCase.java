@@ -6,6 +6,8 @@ import com.backend.boundedContext.settlement.domain.SettlementCandidate;
 import com.backend.boundedContext.settlement.domain.SettlementStatus;
 import com.backend.boundedContext.settlement.domain.SettlementHistoryResult;
 import com.backend.boundedContext.settlement.domain.SettlementJudgement;
+import com.backend.boundedContext.settlement.domain.judge.LedgerMismatchRule;
+import com.backend.boundedContext.settlement.domain.SettlementHoldType;
 import com.backend.boundedContext.settlement.domain.SettlementProcessHistory;
 import com.backend.boundedContext.settlement.domain.judge.CandidateAmountIntegrityRule;
 import com.backend.boundedContext.settlement.domain.judge.SellerStatusRule;
@@ -77,7 +79,12 @@ public class SettlementAggregateUseCase {
         if (blockedByCandidateAmounts(sellerId, month, candidates, judgement, batchExecutionId, trigger, now)) {
             return 0;
         }
+        // 알려진 한계: 제재 여부는 판별 단계 판정(잠금 없이 미리 읽음, 재시작이면 며칠 전일 수도 있음)을 그대로 쓴다.
+        // 판정 뒤 확정 전에 제재 해지 이벤트가 처리되면(그때는 보류된 정산서가 없어 0건 해제) 여기서 만든 SANCTION 보류는
+        // 자동으로 풀리지 않고 남는다. 드물고 HOLD로 멈출 뿐이라 관리자 보류 해제(SettlementReleaseUseCase)로 푼다.
+        // 실제로 자주 일어나면 정리 스케줄러를 추가한다(SettlementReleaseSanctionHoldsUseCase 주석 참고)
         String holdReason = holdReasonOf(sellerId, judgement);
+        SettlementHoldType holdType = holdTypeOf(holdReason);
 
         Optional<Settlement> existing = settlementRepository.findWithLockBySellerIdAndSettlementMonth(sellerId, month);
         Settlement settlement;
@@ -91,14 +98,14 @@ public class SettlementAggregateUseCase {
                 return 0;
             }
         } else {
-            settlement = settlementRepository.save(Settlement.create(sellerId, month, holdReason));
+            settlement = settlementRepository.save(Settlement.create(sellerId, month, holdType, holdReason));
             settlement.assignIdempotencyKey();   // IDENTITY라 save()에서 INSERT가 끝나 id가 있다. 같은 Tx에서 키 확정
         }
 
         candidates.forEach(settlement::addCandidate);
         if (holdReason != null && settlement.getStatus() == SettlementStatus.READY) {
             // 이미 있던 READY 정산서에 후보를 더 담는데 이번 판정이 HOLD면 함께 보류한다
-            settlement.hold(holdReason);
+            settlement.hold(holdType, holdReason);
             settlementProcessHistoryRepository.save(
                     SettlementProcessHistory.held(settlement.getId(), holdReason, trigger, now));
         }
@@ -147,6 +154,15 @@ public class SettlementAggregateUseCase {
      * 판매자 행이 없으면(아직 회원 시드에 판매자 행이 없음 등) 제재 여부만 모르는 것이므로 보통 정산서로 만들고,
      * 지급 단계에서 판매자 조회 실패(404-SELLER_NOT_FOUND)로 재시도 불가 처리된다.
      */
+    /**
+     * 확정 단계 보류 사유 → 보류 종류. 확정 단계 보류는 판별 규칙 두 가지(원장 불일치, 판매자 제재)에서만 나온다
+     */
+    private static SettlementHoldType holdTypeOf(String holdReason) {
+        if (holdReason == null) return null;
+        return LedgerMismatchRule.REASON.equals(holdReason)
+                ? SettlementHoldType.LEDGER_MISMATCH : SettlementHoldType.SANCTION;
+    }
+
     private String holdReasonOf(Long sellerId, SettlementJudgement judgement) {
         if (judgement != null) return judgement.type() == SettlementJudgement.Type.HOLD ? judgement.reason() : null;
         return sanctionedHoldReasonOf(sellerId);

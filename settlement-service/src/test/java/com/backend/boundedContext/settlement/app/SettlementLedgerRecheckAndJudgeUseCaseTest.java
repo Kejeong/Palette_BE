@@ -1,6 +1,7 @@
 package com.backend.boundedContext.settlement.app;
 
 import com.backend.boundedContext.settlement.domain.Settlement;
+import com.backend.boundedContext.settlement.domain.SettlementHoldType;
 import com.backend.boundedContext.settlement.domain.SettlementCandidate;
 import com.backend.boundedContext.settlement.domain.SettlementHistoryResult;
 import com.backend.boundedContext.settlement.domain.SettlementHistoryStage;
@@ -300,8 +301,12 @@ class SettlementLedgerRecheckAndJudgeUseCaseTest {
                         .reduce((first, second) -> second)));
     }
 
+    /** 보류 사유로 보류 종류를 정한다(원장 불일치, 판매자 제재, 그 밖은 관리자 보류) */
     private Settlement heldSettlement(Long id, String holdReason) {
-        Settlement settlement = Settlement.create(7L, "2026-10", holdReason);
+        SettlementHoldType holdType = LedgerMismatchRule.REASON.equals(holdReason) ? SettlementHoldType.LEDGER_MISMATCH
+                : SellerStatusRule.SANCTIONED_REASON.equals(holdReason) ? SettlementHoldType.SANCTION
+                : SettlementHoldType.ADMIN;
+        Settlement settlement = Settlement.create(7L, "2026-10", holdType, holdReason);
         ReflectionTestUtils.setField(settlement, "id", id);
         heldSettlements.add(settlement);
         return settlement;

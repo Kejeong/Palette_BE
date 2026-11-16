@@ -1,6 +1,7 @@
 package com.backend.boundedContext.settlement.in.eventListener;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.Header;
@@ -14,11 +15,13 @@ import com.backend.global.outbox.EventMessages;
 import com.backend.shared.event.DomainEvent;
 import com.backend.shared.event.EventEnvelope;
 import com.backend.shared.member.event.SellerSanctionedEvent;
+import com.backend.shared.member.event.SellerUnsanctionedEvent;
 
 import lombok.RequiredArgsConstructor;
 
 /**
- * 회원 서비스의 판매자 제재 이벤트를 Kafka(seller.events)로 받아 그 판매자의 지급 전 정산서를 보류한다.
+ * 회원 서비스의 판매자 제재 이벤트를 Kafka(seller.events)로 받아 그 판매자의 지급 전 정산서를 보류하고,
+ * 제재 해지 이벤트를 받으면 제재 보류(hold_type SANCTION) 정산서만 READY로 되돌린다(시도 횟수 초기화).
  *
  * 흐름: 관리자 판매자 제재 → outbox 저장 → 릴레이가 Kafka 발행 → 이 컨슈머(groupId = settlement)
  * 메시지 키가 sellerId라 같은 판매자 이벤트는 보낸 순서대로 받는다.
@@ -53,7 +56,9 @@ public class SettlementSellerEventListener {
     /** OutboxKafkaSender가 붙이는 이벤트 타입 헤더 */
     private static final String EVENT_TYPE_HEADER = "eventType";
 
-    private static final String HANDLED_EVENT_TYPE = SellerSanctionedEvent.class.getSimpleName();
+    /** 정산이 다루는 판매자 이벤트: 제재(보류), 제재 해지(제재 보류 해제) */
+    private static final Set<String> HANDLED_EVENT_TYPES = Set.of(SellerSanctionedEvent.class.getSimpleName(),
+            SellerUnsanctionedEvent.class.getSimpleName());
 
     private final SettlementFacade settlementFacade;
     private final EventMessages eventMessages;
@@ -67,11 +72,17 @@ public class SettlementSellerEventListener {
         String type = eventType != null
                 ? new String(eventType.value(), StandardCharsets.UTF_8)
                 : eventMessages.eventTypeOf(record.value());   // 헤더가 없으면 봉투의 eventType만 읽는다
-        if (!HANDLED_EVENT_TYPE.equals(type)) return;
+        if (!HANDLED_EVENT_TYPES.contains(type)) return;
 
         EventEnvelope<DomainEvent> envelope = eventMessages.read(record.value());
-        if (!(envelope.payload() instanceof SellerSanctionedEvent event)) return;       // 타입 이름과 payload가 다르면 무시
+        DomainEvent payload = envelope.payload();
+        if (!(payload instanceof SellerSanctionedEvent) && !(payload instanceof SellerUnsanctionedEvent)) return;
         if (!processedEvents.markProcessed(envelope.eventId(), CONSUMER)) return;     // 이미 처리한 이벤트
-        settlementFacade.holdSellerBySanctionEvent(event.sellerId(), event.reason());
+        // 같은 판매자 이벤트는 메시지 키(sellerId)가 같아 보낸 순서대로 받는다(제재 → 해지 순서 보장)
+        if (payload instanceof SellerSanctionedEvent event) {
+            settlementFacade.holdSellerBySanctionEvent(event.sellerId(), event.reason());
+        } else if (payload instanceof SellerUnsanctionedEvent event) {
+            settlementFacade.releaseSanctionHoldsByEvent(event.sellerId(), event.reason());
+        }
     }
 }

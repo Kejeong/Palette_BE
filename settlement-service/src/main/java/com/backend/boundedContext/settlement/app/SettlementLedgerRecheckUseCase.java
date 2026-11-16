@@ -5,11 +5,11 @@ import com.backend.boundedContext.settlement.domain.SettlementErrorCode;
 import com.backend.boundedContext.settlement.domain.SettlementHistoryResult;
 import com.backend.boundedContext.settlement.domain.SettlementHistoryStage;
 import com.backend.boundedContext.settlement.domain.SettlementHistoryTargetType;
+import com.backend.boundedContext.settlement.domain.SettlementHoldType;
 import com.backend.boundedContext.settlement.domain.SettlementLedgerCheckResult;
 import com.backend.boundedContext.settlement.domain.SettlementProcessHistory;
 import com.backend.boundedContext.settlement.domain.SettlementStatus;
 import com.backend.boundedContext.settlement.domain.SettlementTrigger;
-import com.backend.boundedContext.settlement.domain.judge.LedgerMismatchRule;
 import com.backend.boundedContext.settlement.out.SettlementPaymentPort;
 import com.backend.boundedContext.settlement.out.SettlementProcessHistoryRepository;
 import com.backend.boundedContext.settlement.out.SettlementRepository;
@@ -39,7 +39,7 @@ import java.util.Optional;
  *
  * 이력: 직전 재대조 결과와 같으면 다시 남기지 않는다(풀리지 않은 불일치를 매일 다시 봐도 이력이 쌓이지 않음).
  * 자동 해제: 불일치가 풀리고(MANUAL_REQUIRED → OK) 그 판매자에게 다른 불일치가 남지 않았으면,
- *          원장 불일치 사유(LedgerMismatchRule.REASON)로 보류된 그 판매자의 정산서를 READY로 되돌린다.
+ *          원장 불일치 보류(hold_type LEDGER_MISMATCH)인 그 판매자의 정산서를 READY로 되돌린다.
  *          관리자 보류·판매자 제재 보류는 사유가 달라 건드리지 않는다. READY가 되면 재시도 스케줄러가 지급한다.
  * 정리: 해소되는 순간에만 풀면 그 뒤에 생긴 원장 불일치 보류(재시작한 Job이 예전 판정을 적용, 해소와 동시에 커밋된 지급 직전 보류)를
  *      놓친다. 그래서 매일 재대조 끝에 "불일치가 없는데 원장 불일치 사유로 보류된" 정산서를 한 번 더 찾아 푼다
@@ -62,7 +62,7 @@ public class SettlementLedgerRecheckUseCase {
 
     /** 원장 불일치 사유로 보류된 정산서가 있는 판매자 ID (매일 정리 대상) */
     public List<Long> findSellerIdsWithLedgerMismatchHolds() {
-        return settlementRepository.findSellerIdsByHoldReason(LedgerMismatchRule.REASON);
+        return settlementRepository.findSellerIdsByHoldType(SettlementHoldType.LEDGER_MISMATCH);
     }
 
     /**
@@ -158,7 +158,7 @@ public class SettlementLedgerRecheckUseCase {
         int released = 0;
         for (Settlement held : settlementRepository.findWithLockBySellerIdAndStatusIn(sellerId,
                 List.of(SettlementStatus.HOLD))) {
-            if (!LedgerMismatchRule.REASON.equals(held.getHoldReason())) continue;   // 관리자 보류·제재 보류는 그대로
+            if (!held.isHeldBy(SettlementHoldType.LEDGER_MISMATCH)) continue;   // 관리자 보류, 제재 보류는 그대로
             held.release();
             settlementProcessHistoryRepository.save(
                     SettlementProcessHistory.released(held.getId(), trigger, reason, now));

@@ -23,6 +23,7 @@ import com.backend.global.outbox.EventMessages;
 import com.backend.shared.event.DomainEvent;
 import com.backend.shared.event.EventEnvelope;
 import com.backend.shared.member.event.SellerSanctionedEvent;
+import com.backend.shared.member.event.SellerUnsanctionedEvent;
 import com.backend.shared.member.event.SellerWithdrawalRequestedEvent;
 
 /**
@@ -52,6 +53,15 @@ class SettlementSellerEventListenerTest {
         receive(new SellerSanctionedEvent(SELLER_ID, "위조 상품 판매"), true);
 
         verify(settlementFacade).holdSellerBySanctionEvent(SELLER_ID, "위조 상품 판매");
+    }
+
+    @Test
+    @DisplayName("제재 해지 이벤트를 받으면 그 판매자의 제재 보류 정산서를 사유와 함께 되돌린다")
+    void unsanctioned_releasesSanctionHolds() {
+        receive(new SellerUnsanctionedEvent(SELLER_ID, "소명 확인"), true);
+
+        verify(settlementFacade).releaseSanctionHoldsByEvent(SELLER_ID, "소명 확인");
+        verify(settlementFacade, never()).holdSellerBySanctionEvent(any(), anyString());
     }
 
     @Test

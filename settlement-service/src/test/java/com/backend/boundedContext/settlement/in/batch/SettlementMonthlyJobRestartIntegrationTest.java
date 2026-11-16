@@ -1,5 +1,6 @@
 package com.backend.boundedContext.settlement.in.batch;
 
+import com.backend.boundedContext.settlement.app.SettlementFacade;
 import com.backend.boundedContext.settlement.app.SettlementJobNames;
 import com.backend.boundedContext.settlement.app.SettlementRunMonthlyJobUseCase;
 import com.backend.boundedContext.settlement.domain.SettlementCandidate;
@@ -33,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -51,6 +53,8 @@ import static org.mockito.Mockito.when;
  *
  * 회원·결제 Port는 테스트 대역으로 바꾼다. 결제 대역은 두 번째 정산서를 처음 지급할 때 Error를 던진다.
  * SettlementPayoutTasklet은 Exception만 잡으므로 Error는 Step 실패가 되고 Job은 FAILED로 끝난다.
+ * 지급은 선점(PROCESSING 커밋) → 트랜잭션 밖 지급 요청 → 결과 기록 3구간이라, 지급 요청 도중 죽은 정산서는 PROCESSING으로 남는다.
+ * 다시 실행한 지급 Step은 PROCESSING을 지급하지 않고(이중 지급 방지), 지급 결과 재확인(reconcileProcessing)이 결제 원장을 보고 확정한다.
  *
  * 정산월은 실행마다 아직 JobInstance가 없는 과거의 임의 달을 쓴다. 같은 달의 JobInstance가 이미 COMPLETED면 다시 실행할 수 없기 때문이다
  * (Batch 메타 테이블은 지우지 않는다). 테스트 데이터는 판매자 ID를 임의 범위로 잡아 다른 데이터와 섞이지 않게 한다.
@@ -61,6 +65,7 @@ import static org.mockito.Mockito.when;
 class SettlementMonthlyJobRestartIntegrationTest {
 
     @Autowired private SettlementRunMonthlyJobUseCase runMonthlyJobUseCase;
+    @Autowired private SettlementFacade settlementFacade;
     @Autowired private SettlementCandidateRepository settlementCandidateRepository;
     @Autowired private JobRepository jobRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
@@ -78,6 +83,10 @@ class SettlementMonthlyJobRestartIntegrationTest {
     private long sellerB;
     /** 이 정산서 ID를 처음 지급할 때 Error를 던진다(정산서가 만들어진 뒤 정해진다) */
     private volatile Long crashOnSettlementId;
+    /** true면 결제가 지급을 커밋한 뒤 응답 전에 죽은 상황, false면 결제에 닿기 전에 죽은 상황 */
+    private volatile boolean paymentCommitsBeforeCrash;
+    /** 결제 원장 대역: 멱등 키 → 커밋된 지급 */
+    private final Map<String, TransferResultDto> paymentLedger = new ConcurrentHashMap<>();
 
     @BeforeEach
     void setUp() {
@@ -96,12 +105,18 @@ class SettlementMonthlyJobRestartIntegrationTest {
             // 정산서 ID는 확정 Step에서 정해지므로 첫 지급 호출 때 판매자 B의 정산서를 멈출 대상으로 정한다
             if (crashOnSettlementId == null) crashOnSettlementId = settlementOf(sellerB).id();
             int call = transferCalls.computeIfAbsent(command.settlementId(), id -> new AtomicInteger()).incrementAndGet();
-            if (command.settlementId().equals(crashOnSettlementId) && call == 1) {
-                throw new Error("테스트: 지급 도중 프로세스가 죽은 상황");
+            boolean crash = command.settlementId().equals(crashOnSettlementId) && call == 1;
+            if (crash && !paymentCommitsBeforeCrash) {
+                throw new Error("테스트: 지급 요청이 결제에 닿기 전에 프로세스가 죽은 상황");
             }
-            return new TransferResultDto(command.idempotencyKey(), walletTxId.incrementAndGet(),
-                    command.payoutAmount(), command.feeAmount(), LocalDateTime.now());
+            TransferResultDto result = paymentLedger.computeIfAbsent(command.idempotencyKey(), key ->
+                    new TransferResultDto(key, walletTxId.incrementAndGet(), command.payoutAmount(),
+                            command.feeAmount(), LocalDateTime.now()));
+            if (crash) throw new Error("테스트: 결제가 지급을 커밋한 뒤 응답 전에 프로세스가 죽은 상황");
+            return result;
         });
+        when(settlementPaymentPort.findTransfer(any()))
+                .thenAnswer(inv -> Optional.ofNullable(paymentLedger.get(inv.<String>getArgument(0))));
 
         LocalDateTime confirmedAt = targetMonth.atDay(15).atTime(12, 0);
         long orderItemBase = sellerA * 10;
@@ -128,8 +143,37 @@ class SettlementMonthlyJobRestartIntegrationTest {
     }
 
     @Test
-    @DisplayName("지급 Step에서 멈춘 뒤 같은 달로 다시 실행하면 지급 Step만 이어서 실행되고, 이미 지급한 정산서는 다시 지급하지 않는다")
-    void restartAfterPayoutCrash_resumesOnlyPayoutStep() {
+    @DisplayName("결제가 커밋된 뒤 지급 Step에서 멈추면 정산서는 PROCESSING으로 남고, 다시 실행한 지급 Step은 지급하지 않으며 결과 확인이 원장 기록으로 PAID 확정한다")
+    void restartAfterPayoutCrash_paymentCommitted_reconciledToPaid() {
+        paymentCommitsBeforeCrash = true;
+        long settlementB = crashThenRestart();
+
+        settlementFacade.reconcileProcessing(settlementB);
+
+        assertEquals(SettlementStatus.PAID.name(), settlementOf(sellerB).status());
+        assertEquals(1, transferCalls.get(settlementB).get());   // 결제를 다시 부르지 않고 원장 기록으로 확정했다(이중 지급 없음)
+        assertEquals(2, paymentLedger.size());                   // 원장에는 A, B 지급이 1건씩만 있다
+    }
+
+    @Test
+    @DisplayName("결제에 닿기 전에 지급 Step에서 멈추면 정산서는 PROCESSING으로 남고, 결과 확인이 원장에 기록이 없음을 보고 FAILED(재시도 대상)로 돌린다")
+    void restartAfterPayoutCrash_paymentNotReached_reconciledToFailed() {
+        paymentCommitsBeforeCrash = false;
+        long settlementB = crashThenRestart();
+
+        settlementFacade.reconcileProcessing(settlementB);
+
+        assertEquals(SettlementStatus.FAILED.name(), settlementOf(sellerB).status());
+        assertEquals(1, retryCountOf(settlementB));              // 재시도 스케줄러가 남은 횟수 안에서 다시 지급한다
+        assertEquals(1, transferCalls.get(settlementB).get());
+    }
+
+    /**
+     * 1차 실행: A 지급 후 B 지급 요청 도중 Error → Job FAILED, B는 PROCESSING
+     * 2차 실행(같은 달): 지급 Step만 이어서 실행되고 A·B 모두 다시 지급하지 않는다(B는 결과를 모르는 PROCESSING이라 건너뜀)
+     * @return 판매자 B의 정산서 ID
+     */
+    private long crashThenRestart() {
         SettlementRunResponse first = runMonthlyJobUseCase.run(targetMonth, SettlementTrigger.ADMIN);
         executionIds.add(first.jobExecutionId());
 
@@ -139,7 +183,8 @@ class SettlementMonthlyJobRestartIntegrationTest {
         // 판매자 A가 B보다 먼저 지급되어야 시나리오가 성립한다(판매자 ID 순으로 확정하므로 정산서 ID도 A가 앞선다)
         assertTrue(settlementA.id() < settlementB.id());
         assertEquals(SettlementStatus.PAID.name(), settlementA.status());
-        assertEquals(SettlementStatus.READY.name(), settlementB.status());   // Error로 지급 트랜잭션이 롤백됐다
+        // 선점 트랜잭션이 PROCESSING을 커밋한 뒤 지급 요청 도중 죽었다. 결과를 모르므로 READY로 되돌리지 않는다
+        assertEquals(SettlementStatus.PROCESSING.name(), settlementB.status());
 
         SettlementRunResponse second = runMonthlyJobUseCase.run(targetMonth, SettlementTrigger.ADMIN);
         executionIds.add(second.jobExecutionId());
@@ -152,8 +197,9 @@ class SettlementMonthlyJobRestartIntegrationTest {
         assertEquals(1, settlementCountOf(sellerA));
         assertEquals(1, settlementCountOf(sellerB));
         assertEquals(1, transferCalls.get(settlementA.id()).get());   // A는 다시 지급하지 않는다
-        assertEquals(2, transferCalls.get(settlementB.id()).get());   // B는 멈춘 지급 1번 + 이어서 1번
-        assertEquals(SettlementStatus.PAID.name(), settlementOf(sellerB).status());
+        assertEquals(1, transferCalls.get(settlementB.id()).get());   // B도 PROCESSING이라 다시 지급하지 않는다
+        assertEquals(SettlementStatus.PROCESSING.name(), settlementOf(sellerB).status());
+        return settlementB.id();
     }
 
     /**
@@ -189,6 +235,12 @@ class SettlementMonthlyJobRestartIntegrationTest {
     }
 
     private record SettlementRow(long id, String status) {
+    }
+
+    private int retryCountOf(long settlementId) {
+        Integer count = jdbcTemplate.queryForObject("select retry_count from settlement where id = ?", Integer.class,
+                settlementId);
+        return count == null ? 0 : count;
     }
 
     private int settlementCountOf(long sellerId) {

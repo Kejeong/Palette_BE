@@ -1,6 +1,7 @@
 package com.backend.boundedContext.settlement.out;
 
 import com.backend.boundedContext.settlement.domain.Settlement;
+import com.backend.boundedContext.settlement.domain.SettlementHoldType;
 import com.backend.boundedContext.settlement.domain.SettlementStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
@@ -109,14 +110,37 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long>, J
             """)
     boolean existsUnresolvedLedgerMismatchBySellerId(@Param("sellerId") Long sellerId);
 
-    /** 이 사유로 보류(HOLD)된 정산서가 있는 판매자 ID (원장 불일치 보류 정리: 불일치가 없는데 남은 보류를 찾는다) */
+    /** 이 종류로 보류(HOLD)된 정산서가 있는 판매자 ID (원장 불일치 보류 정리: 불일치가 없는데 남은 보류를 찾는다) */
     @Query("""
             select distinct s.sellerId from Settlement s
              where s.status = com.backend.boundedContext.settlement.domain.SettlementStatus.HOLD
-               and s.holdReason = :holdReason
+               and s.holdType = :holdType
              order by s.sellerId
             """)
-    List<Long> findSellerIdsByHoldReason(@Param("holdReason") String holdReason);
+    List<Long> findSellerIdsByHoldType(@Param("holdType") SettlementHoldType holdType);
+
+    /** 판매자의 이 종류 보류 정산서(잠금). 제재 해지 시 제재 보류만 골라 푼다 */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select s from Settlement s
+             where s.sellerId = :sellerId
+               and s.status = com.backend.boundedContext.settlement.domain.SettlementStatus.HOLD
+               and s.holdType = :holdType
+             order by s.id
+            """)
+    List<Settlement> findWithLockBySellerIdAndHoldType(@Param("sellerId") Long sellerId,
+                                                       @Param("holdType") SettlementHoldType holdType);
+
+    /** 판매자의 이 종류 보류 정산서 ID. 제재 해지 때 남은 관리자 보류를 알린다 */
+    @Query("""
+            select s.id from Settlement s
+             where s.sellerId = :sellerId
+               and s.status = com.backend.boundedContext.settlement.domain.SettlementStatus.HOLD
+               and s.holdType = :holdType
+             order by s.id
+            """)
+    List<Long> findIdsBySellerIdAndHoldType(@Param("sellerId") Long sellerId,
+                                            @Param("holdType") SettlementHoldType holdType);
 
     /** 정산서 ID들의 판매자 ID (원장 불일치가 남은 판매자 찾기) */
     @Query("select distinct s.sellerId from Settlement s where s.id in :ids")

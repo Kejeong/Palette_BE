@@ -81,6 +81,11 @@ public class Settlement extends BaseIdAndTime {
     @Column(length = 300)
     private String holdReason;
 
+    /** 보류 종류. 푸는 경로가 종류마다 달라 사유 문자열 대신 이 값으로 구분한다. HOLD가 아니면 null */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private SettlementHoldType holdType;
+
     private LocalDateTime paidAt;
 
     /** 지급 요청을 시작한 시각(PROCESSING으로 바꾼 시각). 재확인 스케줄러가 이 시각 + processingRecheckMinutes가 지난 건을 확정한다 */
@@ -95,22 +100,32 @@ public class Settlement extends BaseIdAndTime {
      * 결제 컨텍스트 테이블이라 연관관계 없이 ID만 둔다 */
     private Long walletTxId;
 
-    private Settlement(Long sellerId, String settlementMonth, String holdReason) {
+    private Settlement(Long sellerId, String settlementMonth, SettlementHoldType holdType, String holdReason) {
         this.sellerId = sellerId;
         this.settlementMonth = settlementMonth;
-        this.status = holdReason == null ? SettlementStatus.READY : SettlementStatus.HOLD;
-        this.holdReason = truncate(holdReason);
+        this.status = holdType == null ? SettlementStatus.READY : SettlementStatus.HOLD;
+        this.holdType = holdType;
+        this.holdReason = holdType == null ? null : truncate(holdReason);
+    }
+
+    /**
+     * 빈 정산서를 만든다. holdReason이 null이면 READY, 있으면 관리자 보류(ADMIN)로 만든다
+     * 보류 종류를 정해야 하면 create(sellerId, settlementMonth, holdType, holdReason)를 쓴다
+     */
+    public static Settlement create(Long sellerId, String settlementMonth, String holdReason) {
+        return create(sellerId, settlementMonth, holdReason == null ? null : SettlementHoldType.ADMIN, holdReason);
     }
 
     /**
      * 빈 정산서를 만든다
-     * holdReason이 있으면(제재로 철회된 판매자) 처음부터 HOLD로 만든다
+     * holdType이 있으면(제재 판매자, 원장 불일치가 남은 판매자) 처음부터 HOLD로 만든다
      */
-    public static Settlement create(Long sellerId, String settlementMonth, String holdReason) {
+    public static Settlement create(Long sellerId, String settlementMonth, SettlementHoldType holdType,
+                                    String holdReason) {
         if (sellerId == null || settlementMonth == null) {
             throw new IllegalArgumentException("정산서 필수 값이 비어 있습니다.");
         }
-        return new Settlement(sellerId, settlementMonth, holdReason);
+        return new Settlement(sellerId, settlementMonth, holdType, holdReason);
     }
 
     /**
@@ -238,6 +253,7 @@ public class Settlement extends BaseIdAndTime {
     public void markPaidWhileHeld(Long walletTxId, LocalDateTime paidAt) {
         requireStatus(SettlementStatus.HOLD);
         this.holdReason = null;
+        this.holdType = null;
         this.processingStartedAt = null;
         this.processingManual = false;
         this.status = SettlementStatus.PAID;
@@ -287,20 +303,46 @@ public class Settlement extends BaseIdAndTime {
 
     /** 관리자 보류·제재
      * 지급 전(READY·FAILED·MANUAL_REQUIRED)만 가능 */
-    public void hold(String reason) {
+    public void hold(SettlementHoldType type, String reason) {
+        if (type == null) throw new IllegalArgumentException("보류 종류가 비어 있습니다.");
         requirePayableStatus();
         this.status = SettlementStatus.HOLD;
+        this.holdType = type;
         this.holdReason = truncate(reason);
         this.nextRetryAt = null;
     }
 
+    /** 관리자 보류 (hold(ADMIN, reason)) */
+    public void hold(String reason) {
+        hold(SettlementHoldType.ADMIN, reason);
+    }
+
     /** 보류 해제 → READY
-     * 재시도 스케줄러가 지급한다. 지급 직전에 판매자가 제재 상태면 다시 HOLD가 된다(SettlementPayoutUseCase) */
+     * 재시도 스케줄러가 지급한다. 지급 직전에 판매자가 제재 상태면 다시 HOLD가 된다(SettlementPayoutUseCase)
+     * 시도 횟수는 그대로 둔다(관리자 해제, 원장 불일치 해소) */
     public void release() {
         requireStatus(SettlementStatus.HOLD);
         this.status = SettlementStatus.READY;
         this.holdReason = null;
+        this.holdType = null;
         this.nextRetryAt = null;
+    }
+
+    /**
+     * 판매자 제재 해지로 제재 보류를 푼다 → READY, 시도 횟수 초기화
+     * 제재 전 실패(FAILED, MANUAL_REQUIRED)는 제재와 상관없는 지난 시도라, 해지 뒤에는 자동 지급을 처음(3회)부터 다시 한다(정책 확정)
+     * 제재 보류가 아니면 409 (관리자 보류, 원장 불일치 보류는 이 경로로 풀지 않는다)
+     */
+    public void releaseSanctionHold() {
+        requireStatus(SettlementStatus.HOLD);
+        if (holdType != SettlementHoldType.SANCTION) throw stateInvalid();
+        release();
+        this.retryCount = 0;
+    }
+
+    /** 이 종류로 보류된 정산서인지 */
+    public boolean isHeldBy(SettlementHoldType type) {
+        return status == SettlementStatus.HOLD && holdType == type;
     }
 
     /** 지급 가능한 상태(READY·FAILED·MANUAL_REQUIRED)인지

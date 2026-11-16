@@ -3,6 +3,7 @@ package com.backend.boundedContext.settlement.app;
 import com.backend.boundedContext.settlement.domain.Settlement;
 import com.backend.boundedContext.settlement.domain.SettlementErrorCode;
 import com.backend.boundedContext.settlement.domain.SettlementHistoryResult;
+import com.backend.boundedContext.settlement.domain.SettlementHoldType;
 import com.backend.boundedContext.settlement.domain.SettlementPolicy;
 import com.backend.boundedContext.settlement.domain.SettlementProcessHistory;
 import com.backend.boundedContext.settlement.domain.SettlementStatus;
@@ -252,8 +253,12 @@ public class SettlementPayoutUseCase {
 
         // 지급 전 확인: 판매자가 제재 상태면 지급하지 않고 보류한다.
         // 제재 이벤트(SellerSanctionedEvent)가 도착해 보류하기 전의 틈을 막는다. 잠금 전에 조회한 판매자 정보의 상태만 본다
+        // 알려진 한계: 판매자 조회(SANCTIONED)와 이 보류 커밋 사이에 제재 해지 이벤트가 처리되면, 해지 이벤트는 그때 HOLD인
+        // 정산서만 풀므로(이 정산서는 아직 READY라 잠금도 기다리지 않음) 이 SANCTION 보류는 자동으로 풀리지 않고 남는다.
+        // 틈이 매우 짧아 드물고, 돈이 잘못 나가지 않고 HOLD로 멈출 뿐이라 관리자 보류 해제(SettlementReleaseUseCase)로 푼다.
+        // 실제로 자주 일어나면 정리 스케줄러를 추가한다(SettlementReleaseSanctionHoldsUseCase 주석 참고)
         if (seller.status() == SellerStatus.SANCTIONED) {
-            settlement.hold(SANCTIONED_HOLD_REASON);
+            settlement.hold(SettlementHoldType.SANCTION, SANCTIONED_HOLD_REASON);
             settlementProcessHistoryRepository.save(
                     SettlementProcessHistory.held(settlementId, SANCTIONED_HOLD_REASON, trigger, now));
             log.info("판매자 제재 상태라 지급하지 않고 보류 settlementId={} sellerId={} trigger={}",
@@ -265,7 +270,7 @@ public class SettlementPayoutUseCase {
         // 판별 단계(LedgerMismatchRule)는 READY 후보가 있는 판매자만 보므로, 이미 만들어진 정산서(재시도·보류 해제 후 READY 등)는 여기서 막는다.
         // 불일치가 풀리면 이 사유로 보류된 정산서는 원장 재대조가 자동 해제한다(SettlementLedgerRecheckUseCase)
         if (settlementSupport.hasUnresolvedLedgerMismatch(settlement.getSellerId())) {
-            settlement.hold(LedgerMismatchRule.REASON);
+            settlement.hold(SettlementHoldType.LEDGER_MISMATCH, LedgerMismatchRule.REASON);
             settlementProcessHistoryRepository.save(
                     SettlementProcessHistory.held(settlementId, LedgerMismatchRule.REASON, trigger, now));
             log.info("원장 재대조 불일치가 남아 지급하지 않고 보류 settlementId={} sellerId={} trigger={}",
