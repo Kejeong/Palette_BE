@@ -1,6 +1,7 @@
 package com.backend.boundedContext.product.in;
 
 import com.backend.boundedContext.product.app.ProductFacade;
+import com.backend.boundedContext.product.app.dto.PopularKeywordDto;
 import com.backend.boundedContext.product.app.dto.ProductDetailDto;
 import com.backend.boundedContext.product.app.dto.ProductSummaryDto;
 import com.backend.boundedContext.product.domain.ProductSort;
@@ -21,7 +22,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "상품", description = "상품 검색·상세 (로그인 불필요)")
+import java.util.List;
+
+@Tag(name = "상품", description = "상품 검색·인기 검색어·상세 (로그인 불필요)")
 @RestController
 @RequestMapping("/api/v1/products")
 @RequiredArgsConstructor
@@ -48,6 +51,16 @@ public class ApiV1ProductController {
     ) {
         return RsData.of("200-1", "상품 목록을 조회했습니다.",
                 productFacade.searchProducts(keyword, categoryId, sort, excludeSoldOut, pageable));
+    }
+
+    @Operation(
+            summary = "인기 검색어",
+            description = "최근 24시간 동안 많이 검색한 검색어 상위 10개입니다. 결과가 있었던 첫 페이지 검색만 셉니다. "
+                    + "rankChange는 한 시간 전 순위와의 차이이고, 새로 오른 검색어는 null입니다. "
+                    + "1분마다 갱신하며, 집계 저장소가 응답하지 않으면 빈 목록입니다.")
+    @GetMapping("/popular-keywords")
+    public RsData<List<PopularKeywordDto>> getPopularKeywords() {
+        return RsData.of("200-1", "인기 검색어를 조회했습니다.", productFacade.getPopularKeywords());
     }
 
     @Operation(
