@@ -1,6 +1,7 @@
 package com.backend.boundedContext.settlement.in.batch;
 
 import com.backend.boundedContext.settlement.app.SettlementJobNames;
+import com.backend.boundedContext.settlement.app.SettlementFacade;
 import com.backend.boundedContext.settlement.app.SettlementRunMonthlyJobUseCase;
 import com.backend.boundedContext.settlement.domain.SettlementCandidate;
 import com.backend.boundedContext.settlement.domain.SettlementStatus;
@@ -32,6 +33,7 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -64,6 +66,7 @@ class SettlementMonthlyJobRestartIntegrationTest {
     @Autowired private SettlementCandidateRepository settlementCandidateRepository;
     @Autowired private JobRepository jobRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private SettlementFacade settlementFacade;
 
     @MockitoBean private SettlementMemberPort settlementMemberPort;
     @MockitoBean private SettlementPaymentPort settlementPaymentPort;
@@ -128,7 +131,7 @@ class SettlementMonthlyJobRestartIntegrationTest {
     }
 
     @Test
-    @DisplayName("지급 Step에서 멈춘 뒤 같은 달로 다시 실행하면 지급 Step만 이어서 실행되고, 이미 지급한 정산서는 다시 지급하지 않는다")
+    @DisplayName("지급 Step에서 멈춘 뒤 같은 달로 다시 실행하면 지급 Step만 실행되고, 이미 지급한 정산서와 결과를 모르는 정산서는 다시 요청하지 않으며, 결과 모름은 원장 확인으로 확정된다")
     void restartAfterPayoutCrash_resumesOnlyPayoutStep() {
         SettlementRunResponse first = runMonthlyJobUseCase.run(targetMonth, SettlementTrigger.ADMIN);
         executionIds.add(first.jobExecutionId());
@@ -139,7 +142,8 @@ class SettlementMonthlyJobRestartIntegrationTest {
         // 판매자 A가 B보다 먼저 지급되어야 시나리오가 성립한다(판매자 ID 순으로 확정하므로 정산서 ID도 A가 앞선다)
         assertTrue(settlementA.id() < settlementB.id());
         assertEquals(SettlementStatus.PAID.name(), settlementA.status());
-        assertEquals(SettlementStatus.READY.name(), settlementB.status());   // Error로 지급 트랜잭션이 롤백됐다
+        // 지급 3구간: ① PROCESSING 선점은 이미 커밋됐고 ② 지급 요청 도중 멈췄으므로 결과 모름(PROCESSING)으로 남는다
+        assertEquals(SettlementStatus.PROCESSING.name(), settlementB.status());
 
         SettlementRunResponse second = runMonthlyJobUseCase.run(targetMonth, SettlementTrigger.ADMIN);
         executionIds.add(second.jobExecutionId());
@@ -152,8 +156,21 @@ class SettlementMonthlyJobRestartIntegrationTest {
         assertEquals(1, settlementCountOf(sellerA));
         assertEquals(1, settlementCountOf(sellerB));
         assertEquals(1, transferCalls.get(settlementA.id()).get());   // A는 다시 지급하지 않는다
-        assertEquals(2, transferCalls.get(settlementB.id()).get());   // B는 멈춘 지급 1번 + 이어서 1번
+        // B는 결과를 모르는 동안 재시작해도 다시 요청하지 않는다(지급 가능 상태가 아님)
+        assertEquals(1, transferCalls.get(settlementB.id()).get());
+        assertEquals(SettlementStatus.PROCESSING.name(), settlementOf(sellerB).status());
+
+        // 결과 확인: 멈추기 전 결제가 지급을 커밋했다고 보고, 같은 멱등 키의 원장 기록으로 PAID 확정 (재시도 없이)
+        Map<String, Object> b = jdbcTemplate.queryForMap(
+                "select idempotency_key, payout_amount, total_fee from settlement where id = ?", settlementB.id());
+        when(settlementPaymentPort.findTransfer((String) b.get("idempotency_key"))).thenReturn(Optional.of(
+                new TransferResultDto((String) b.get("idempotency_key"), walletTxId.incrementAndGet(),
+                        ((Number) b.get("payout_amount")).longValue(), ((Number) b.get("total_fee")).longValue(),
+                        LocalDateTime.now())));
+        settlementFacade.reconcileProcessing(settlementB.id());
+
         assertEquals(SettlementStatus.PAID.name(), settlementOf(sellerB).status());
+        assertEquals(1, transferCalls.get(settlementB.id()).get());   // 지급은 한 번뿐
     }
 
     /**
