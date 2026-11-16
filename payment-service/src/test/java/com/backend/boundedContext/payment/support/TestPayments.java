@@ -18,7 +18,7 @@ public final class TestPayments {
     public static PaymentRecords paid(Wallet wallet, Long orderId, String orderNumber, long amount,
                                       String idempotencyKey, LocalDateTime paidAt) {
         TestWalletCharger.charge(wallet, amount);
-        Payment payment = Payment.ready(orderId, orderNumber, wallet, amount, 0, idempotencyKey);
+        Payment payment = Payment.ready(orderId, orderNumber, wallet, amount, 0, 0, idempotencyKey);
         return payment.pay(wallet, null, paidAt);
     }
 }

@@ -22,7 +22,7 @@ class PaymentTest {
     @Test
     @DisplayName("결제 준비 건은 READY이고 결제 일시가 없으며, 회원 ID는 지갑에서 가져온다")
     void ready() {
-        Payment payment = Payment.ready(10L, "ORD-TEST-10", wallet, 25_000, 3_000, "PAY-10-a");
+        Payment payment = Payment.ready(10L, "ORD-TEST-10", wallet, 25_000, 3_000, 2_000, "PAY-10-a");
 
         assertThat(payment.getOrderId()).isEqualTo(10L);
         assertThat(payment.getOrderNumber()).isEqualTo("ORD-TEST-10");
@@ -30,7 +30,8 @@ class PaymentTest {
         assertThat(payment.getWallet()).isSameAs(wallet);
         assertThat(payment.getAmount()).isEqualTo(25_000);
         assertThat(payment.getShippingFee()).isEqualTo(3_000);
-        assertThat(payment.holdingAmount()).isEqualTo(22_000);
+        assertThat(payment.getCouponSubsidyAmount()).isEqualTo(2_000);
+        assertThat(payment.holdingAmount()).isEqualTo(24_000);
         assertThat(payment.getIdempotencyKey()).isEqualTo("PAY-10-a");
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.READY);
         assertThat(payment.getPaidAt()).isNull();
@@ -60,14 +61,14 @@ class PaymentTest {
     @Test
     @DisplayName("결제 금액은 0보다 커야 한다")
     void ready_nonPositiveAmount() {
-        assertThatThrownBy(() -> Payment.ready(10L, "ORD-TEST-10", wallet, 0, 0, "PAY-10-a"))
+        assertThatThrownBy(() -> Payment.ready(10L, "ORD-TEST-10", wallet, 0, 0, 0, "PAY-10-a"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     @DisplayName("주문번호 없이는 결제 건을 만들 수 없다 (성공·실패 모두)")
     void orderNumberRequired() {
-        assertThatThrownBy(() -> Payment.ready(10L, null, wallet, 25_000, 0, "PAY-10-a"))
+        assertThatThrownBy(() -> Payment.ready(10L, null, wallet, 25_000, 0, 0, "PAY-10-a"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> Payment.failed(10L, " ", wallet, 25_000, "PAY-10-a",
                 PaymentStatus.FAILED_INSUFFICIENT_BALANCE, "잔액 부족"))
@@ -89,7 +90,7 @@ class PaymentTest {
     void pay() {
         Wallet buyer = walletWith(1L, 30_000);
         Wallet platform = walletWith(99L, 0);
-        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 3_000, "PAY-10-a");
+        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 3_000, 0, "PAY-10-a");
 
         PaymentRecords records = payment.pay(buyer, platform, NOW);
 
@@ -108,7 +109,7 @@ class PaymentTest {
     @DisplayName("배송비가 없으면 플랫폼 지갑 없이 결제되고 결제 금액 전부가 홀딩된다")
     void pay_noShippingFee() {
         Wallet buyer = walletWith(1L, 30_000);
-        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 0, "PAY-10-a");
+        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 0, 0, "PAY-10-a");
 
         PaymentRecords records = payment.pay(buyer, null, NOW);
 
@@ -120,7 +121,7 @@ class PaymentTest {
     @DisplayName("준비 상태가 아니면 결제할 수 없다 (같은 결제를 두 번 결제하지 않는다)")
     void pay_twice() {
         Wallet buyer = walletWith(1L, 30_000);
-        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 10_000, 0, "PAY-10-a");
+        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 10_000, 0, 0, "PAY-10-a");
         payment.pay(buyer, null, NOW);
 
         assertThatThrownBy(() -> payment.pay(buyer, null, NOW)).isInstanceOf(IllegalStateException.class);
@@ -131,7 +132,7 @@ class PaymentTest {
     @DisplayName("배송비가 있는데 플랫폼 지갑이 없으면 돈을 옮기기 전에 막는다")
     void pay_shippingFeeWithoutPlatformWallet() {
         Wallet buyer = walletWith(1L, 30_000);
-        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 3_000, "PAY-10-a");
+        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 3_000, 0, "PAY-10-a");
 
         assertThatThrownBy(() -> payment.pay(buyer, null, NOW)).isInstanceOf(IllegalArgumentException.class);
         assertThat(buyer.getBalance()).isEqualTo(30_000);
@@ -143,7 +144,7 @@ class PaymentTest {
     void cancel() {
         Wallet buyer = walletWith(1L, 30_000);
         Wallet platform = walletWith(99L, 0);
-        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 3_000, "PAY-10-a");
+        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 3_000, 0, "PAY-10-a");
         WalletHolding holding = payment.pay(buyer, platform, NOW).holding();
 
         List<WalletTransaction> transactions = payment.cancel(buyer, platform, holding, NOW);
@@ -161,7 +162,7 @@ class PaymentTest {
     void cancel_afterSettlementStarted() {
         Wallet buyer = walletWith(1L, 30_000);
         Wallet platform = walletWith(99L, 0);
-        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 3_000, "PAY-10-a");
+        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 3_000, 0, "PAY-10-a");
         WalletHolding holding = payment.pay(buyer, platform, NOW).holding();
         holding.settle(1_000, NOW);
 
@@ -170,6 +171,58 @@ class PaymentTest {
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PAID);
         assertThat(buyer.getBalance()).isEqualTo(5_000);
         assertThat(platform.getBalance()).isEqualTo(3_000);
+    }
+
+    @Test
+    @DisplayName("쿠폰 지원금이 있으면 플랫폼 지갑에서 지원금만큼 빠져 홀딩에 더해진다")
+    void pay_withCouponSubsidy() {
+        Wallet buyer = walletWith(1L, 30_000);
+        Wallet platform = walletWith(99L, 10_000);
+        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 2_500, 3_000, "PAY-10-a");
+
+        PaymentRecords records = payment.pay(buyer, platform, NOW);
+
+        assertThat(buyer.getBalance()).isEqualTo(5_000);
+        assertThat(platform.getBalance()).isEqualTo(9_500);
+        assertThat(records.holding().getAmount()).isEqualTo(25_500);
+        assertThat(records.transactions()).extracting(WalletTransaction::getType, WalletTransaction::getAmount)
+                .containsExactly(
+                        tuple(WalletTransactionType.PAYMENT, -25_000L),
+                        tuple(WalletTransactionType.SHIPPING_FEE, 2_500L),
+                        tuple(WalletTransactionType.COUPON_SUBSIDY, -3_000L));
+    }
+
+    @Test
+    @DisplayName("플랫폼 지갑 잔액이 쿠폰 지원금보다 적으면 돈을 옮기기 전에 PLATFORM_SUBSIDY_INSUFFICIENT로 막는다")
+    void pay_platformCannotCoverSubsidy() {
+        Wallet buyer = walletWith(1L, 30_000);
+        Wallet platform = walletWith(99L, 2_999);
+        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 0, 3_000, "PAY-10-a");
+
+        assertThatThrownBy(() -> payment.pay(buyer, platform, NOW))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("409-PLATFORM_SUBSIDY_INSUFFICIENT");
+        assertThat(buyer.getBalance()).isEqualTo(30_000);
+        assertThat(platform.getBalance()).isEqualTo(2_999);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.READY);
+    }
+
+    @Test
+    @DisplayName("쿠폰 지원금이 있는 결제를 취소하면 지원금은 플랫폼 지갑으로 돌아간다")
+    void cancel_withCouponSubsidy() {
+        Wallet buyer = walletWith(1L, 30_000);
+        Wallet platform = walletWith(99L, 10_000);
+        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 2_500, 3_000, "PAY-10-a");
+        WalletHolding holding = payment.pay(buyer, platform, NOW).holding();
+
+        List<WalletTransaction> transactions = payment.cancel(buyer, platform, holding, NOW);
+
+        assertThat(buyer.getBalance()).isEqualTo(30_000);
+        assertThat(platform.getBalance()).isEqualTo(10_000);
+        assertThat(transactions).extracting(WalletTransaction::getType).containsExactly(
+                WalletTransactionType.PAYMENT_CANCEL,
+                WalletTransactionType.COUPON_SUBSIDY_CANCEL,
+                WalletTransactionType.SHIPPING_FEE_CANCEL);
     }
 
     private static Wallet walletWith(Long memberId, long balance) {

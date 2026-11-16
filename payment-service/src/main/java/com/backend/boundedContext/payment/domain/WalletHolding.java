@@ -58,7 +58,7 @@ public class WalletHolding extends BaseIdAndTime {
 
     private LocalDateTime settledAt;
 
-    // 결제 성공 건의 홀딩 금액(결제액 - 배송비)을 홀딩. 결제(Payment.pay)만 부를 수 있게 package-private
+    // 결제 성공 건의 홀딩 금액을 홀딩. 결제(Payment.pay)만 부를 수 있게 package-private
     static WalletHolding hold(Payment payment, LocalDateTime heldAt) {
         if (!payment.isPaid()) throw new IllegalStateException("결제 완료 건만 홀딩할 수 있습니다: " + payment.getStatus());
         WalletHolding holding = new WalletHolding();

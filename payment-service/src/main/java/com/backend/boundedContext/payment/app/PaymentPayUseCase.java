@@ -73,6 +73,7 @@ public class PaymentPayUseCase {
                         wallet,
                         command.amount(),
                         command.shippingFee(),
+                        command.couponSubsidyAmount(),
                         command.idempotencyKey()
                 )
         );
@@ -87,16 +88,16 @@ public class PaymentPayUseCase {
         return toResult(payment, wallet);
     }
 
-    // shortcut: 장바구니 쿠폰 지원금(COUPON_SUBSIDY)은 아직 처리하지 않아 0만 받는다. 장바구니 쿠폰을 켜기 전에 지원금 원장·홀딩 반영을 넣어야 한다
+    // 배송비는 0 이상·결제 금액 미만, 쿠폰 지원금은 0 이상이어야 한다 (잘못된 요청은 400)
     private static void validateShippingFeeAndSubsidy(PayCommand command) {
         if (command.shippingFee() < 0 || command.shippingFee() >= command.amount()
-                || command.couponSubsidyAmount() != 0) {
+                || command.couponSubsidyAmount() < 0) {
             throw new DomainException(GlobalErrorCode.INVALID_REQUEST);
         }
     }
 
-    // 배송비가 있는 결제만 플랫폼(관리자) 지갑을 잠근다. 배송비가 없으면 null
-    // shortcut: 배송비가 있는 결제마다 관리자 지갑 한 행을 잠가 결제끼리 잠깐 줄을 선다. 결제량이 늘면 플랫폼 지갑 반영을 비동기로 바꾼다
+    // 배송비나 쿠폰 지원금이 있는 결제만 플랫폼(관리자) 지갑을 잠근다. 둘 다 없으면 null
+    // shortcut: 해당 결제마다 관리자 지갑 한 행을 잠가 결제끼리 잠깐 줄을 선다. 결제량이 늘면 플랫폼 지갑 반영을 비동기로 바꾼다
     private Wallet lockPlatformWalletIfNeeded(Payment payment) {
         return payment.needsPlatformWallet() ? lockWallet(paymentPolicy.adminMemberId()) : null;
     }
@@ -134,7 +135,8 @@ public class PaymentPayUseCase {
         if (!payment.getOrderId().equals(command.orderId())
                 || !payment.getMemberId().equals(command.buyerId())
                 || payment.getAmount() != command.amount()
-                || payment.getShippingFee() != command.shippingFee()) {
+                || payment.getShippingFee() != command.shippingFee()
+                || payment.getCouponSubsidyAmount() != command.couponSubsidyAmount()) {
             throw new DomainException(GlobalErrorCode.IDEMPOTENCY_KEY_REUSED);
         }
         return toResult(payment, wallet);

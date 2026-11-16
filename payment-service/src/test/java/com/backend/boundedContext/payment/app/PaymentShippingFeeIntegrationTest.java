@@ -72,7 +72,7 @@ class PaymentShippingFeeIntegrationTest {
             walletHoldingRepository.findAll().stream()
                     .filter(h -> h.getPayment().getId().equals(paymentId))
                     .forEach(walletHoldingRepository::delete);
-            for (String suffix : new String[] {"", "-CANCEL", "-SHIPPING_FEE", "-SHIPPING_FEE-CANCEL"}) {
+            for (String suffix : new String[] {"", "-CANCEL", "-SHIPPING_FEE", "-SHIPPING_FEE-CANCEL", "-COUPON_SUBSIDY", "-COUPON_SUBSIDY-CANCEL"}) {
                 walletTransactionRepository.findByIdempotencyKey("PAYMENT-" + paymentId + suffix)
                         .ifPresent(walletTransactionRepository::delete);
             }
@@ -105,9 +105,9 @@ class PaymentShippingFeeIntegrationTest {
     }
 
     @Test
-    @DisplayName("장바구니 쿠폰 지원금이 0이 아니거나 배송비가 결제 금액 이상이면 돈을 옮기지 않고 400")
-    void rejectsUnsupportedSubsidyAndInvalidShippingFee() {
-        assertThatThrownBy(() -> pay(25_000, 2_500, 1_000))
+    @DisplayName("장바구니 쿠폰 지원금이 음수이거나 배송비가 결제 금액 이상이면 돈을 옮기지 않고 400")
+    void rejectsNegativeSubsidyAndInvalidShippingFee() {
+        assertThatThrownBy(() -> pay(25_000, 2_500, -1))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("400-INVALID_REQUEST");
         assertThatThrownBy(() -> pay(2_500, 2_500, 0))
@@ -116,6 +116,42 @@ class PaymentShippingFeeIntegrationTest {
 
         assertThat(balance(buyerMemberId)).isEqualTo(30_000);
         assertThat(paymentRepository.findByIdempotencyKey(key)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("장바구니 쿠폰 지원금은 플랫폼 지갑에서 홀딩으로 채워지고, 결제 취소하면 플랫폼 지갑으로 돌아간다")
+    void payAndCancelWithCouponSubsidy() {
+        chargePlatform(10_000);
+
+        PayResultDto paid = pay(25_000, 2_500, 3_000);
+        paymentId = paid.paymentId();
+
+        assertThat(balance(buyerMemberId)).isEqualTo(5_000);
+        assertThat(balance(PLATFORM_MEMBER_ID)).isEqualTo(9_500);   // 10,000 + 배송비 2,500 - 지원금 3,000
+        assertThat(holding().getAmount()).isEqualTo(25_500);         // 25,000 - 배송비 2,500 + 지원금 3,000
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getCouponSubsidyAmount()).isEqualTo(3_000);
+
+        paymentFacade.cancelPayment(key);
+
+        assertThat(balance(buyerMemberId)).isEqualTo(30_000);
+        assertThat(balance(PLATFORM_MEMBER_ID)).isEqualTo(10_000);
+    }
+
+    @Test
+    @DisplayName("플랫폼 지갑 잔액이 쿠폰 지원금보다 적으면 409 PLATFORM_SUBSIDY_INSUFFICIENT이고 돈은 그대로다")
+    void rejectsWhenPlatformCannotCoverSubsidy() {
+        assertThatThrownBy(() -> pay(25_000, 0, 3_000))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("409-PLATFORM_SUBSIDY_INSUFFICIENT");
+
+        assertThat(balance(buyerMemberId)).isEqualTo(30_000);
+        assertThat(balance(PLATFORM_MEMBER_ID)).isZero();
+        assertThat(paymentRepository.findByIdempotencyKey(key)).isEmpty();
+    }
+
+    private void chargePlatform(long amount) {
+        TestWalletCharger.charge(platformWallet, amount);
+        platformWallet = walletRepository.save(platformWallet);
     }
 
     private PayResultDto pay(long amount, long shippingFee, long couponSubsidy) {

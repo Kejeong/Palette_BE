@@ -63,7 +63,7 @@ public class PaymentCancelPaymentUseCase {
                 .orElseThrow(() -> new DomainException(PaymentErrorCode.WALLET_NOT_FOUND));
     }
 
-    // 배송비가 있는 결제만 플랫폼(관리자) 지갑을 잠근다. 배송비가 없으면 null
+    // 배송비나 쿠폰 지원금이 있는 결제만 플랫폼(관리자) 지갑을 잠근다. 둘 다 없으면 null
     private Wallet lockPlatformWalletIfNeeded(Payment payment) {
         return payment.needsPlatformWallet() ? lockWallet(paymentPolicy.adminMemberId()) : null;
     }

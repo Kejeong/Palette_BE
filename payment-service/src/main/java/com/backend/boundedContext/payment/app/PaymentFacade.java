@@ -193,4 +193,10 @@ public class PaymentFacade {
     public void createSeedHoldings(Long buyerMemberId, Map<Long, Long> amountByOrderId) {
         paymentCreateSeedHoldingsUseCase.createSeedHoldings(buyerMemberId, amountByOrderId);
     }
+
+    // 개발용 플랫폼(관리자) 지갑 시드 충전 (장바구니 쿠폰 지원금 재원)
+    @Transactional
+    public void chargeSeedPlatformWallet(long amount) {
+        paymentCreateSeedHoldingsUseCase.chargeSeedPlatformWallet(amount);
+    }
 }
