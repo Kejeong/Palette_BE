@@ -337,10 +337,11 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 400-SETTLEMENT_MONTH_RANGE_INVALID | 정산서 기간 조회·엑셀 다운로드 기간 오류(시작월 > 끝월, 최대 개월 수 초과, 정산월과 기간 동시 사용) |
 | | 400-SETTLEMENT_EXPORT_TOO_LARGE | 정산서 엑셀에 담을 품목 수가 `custom.settlement.exportMaxRows`(기본 200,000)를 넘음(파일을 만들기 전에 거절) 또는 한 시트가 엑셀 최대 행 수를 넘음 |
 | | 500-SETTLEMENT_EXPORT_FAILED | 정산서 엑셀 파일 생성 실패 |
-| delivery (은정) | 404-DELIVERY_NOT_FOUND | 없는 배송 건 (물류 상세·송장 등록·수정) |
-| | 409-DELIVERY_STATE_INVALID | READY가 아닌 배송에 송장 등록, SHIPPED가 아닌 배송의 송장 수정 |
+| delivery (은정) | 404-DELIVERY_NOT_FOUND | 없는 배송 건 (물류 상세·송장 등록·수정·관리자 수동 완료) |
+| | 409-DELIVERY_STATE_INVALID | READY가 아닌 배송에 송장 등록, SHIPPED가 아닌 배송의 송장 수정·관리자 수동 완료 |
 | | 409-DELIVERY_TRACKING_DUPLICATED | 같은 택배사·송장번호(정규화 후)가 다른 배송 건에 이미 있음. 동시에 등록해 DB 유니크에 걸리면 409-DATA_CONFLICT |
 | | 400-DELIVERY_TRACKING_NUMBER_INVALID | 공백·하이픈을 지운 송장번호가 영문·숫자 8~30자가 아님 |
+| | 400-DELIVERY_DELIVERED_AT_INVALID | 관리자 수동 완료의 배송 완료 시각이 발송 시각보다 이름 |
 | coupon (다은) | 404-COUPON_NOT_FOUND | 없는 쿠폰 (관리자 상세, 강제 중지, 예약) |
 | | 400-COUPON_PERIOD_INVALID | 쿠폰 등록 시 시작이 종료보다 늦거나 같음, 종료가 현재 이전 |
 | | 400-COUPON_TIER_INVALID | 장바구니 쿠폰 구간 없음, 할인액이 최소 주문 금액 이상, 구간이 올라가도 최소 주문 금액이나 할인액이 커지지 않음 |
