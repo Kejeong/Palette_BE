@@ -51,7 +51,8 @@ public class SecurityConfig {
             "/api/v1/auth/login",
             "/api/v1/auth/kakao",
             "/api/v1/auth/refresh",
-            "/webhooks/delivery-tracker/**"   // Delivery Tracker 콜백. URL 토큰으로 delivery가 직접 확인
+            "/webhooks/delivery-tracker/**",  // Delivery Tracker 콜백. URL 토큰으로 delivery가 직접 확인
+            "/api/v1/topups/hecto/**"         // 헥토 결제창 결과(브라우저 POST)·결과 알림(헥토 서버). 프론트로 넘기기만 하고 승인은 토큰이 있는 승인 API에서 함
     };
     private static final String[] ADMIN_API_URLS = {
             "/api/v1/admin/**"
