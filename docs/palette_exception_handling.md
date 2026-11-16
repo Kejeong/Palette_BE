@@ -328,7 +328,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 409-SETTLEMENT_CANDIDATE_STATE_INVALID | 정산 할 수 없는 정산 후보 상태가 정산을 시도 |
 | | 409-SETTLEMENT_ALREADY_COMPLETED | 월 정산이 이미 완료된 달을 다시 실행 |
 | | 409-SETTLEMENT_AMOUNT_MISMATCH | 정산 금액이 일치하지 않아서 정산할 수 없는 상태 |
-| | 400-SETTLEMENT_CANDIDATE_AMOUNT_INVALID | 주문 항목 금액이 올바르지 않아 정산 후보를 만들 수 없는 상태 |
+| | 400-SETTLEMENT_CANDIDATE_AMOUNT_INVALID | 주문 항목 금액 또는 상품 쿠폰 할인액이 올바르지 않아 정산 후보를 만들 수 없는 상태 (처리 이력에만 남음) |
 | | 500-SETTLEMENT_JOB_FAILED | JOB에 문제가 생긴 상태 |
 | | 409-SETTLEMENT_CANDIDATE_AMOUNT_TAMPERED | 판별 단계: 정산 후보 금액 스냅샷(판매가·수수료·지급액)이 서로 맞지 않아 확정하지 않음 (처리 이력에만 남음) |
 | | 409-SETTLEMENT_CANDIDATE_FEE_RATE_MISMATCH | 판별 단계: 정산 후보의 수수료율이 후보를 만든 시점의 정책 수수료율과 달라 확정하지 않음 (처리 이력에만 남음) |

@@ -547,10 +547,12 @@ package com.backend.shared.order.dto;
  *   하위 호환: 이 필드가 없는 이전 형식 메시지(outbox PENDING·Kafka 보관분)는 0으로 읽는다.
  *   (그래서 Long으로 받고 값이 없으면 0으로 본다. long으로 하면 값이 빠진 JSON을 읽을 때 오류가 난다.)
  *   6개 인자 생성자는 할인 0으로 채운다.
+ * productName, optionName = 주문할 때의 상품명·옵션명 스냅샷(주문 항목 product_name, option_name). 정산 내역·엑셀 표시용.
+ *   하위 호환: 이 필드가 없는 이전 형식 메시지는 null로 읽는다. 6·7개 인자 생성자는 이름을 null로 채운다.
  */
 public record ConfirmedOrderItemDto(Long orderItemId, Long productId, Long sellerId,
                                     long unitPrice, int quantity, long lineAmount,
-                                    Long productCouponDiscount) { }
+                                    Long productCouponDiscount, String productName, String optionName) { }
 
 /** 주문 배송지 스냅샷 (주문할 때 받은 값 그대로). 로그에 남기지 않는다 */
 public record ShippingAddressDto(String receiverName, String receiverPhone, String zipCode,
