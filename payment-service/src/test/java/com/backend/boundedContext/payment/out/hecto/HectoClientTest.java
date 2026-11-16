@@ -70,6 +70,34 @@ class HectoClientTest {
     }
 
     @Test
+    @DisplayName("조회: 헥토가 JSON 본문을 text/plain·*/* Content-Type으로 보내도 읽는다")
+    void inquiry_nonJsonContentType() {
+        String json = """
+                {"params": {"mchtId": "%s", "mchtTrdNo": "INQ-1", "trdNo": "", "trdDt": "20261116", "trdTm": "143817",
+                            "outStatCd": "0031", "outRsltCd": "ST06", "outRsltMsg": "거래번호 정보가 존재하지 않습니다."},
+                 "data": {"pktHash": "x", "method": "CA", "trdAmt": "10000", "cnclAmt": "0"}}
+                """.formatted(MCHT_ID);
+        server.expect(requestTo(BASE_URL + "/spay/APITrdcheck.do"))
+                .andRespond(withSuccess(json, MediaType.parseMediaType("text/plain;charset=UTF-8")));
+        server.expect(requestTo(BASE_URL + "/spay/APITrdcheck.do"))
+                .andRespond(withSuccess().body(json).header("Content-Type", "*/*;charset=UTF-8"));
+
+        assertThat(client.inquiry(ORDER_ID, TRD_NO, 10_000, REQUESTED_AT, REQUEST_AT).outRsltCd()).isEqualTo("ST06");
+        assertThat(client.inquiry(ORDER_ID, TRD_NO, 10_000, REQUESTED_AT, REQUEST_AT).outRsltCd()).isEqualTo("ST06");
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("JSON이 아닌 본문(장애 페이지 등)은 HectoResultUnknownException")
+    void notJsonBody() {
+        server.expect(requestTo(BASE_URL + "/spay/APIService.do"))
+                .andRespond(withSuccess("<html>error</html>", MediaType.TEXT_HTML));
+
+        assertThatThrownBy(() -> client.approve(ORDER_ID, TRD_NO, 20_000, REQUEST_AT))
+                .isInstanceOf(HectoResultUnknownException.class);
+    }
+
+    @Test
     @DisplayName("승인: 성공 응답의 해시가 맞지 않으면 승인됐는지 알 수 없어 HectoResultUnknownException")
     void approve_hashMismatch() {
         server.expect(requestTo(BASE_URL + "/spay/APIService.do"))

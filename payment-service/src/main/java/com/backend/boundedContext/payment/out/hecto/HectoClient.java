@@ -17,6 +17,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
+
 /**
  * 헥토파이낸셜 신용카드 API 클라이언트 (인증 분리 승인·취소·조회). 호출은 DB 트랜잭션 밖에서 진행
  * - 헥토는 성공·실패 모두 HTTP 200에 outStatCd(0021 성공, 0031 실패)로 알려 줌 → 실패 응답도 HectoResponse로 돌려주고, 판단은 어댑터가 함
@@ -45,6 +49,11 @@ public class HectoClient {
 
     // 우리가 정한 값: 조회 요청 자체에도 상점 주문번호가 필요해서, 충전 주문번호와 겹치지 않게 앞에 붙임
     private static final String INQUIRY_ORDER_ID_PREFIX = "INQ-";
+
+    // 응답 JSON을 읽는 용도. 응답에 우리가 쓰지 않는 필드가 있어도 읽음
+    private static final JsonMapper JSON = JsonMapper.builder()
+            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .build();
 
     private final RestClient restClient;
     private final HectoCrypto crypto;
@@ -145,16 +154,18 @@ public class HectoClient {
     }
 
     // 요청 실행. 응답을 못 받았거나 HTTP 오류·해석할 수 없는 응답이면 처리됐는지 알 수 없음
+    // 헥토는 JSON 본문을 text/plain·*/* 같은 Content-Type으로 보내서(테스트베드 확인), 문자열로 받아 직접 JSON으로 읽음
     private HectoEnvelope post(String uri, Map<String, String> params, Map<String, String> data) {
         HectoEnvelope response;
         try {
-            response = restClient.post()
+            String body = restClient.post()
                     .uri(uri)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("params", params, "data", data))
                     .retrieve()
-                    .body(HectoEnvelope.class);
-        } catch (RestClientException e) {
+                    .body(String.class);
+            response = body != null ? JSON.readValue(body, HectoEnvelope.class) : null;
+        } catch (RestClientException | JacksonException e) {
             throw new HectoResultUnknownException(e);
         }
         if (response == null || response.params() == null || response.param("outStatCd") == null) {
