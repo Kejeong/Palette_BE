@@ -106,6 +106,8 @@ custom:
   faq:
     embeddingIntervalMillis: 5000   # 비어 있는 FAQ 임베딩을 채우는 간격(밀리초)
     embeddingBatchSize: 20          # 한 번에 임베딩하는 FAQ 수
+    searchTopK: 3                   # 검색에서 가져오는 FAQ 최대 수(유사도 높은 순)
+    similarityThreshold: 0.4        # 이 코사인 유사도보다 낮은 FAQ는 관련 없다고 보고 버림. 임시 값, FAQ 데이터로 측정해서 정함
   scheduling:
     enabled: true        # false면 모든 스케줄러가 멈춘다(통합 테스트용)
   kafka:

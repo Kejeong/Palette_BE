@@ -26,6 +26,32 @@ public class FaqVectorRepository {
         return jdbcTemplate.update("update faq set embedding = cast(? as vector) where id = ? and embedding_source_hash = ?", toVector(embedding), faqId, sourceHash) == 1;
     }
 
+    // 검색 결과 한 줄. category는 코드 이름
+    public record SearchRow(
+            Long faqId,
+            String category,
+            String question,
+            String answer,
+            double similarity
+    ) {}
+
+    /**
+     * 질문 벡터와 코사인 유사도가 기준값 이상인 노출 중 FAQ를 유사도 높은 순으로 limit건.
+     * 인덱스 없이 전체를 비교함(V5 참고). 임베딩 전 FAQ는 빠짐
+     */
+    public List<SearchRow> search(float[] queryEmbedding, double threshold, int limit) {
+        return jdbcTemplate.query("""
+                        with q as (select cast(? as vector) as v)
+                        select f.id, f.category, f.question, f.answer, 1 - (f.embedding <=> q.v) as similarity
+                        from faq f, q
+                        where f.visible and f.embedding is not null and 1 - (f.embedding <=> q.v) >= ?
+                        order by f.embedding <=> q.v, f.id
+                        limit ?
+                        """,
+                (rs, i) -> new SearchRow(rs.getLong("id"), rs.getString("category"), rs.getString("question"), rs.getString("answer"), rs.getDouble("similarity")),
+                toVector(queryEmbedding), threshold, limit);
+    }
+
     static String toVector(float[] embedding) {
         StringBuilder sb = new StringBuilder("[");
 
