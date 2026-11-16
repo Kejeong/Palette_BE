@@ -275,6 +275,9 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       DELIVERY_DB_USERNAME: ${DELIVERY_DB_USERNAME:?DELIVERY_DB_USERNAME이 .env에 없습니다}
+      # 상품 내부 API(/internal/v1/products/options)를 부르는 market-service 주소 (물류 목록·상세의 상품 대표 이미지)
+      # Docker 내부망으로 직접 부른다. 응답하지 못하면 물류 응답은 이미지 없이(thumbnailUrl: null) 나간다
+      MARKET_SERVICE_URL: http://market:8082
       SERVER_FORWARD_HEADERS_STRATEGY: native
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
     # 다른 앱(1g)보다 작은 768m(힙 576MB). 송장 등록·배송 조회와 스케줄러뿐이라 요청이 적고, 서버 8GB에 앱이 5개가 되어 줄인다

@@ -1,5 +1,7 @@
 package com.backend.boundedContext.delivery.app;
 
+import java.util.List;
+
 import org.springframework.stereotype.Component;
 
 import com.backend.boundedContext.delivery.domain.Courier;
@@ -19,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 public class DeliveryChangeTrackingUseCase {
 
     private final DeliverySupport deliverySupport;
+    private final DeliveryProductImageSupport deliveryProductImageSupport;
 
     public LogisticsDeliveryResponse changeTracking(Long deliveryId, Courier courier, String trackingNumber) {
         String normalized = TrackingNumbers.normalize(trackingNumber);
@@ -28,6 +31,6 @@ public class DeliveryChangeTrackingUseCase {
         if (delivery.changeTracking(courier, normalized)) {
             log.info("송장 수정: deliveryId={}, courier={}, trackingNumber={}", deliveryId, courier, normalized);
         }
-        return LogisticsDeliveryResponse.from(delivery);
+        return LogisticsDeliveryResponse.from(delivery, deliveryProductImageSupport.getThumbnailUrls(List.of(delivery)));
     }
 }
