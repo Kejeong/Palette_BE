@@ -8,7 +8,6 @@ import com.backend.boundedContext.payment.domain.Payment;
 import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.PaymentPolicy;
 import com.backend.boundedContext.payment.domain.Wallet;
-import com.backend.boundedContext.payment.domain.WalletTransaction;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
 import com.backend.boundedContext.payment.out.PaymentRepository;
 import com.backend.boundedContext.payment.out.TopupUsageRepository;
@@ -65,8 +64,7 @@ public class PaymentCancelPaymentUseCase {
     // 결제 금액을 구매자 지갑에 다시 넣고 원장 PAYMENT_CANCEL을 남긴다
     private void refundToWallet(Wallet wallet, Payment payment) {
         walletTransactionRepository.save(
-                WalletTransaction.record(
-                        wallet,
+                wallet.change(
                         WalletTransactionType.PAYMENT_CANCEL,
                         payment.getAmount(),
                         payment.getId(),
@@ -79,7 +77,7 @@ public class PaymentCancelPaymentUseCase {
     private void takeBackShippingFee(Payment payment) {
         if (payment.getShippingFee() == 0) return;
         Wallet platformWallet = lockWallet(paymentPolicy.adminMemberId());
-        walletTransactionRepository.save(WalletTransaction.record(platformWallet, WalletTransactionType.SHIPPING_FEE_CANCEL,
+        walletTransactionRepository.save(platformWallet.change(WalletTransactionType.SHIPPING_FEE_CANCEL,
                 payment.getShippingFee(), payment.getId(), payment.shippingFeeCancelIdempotencyKey()));
     }
 

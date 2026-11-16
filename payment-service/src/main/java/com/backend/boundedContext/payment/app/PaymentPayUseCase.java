@@ -14,7 +14,6 @@ import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.TopupUsage;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.domain.WalletHolding;
-import com.backend.boundedContext.payment.domain.WalletTransaction;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
 import com.backend.boundedContext.payment.out.PaymentRepository;
 import com.backend.boundedContext.payment.out.TopupRepository;
@@ -53,14 +52,13 @@ public class PaymentPayUseCase {
         validateShippingFeeAndSubsidy(command);
         Wallet wallet = lockWallet(command.buyerId());
 
-        Optional<Payment> processed = paymentRepository.findByIdempotencyKey(command.idempotencyKey());
-        if (processed.isPresent()) {
-            return returnPreviousResult(processed.get(), command, wallet);
+        Optional<Payment> previousPayment = paymentRepository.findByIdempotencyKey(command.idempotencyKey());
+        if (previousPayment.isPresent()) {
+            return returnResult(previousPayment.get(), command, wallet);
         }
-        validateNotPaidYet(command.orderId());
+        rejectIfOrderAlreadyPaid(command.orderId());
 
         LocalDateTime now = LocalDateTime.now();
-        // 주문 쪽이 먼저 만료를 확인하지만, 계약상 결제 쪽에서도 한 번 더 막는다
         if (command.isExpiredAt(now)) {
             return fail(command, wallet, PaymentStatus.FAILED_ORDER_EXPIRED, "주문 결제 가능 시간이 지났습니다.");
         }
@@ -69,8 +67,16 @@ public class PaymentPayUseCase {
         }
 
         // 결제 건을 먼저 저장한다 (원장·홀딩이 결제 ID를 가리켜야 하므로)
-        Payment payment = paymentRepository.save(Payment.paid(command.orderId(), command.orderNumber(), wallet,
-                command.amount(), command.idempotencyKey(), now).withShippingFee(command.shippingFee()));
+        Payment payment = paymentRepository.save(
+                Payment.paid(
+                        command.orderId(),
+                        command.orderNumber(),
+                        wallet,
+                        command.amount(),
+                        command.idempotencyKey(),
+                        now
+                ).withShippingFee(command.shippingFee())
+        );
         withdrawFromWallet(wallet, payment);
         useTopups(command.buyerId(), payment);
         depositShippingFee(payment);
@@ -92,7 +98,7 @@ public class PaymentPayUseCase {
     private void depositShippingFee(Payment payment) {
         if (payment.getShippingFee() == 0) return;
         Wallet platformWallet = lockWallet(paymentPolicy.adminMemberId());
-        walletTransactionRepository.save(WalletTransaction.record(platformWallet, WalletTransactionType.SHIPPING_FEE,
+        walletTransactionRepository.save(platformWallet.change(WalletTransactionType.SHIPPING_FEE,
                 payment.getShippingFee(), payment.getId(), payment.shippingFeeIdempotencyKey()));
     }
 
@@ -101,8 +107,7 @@ public class PaymentPayUseCase {
                 .orElseThrow(() -> new DomainException(PaymentErrorCode.WALLET_NOT_FOUND));
     }
 
-    // 다른 키인데 이미 PAID 결제가 있는 주문이면 409 (정상 흐름에서는 주문 쪽이 먼저 막으므로 버그 신호)
-    private void validateNotPaidYet(Long orderId) {
+    private void rejectIfOrderAlreadyPaid(Long orderId) {
         if (paymentRepository.existsByOrderIdAndStatus(orderId, PaymentStatus.PAID)) {
             throw new DomainException(PaymentErrorCode.PAYMENT_ALREADY_PAID);
         }
@@ -114,7 +119,7 @@ public class PaymentPayUseCase {
 
     // 구매자 지갑에서 결제 금액을 빼고 원장 PAYMENT를 남긴다
     private void withdrawFromWallet(Wallet wallet, Payment payment) {
-        walletTransactionRepository.save(WalletTransaction.record(wallet, WalletTransactionType.PAYMENT,
+        walletTransactionRepository.save(wallet.change(WalletTransactionType.PAYMENT,
                 payment.getAmount(), payment.getId(), payment.paymentIdempotencyKey()));
     }
 
@@ -132,7 +137,7 @@ public class PaymentPayUseCase {
 
     // 같은 멱등 키로 다시 온 요청: 처음 결과를 그대로 돌려준다
     // 키는 같은데 주문·구매자·금액이 다르면 다른 요청에 키를 재사용한 것이라 409
-    private PayResultDto returnPreviousResult(Payment payment, PayCommand command, Wallet wallet) {
+    private PayResultDto returnResult(Payment payment, PayCommand command, Wallet wallet) {
         if (!payment.getOrderId().equals(command.orderId())
                 || !payment.getMemberId().equals(command.buyerId())
                 || payment.getAmount() != command.amount()

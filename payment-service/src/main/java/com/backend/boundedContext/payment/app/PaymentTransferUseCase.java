@@ -131,6 +131,6 @@ public class PaymentTransferUseCase {
         if (amount == 0) {
             return null;
         }
-        return walletTransactionRepository.save(WalletTransaction.record(wallet, type, amount, settlementId, idempotencyKey));
+        return walletTransactionRepository.save(wallet.change(type, amount, settlementId, idempotencyKey));
     }
 }

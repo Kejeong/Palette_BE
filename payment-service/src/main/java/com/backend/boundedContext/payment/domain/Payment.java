@@ -68,8 +68,14 @@ public class Payment extends BaseIdAndTime {
     private LocalDateTime canceledAt;
 
     // 결제 성공 건 (지갑 차감·홀딩 생성은 호출한 쪽에서 같은 트랜잭션으로 처리)
-    public static Payment paid(Long orderId, String orderNumber, Wallet wallet, long amount, String idempotencyKey,
-                               LocalDateTime paidAt) {
+    public static Payment paid(
+            Long orderId,
+            String orderNumber,
+            Wallet wallet,
+            long amount,
+            String idempotencyKey,
+            LocalDateTime paidAt
+    ) {
         Payment payment = create(
                 orderId,
                 orderNumber,

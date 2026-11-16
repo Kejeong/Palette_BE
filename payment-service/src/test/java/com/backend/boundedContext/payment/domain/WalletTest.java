@@ -60,4 +60,18 @@ class WalletTest {
         assertThatThrownBy(() -> wallet.withdraw(amount)).isInstanceOf(IllegalArgumentException.class);
         assertThat(wallet.getBalance()).isEqualTo(10_000);
     }
+
+    @Test
+    @DisplayName("change는 잔액을 바꾸고 같은 변화를 원장으로 돌려준다")
+    void change() {
+        Wallet wallet = Wallet.create(1L);
+        wallet.deposit(30_000);
+
+        WalletTransaction transaction = wallet.change(WalletTransactionType.PAYMENT, 12_000, 3L, "PAYMENT-3");
+
+        assertThat(wallet.getBalance()).isEqualTo(18_000);
+        assertThat(transaction.getWallet()).isSameAs(wallet);
+        assertThat(transaction.getAmount()).isEqualTo(-12_000);
+        assertThat(transaction.getBalanceAfter()).isEqualTo(18_000);
+    }
 }
