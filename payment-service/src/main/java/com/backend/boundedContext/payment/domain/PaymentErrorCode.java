@@ -32,6 +32,7 @@ public enum PaymentErrorCode implements ErrorCode {
     PAYMENT_ALREADY_PAID(409, "이미 결제된 주문입니다."),
     PAYMENT_CANCELED(409, "취소된 결제입니다."),
     PAYMENT_NOT_CANCELABLE(409, "취소할 수 없는 결제입니다."),
+    PLATFORM_SUBSIDY_INSUFFICIENT(409, "플랫폼 지갑 잔액이 쿠폰 지원금보다 적어 결제할 수 없습니다. 관리자에게 문의해 주세요."),
 
     // 홀딩·정산 지급
     HOLDING_NOT_FOUND(404, "보관 중인 홀딩 내역을 찾을 수 없습니다."),

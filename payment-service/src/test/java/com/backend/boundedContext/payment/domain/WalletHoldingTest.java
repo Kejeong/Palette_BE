@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.backend.boundedContext.payment.support.TestPayments;
 import com.backend.global.exception.DomainException;
 
 class WalletHoldingTest {
@@ -15,7 +16,7 @@ class WalletHoldingTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 13, 10, 0);
 
     private final Wallet wallet = Wallet.create(3L);
-    private final Payment payment = Payment.paid(10L, "ORD-TEST-10", wallet, 25_000, "PAY-10-a", NOW);
+    private final Payment payment = TestPayments.paid(wallet, 10L, "ORD-TEST-10", 25_000, "PAY-10-a", NOW).holding().getPayment();
 
     @Test
     @DisplayName("결제 완료 건의 주문·지갑·금액으로 HELD 홀딩을 만든다")
@@ -88,7 +89,7 @@ class WalletHoldingTest {
         holding.settle(25_000, NOW);
 
         assertThatThrownBy(() -> holding.settle(1, NOW))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(DomainException.class);
     }
 
     @Test

@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import com.backend.boundedContext.payment.support.TestPayments;
 import com.backend.boundedContext.payment.domain.Payment;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.domain.WalletHolding;
@@ -243,11 +244,12 @@ class PaymentTransferIntegrationTest {
                 payoutAmount, feeAmount, List.of(orders));
     }
 
-    // 결제 완료 건과 HELD 홀딩을 만든다 (pay 실제 구현 전이라 직접 저장)
+    // 결제 완료 건과 HELD 홀딩을 만든다 (구매자 잔액과 무관한 정산 테스트라 돈 이동 없이 저장)
     private void hold(long orderId, long amount) {
-        Payment payment = paymentRepository.save(Payment.paid(orderId, "ORD-TEST-" + orderId, buyerWallet, amount,
-                "TEST-" + UUID.randomUUID(), LocalDateTime.now()));
-        holdings.add(walletHoldingRepository.save(WalletHolding.hold(payment, LocalDateTime.now())));
+        WalletHolding holding = TestPayments.paid(buyerWallet, orderId, "ORD-TEST-" + orderId, amount,
+                "TEST-" + UUID.randomUUID(), LocalDateTime.now()).holding();
+        paymentRepository.save(holding.getPayment());
+        holdings.add(walletHoldingRepository.save(holding));
     }
 
     private WalletHolding holding(long orderId) {

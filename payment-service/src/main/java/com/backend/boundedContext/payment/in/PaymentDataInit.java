@@ -30,6 +30,9 @@ public class PaymentDataInit {
 
     private static final Long SEED_BUYER_MEMBER_ID = 3L;
 
+    /** 플랫폼(관리자) 지갑 시드 충전액. 장바구니 쿠폰 지원금을 낼 재원 */
+    private static final long SEED_PLATFORM_CHARGE_AMOUNT = 1_000_000L;
+
     /** 주문 ID → 결제 금액. 정산 시드의 주문별 판매 금액 합과 같다 (-1: 10,000 + 15,000, -2: 9,999) */
     private static final Map<Long, Long> SEED_HOLDINGS = new LinkedHashMap<>();
 
@@ -52,6 +55,7 @@ public class PaymentDataInit {
                 return;
             }
             paymentFacade.createSeedHoldings(SEED_BUYER_MEMBER_ID, SEED_HOLDINGS);
+            paymentFacade.chargeSeedPlatformWallet(SEED_PLATFORM_CHARGE_AMOUNT);
         };
     }
 }

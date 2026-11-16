@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.backend.boundedContext.payment.support.TestWalletCharger;
 import com.backend.global.exception.DomainException;
 
 class WalletTransactionTest {
@@ -14,7 +15,7 @@ class WalletTransactionTest {
     @DisplayName("입금 유형이면 지갑 잔액이 늘고, + 금액과 거래 후 잔액을 기록한다")
     void record_deposit() {
         Wallet wallet = Wallet.create(1L);
-        wallet.deposit(5_000);
+        TestWalletCharger.charge(wallet, 5_000);
 
         WalletTransaction transaction = WalletTransaction.record(wallet, WalletTransactionType.CHARGE, 20_000, 7L, "TOPUP-7-CHARGE");
 
@@ -32,7 +33,7 @@ class WalletTransactionTest {
     @DisplayName("차감 유형이면 지갑 잔액이 줄고, - 금액과 거래 후 잔액을 기록한다")
     void record_withdraw() {
         Wallet wallet = Wallet.create(1L);
-        wallet.deposit(30_000);
+        TestWalletCharger.charge(wallet, 30_000);
 
         WalletTransaction transaction = WalletTransaction.record(wallet, WalletTransactionType.PAYMENT, 12_000, 3L, "PAYMENT-3");
 
@@ -46,7 +47,7 @@ class WalletTransactionTest {
     @DisplayName("차감할 잔액이 부족하면 402 INSUFFICIENT_BALANCE로 원장을 만들지 않고 잔액도 그대로다")
     void record_insufficient() {
         Wallet wallet = Wallet.create(1L);
-        wallet.deposit(10_000);
+        TestWalletCharger.charge(wallet, 10_000);
 
         assertThatThrownBy(() -> WalletTransaction.record(wallet, WalletTransactionType.CHARGE_CANCEL, 20_000, 7L, "TOPUP-7-CHARGE_CANCEL"))
                 .isInstanceOf(DomainException.class)

@@ -51,24 +51,16 @@ public class WalletTransaction extends BaseIdAndTime {
     @Column(nullable = false, unique = true, length = 100)
     private String idempotencyKey;  // 멱등 키
 
-    /**
-     * 지갑 잔액을 바꾸고 그 거래를 원장 행으로 만듦. 입금·차감 방향과 참조 유형은 거래 유형이 정함
-     * 지갑은 잠금 조회(findByMemberIdForUpdate)한 것을 넘기고, 반환한 원장은 호출한 쪽에서 저장
-     */
+    // shortcut: 충전 처리기가 아직 이 메서드를 쓴다. 충전 리팩토링 때 wallet.change로 바꾸고 지운다
     public static WalletTransaction record(Wallet wallet, WalletTransactionType type, long amount, Long referenceId, String idempotencyKey) {
-        long signedAmount;
-        if (type.isDeposit()) {
-            wallet.deposit(amount);
-            signedAmount = amount;
-        } else {
-            wallet.withdraw(amount);
-            signedAmount = -amount;
-        }
+        return wallet.change(type, amount, referenceId, idempotencyKey);
+    }
 
+    static WalletTransaction of(Wallet wallet, WalletTransactionType type, long amount, Long referenceId, String idempotencyKey) {
         WalletTransaction transaction = new WalletTransaction();
         transaction.wallet = wallet;
         transaction.type = type;
-        transaction.amount = signedAmount;
+        transaction.amount = type.isDeposit() ? amount : -amount;
         transaction.balanceAfter = wallet.getBalance();
         transaction.referenceType = type.getReferenceType();
         transaction.referenceId = referenceId;

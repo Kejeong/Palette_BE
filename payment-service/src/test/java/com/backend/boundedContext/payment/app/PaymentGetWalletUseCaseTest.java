@@ -16,6 +16,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.backend.boundedContext.payment.support.TestWalletCharger;
 import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.domain.WalletHoldingStatus;
@@ -40,7 +41,7 @@ class PaymentGetWalletUseCaseTest {
     @DisplayName("지갑 잔액과 HELD 홀딩의 남은 금액 합계를 돌려준다")
     void getWallet() {
         Wallet wallet = Wallet.create(3L);
-        wallet.deposit(5_000);
+        TestWalletCharger.charge(wallet, 5_000);
         given(walletRepository.findByMemberId(3L)).willReturn(Optional.of(wallet));
         given(walletHoldingRepository.sumRemainingAmount(any(), any())).willReturn(25_000L);
 
