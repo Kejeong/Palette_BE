@@ -74,7 +74,9 @@ public class SettlementExportUseCase {
     private static final List<Column> SELLER_ITEM_COLUMNS = List.of(
             new Column("정산서 ID", ColumnType.ID), new Column("정산서 정산월", ColumnType.TEXT),
             new Column("주문 ID", ColumnType.ID), new Column("주문 항목 ID", ColumnType.ID),
-            new Column("판매가", ColumnType.AMOUNT), new Column("수수료율", ColumnType.PERCENT),
+            new Column("상품명", ColumnType.TEXT), new Column("옵션명", ColumnType.TEXT),
+            new Column("판매가", ColumnType.AMOUNT), new Column("상품 쿠폰 할인액", ColumnType.AMOUNT),
+            new Column("수수료율", ColumnType.PERCENT),
             new Column("수수료", ColumnType.AMOUNT), new Column("지급액", ColumnType.AMOUNT),
             new Column("구매 확정 시각", ColumnType.DATETIME), new Column("원래 정산월", ColumnType.TEXT),
             new Column("이월 여부", ColumnType.BOOLEAN));
@@ -154,6 +156,7 @@ public class SettlementExportUseCase {
                     for (SettlementExportItemRow c : chunk.itemsOf(s.id())) {
                         workbook.addRow(itemSheet, itemRow(s, c, admin));
                         itemTotals.add(c.salePrice(), c.fee(), c.payoutAmount(), 1);
+                        itemTotals.addDiscount(c.productCouponDiscount());
                     }
                 }
                 SettlementExportRow last = chunk.statements().get(chunk.statements().size() - 1);
@@ -164,7 +167,7 @@ public class SettlementExportUseCase {
             workbook.addTotalRow(statementSheet, TOTAL_LABEL, admin
                     ? statementTotals.statementColumns(4, 5, 6, 7) : statementTotals.statementColumns(2, 3, 4, 5));
             workbook.addTotalRow(itemSheet, TOTAL_LABEL, admin
-                    ? itemTotals.itemColumns(5, 7, 8) : itemTotals.itemColumns(4, 6, 7));
+                    ? itemTotals.itemColumns(7, 8, 10, 11) : itemTotals.itemColumns(6, 7, 9, 10));
             workbook.writeTo(file);
             return new ExportResult(file, Files.size(file), statementTotals.count, itemTotals.count);
         } catch (SettlementExcelWriter.TooManyRowsException e) {
@@ -230,7 +233,8 @@ public class SettlementExportUseCase {
 
     private static List<Object> itemRow(SettlementExportRow s, SettlementExportItemRow c, boolean admin) {
         List<Object> row = new ArrayList<>(Arrays.asList(s.id(), s.settlementMonth(), c.orderId(),
-                c.orderItemId(), c.salePrice(), c.feeRate(), c.fee(), c.payoutAmount(),
+                c.orderItemId(), c.productName(), c.optionName(), c.salePrice(), c.productCouponDiscount(),
+                c.feeRate(), c.fee(), c.payoutAmount(),
                 c.confirmedAt(), c.settlementMonth(), !c.settlementMonth().equals(s.settlementMonth())));
         if (admin) row.add(2, s.sellerId());
         return row;
@@ -273,9 +277,10 @@ public class SettlementExportUseCase {
         }
     }
 
-    /** 합계: 판매가·수수료·지급액 합과 행 수(정산서 시트는 품목 수 합도) */
+    /** 합계: 판매가·수수료·지급액 합과 행 수(정산서 시트는 품목 수 합도, 품목 시트는 상품 쿠폰 할인액 합도) */
     private static final class Totals {
         private long sale;
+        private long discount;
         private long fee;
         private long payout;
         private long itemCount;
@@ -289,14 +294,18 @@ public class SettlementExportUseCase {
             this.count++;
         }
 
+        void addDiscount(long discount) {
+            this.discount += discount;
+        }
+
         /** 정산서 시트: 판매 대금·수수료·지급액·품목 수 열 */
         Map<Integer, Long> statementColumns(int saleColumn, int feeColumn, int payoutColumn, int itemCountColumn) {
             return Map.of(saleColumn, sale, feeColumn, fee, payoutColumn, payout, itemCountColumn, itemCount);
         }
 
-        /** 품목 시트: 판매가·수수료·지급액 열 */
-        Map<Integer, Long> itemColumns(int saleColumn, int feeColumn, int payoutColumn) {
-            return Map.of(saleColumn, sale, feeColumn, fee, payoutColumn, payout);
+        /** 품목 시트: 판매가·상품 쿠폰 할인액·수수료·지급액 열 */
+        Map<Integer, Long> itemColumns(int saleColumn, int discountColumn, int feeColumn, int payoutColumn) {
+            return Map.of(saleColumn, sale, discountColumn, discount, feeColumn, fee, payoutColumn, payout);
         }
     }
 }
