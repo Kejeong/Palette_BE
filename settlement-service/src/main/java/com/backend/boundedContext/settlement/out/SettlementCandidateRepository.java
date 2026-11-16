@@ -64,8 +64,8 @@ public interface SettlementCandidateRepository extends JpaRepository<SettlementC
      */
     @Query("""
             select new com.backend.boundedContext.settlement.out.SettlementExportItemRow(
-                       c.settlement.id, c.orderId, c.orderItemId, c.salePrice, c.feeRate, c.fee, c.payoutAmount,
-                       c.confirmedAt, c.settlementMonth)
+                       c.settlement.id, c.orderId, c.orderItemId, c.productName, c.optionName, c.salePrice,
+                       c.productCouponDiscount, c.feeRate, c.fee, c.payoutAmount, c.confirmedAt, c.settlementMonth)
               from SettlementCandidate c
              where c.settlement.id in :settlementIds
              order by c.settlement.id, c.id

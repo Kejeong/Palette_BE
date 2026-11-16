@@ -193,6 +193,14 @@ public class SettlementPolicy {
     }
 
     /**
+     * 상품 쿠폰 할인액이 맞는지: 0 이상이고 항목 금액보다 작다(할인 뒤 판매가가 1원 이상)
+     * 주문도 같은 규칙으로 할인을 적용한다(OrderItem.applyCouponDiscount: 0 이상, 항목 금액 미만)
+     */
+    public static boolean isValidCouponDiscount(long productCouponDiscount, long lineAmount) {
+        return productCouponDiscount >= 0 && productCouponDiscount < lineAmount;
+    }
+
+    /**
      * 주문 항목 금액 검증 : 0원보다 크고, 단가 × 수량과 같아야 정산 후보를 만든다.
      */
     public static boolean isValidLineAmount(long unitPrice, int quantity, long lineAmount) {

@@ -17,6 +17,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.backend.boundedContext.payment.app.dto.TopupDto;
+import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.out.PaymentMemberPort;
 import com.backend.boundedContext.payment.out.TopupRepository;
@@ -68,10 +69,10 @@ class TopupHistoryIntegrationTest {
     void getTopups() {
         wallets.add(walletRepository.save(Wallet.create(memberId)));
         wallets.add(walletRepository.save(Wallet.create(otherMemberId)));
-        Long first = paymentFacade.prepareTopup(memberId, 10_000).topupId();
-        Long second = paymentFacade.prepareTopup(memberId, 20_000).topupId();
-        Long third = paymentFacade.prepareTopup(memberId, 30_000).topupId();
-        paymentFacade.prepareTopup(otherMemberId, 40_000);
+        Long first = paymentFacade.prepareTopup(memberId, 10_000, PgProvider.TOSS).topupId();
+        Long second = paymentFacade.prepareTopup(memberId, 20_000, PgProvider.TOSS).topupId();
+        Long third = paymentFacade.prepareTopup(memberId, 30_000, PgProvider.TOSS).topupId();
+        paymentFacade.prepareTopup(otherMemberId, 40_000, PgProvider.TOSS);
 
         PageResponse<TopupDto> page0 = paymentFacade.getTopups(memberId, PageRequest.of(0, 2));
         PageResponse<TopupDto> page1 = paymentFacade.getTopups(memberId, PageRequest.of(1, 2));
@@ -89,8 +90,8 @@ class TopupHistoryIntegrationTest {
         wallets.add(walletRepository.save(Wallet.create(otherMemberId)));
         assertThat(paymentFacade.hasPendingTopups(memberId)).isFalse();
 
-        Long topupId = paymentFacade.prepareTopup(memberId, 10_000).topupId();
-        paymentFacade.prepareTopup(otherMemberId, 20_000);
+        Long topupId = paymentFacade.prepareTopup(memberId, 10_000, PgProvider.TOSS).topupId();
+        paymentFacade.prepareTopup(otherMemberId, 20_000, PgProvider.TOSS);
         assertThat(paymentFacade.hasPendingTopups(memberId)).isTrue();
 
         paymentFacade.failTopup(memberId, topupId, "PAY_PROCESS_CANCELED", "사용자 취소");
@@ -102,7 +103,7 @@ class TopupHistoryIntegrationTest {
     void otherMembersTopup() {
         wallets.add(walletRepository.save(Wallet.create(memberId)));
         wallets.add(walletRepository.save(Wallet.create(otherMemberId)));
-        Long othersTopupId = paymentFacade.prepareTopup(otherMemberId, 20_000).topupId();
+        Long othersTopupId = paymentFacade.prepareTopup(otherMemberId, 20_000, PgProvider.TOSS).topupId();
 
         assertThat(paymentFacade.getTopup(otherMemberId, othersTopupId).topupId()).isEqualTo(othersTopupId);
         assertThatThrownBy(() -> paymentFacade.getTopup(memberId, othersTopupId))

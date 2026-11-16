@@ -10,6 +10,7 @@ import com.backend.boundedContext.settlement.out.SettlementProcessHistoryReposit
 import com.backend.shared.order.dto.ConfirmedOrderItemDto;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.lang.reflect.Proxy;
 import java.time.LocalDateTime;
@@ -107,6 +108,73 @@ class SettlementCreateCandidatesUseCaseTest {
         assertEquals("400-SETTLEMENT_CANDIDATE_AMOUNT_INVALID", rejected.getErrorCode());
         assertNull(rejected.getTargetId());
         assertTrue(rejected.getFailReason().contains("orderItemId=1001"));
+    }
+
+    @Test
+    @DisplayName("상품 쿠폰 할인액이 있으면 판매가 = 항목 금액 - 할인액이고, 수수료와 지급액은 할인 뒤 판매가로 계산한다")
+    void create_withProductCouponDiscount() {
+        int created = useCase.createCandidates(100L, CONFIRMED_AT, List.of(
+                new ConfirmedOrderItemDto(1001L, 1L, 7L, 10_000L, 3, 30_000L, 3_000L)));
+
+        assertEquals(1, created);
+        SettlementCandidate candidate = table.get(0);
+        assertEquals(27_000L, candidate.getSalePrice());              // 30,000 - 3,000
+        assertEquals(3_000L, candidate.getProductCouponDiscount());   // 뺀 할인액 기록
+        assertEquals(2_700L, candidate.getFee());                     // 27,000 × 10%
+        assertEquals(24_300L, candidate.getPayoutAmount());
+        assertTrue(candidate.hasConsistentAmounts());                 // 판별의 금액 확인도 통과
+    }
+
+    @Test
+    @DisplayName("구매 확정 항목의 상품명·옵션명을 후보에 그대로 저장한다")
+    void create_withNames() {
+        useCase.createCandidates(100L, CONFIRMED_AT, List.of(
+                new ConfirmedOrderItemDto(1001L, 1L, 7L, 10_000L, 1, 10_000L, 0L, "티셔츠", "블랙 / M")));
+
+        SettlementCandidate candidate = table.get(0);
+        assertEquals("티셔츠", candidate.getProductName());
+        assertEquals("블랙 / M", candidate.getOptionName());
+    }
+
+    @Test
+    @DisplayName("이름·할인 필드가 없던 이전 형식 메시지도 읽히고(이름 null, 할인 0), 후보가 지금과 같은 금액으로 만들어진다")
+    void create_legacyMessageWithoutNamesAndDiscount() {
+        ConfirmedOrderItemDto legacy = JsonMapper.builder().build().readValue("""
+                {"orderItemId": 1001, "productId": 1, "sellerId": 7, "unitPrice": 10000, "quantity": 1, "lineAmount": 10000}
+                """, ConfirmedOrderItemDto.class);
+
+        useCase.createCandidates(100L, CONFIRMED_AT, List.of(legacy));
+
+        SettlementCandidate candidate = table.get(0);
+        assertNull(candidate.getProductName());
+        assertNull(candidate.getOptionName());
+        assertEquals(0L, candidate.getProductCouponDiscount());
+        assertEquals(10_000L, candidate.getSalePrice());
+    }
+
+    @Test
+    @DisplayName("할인 필드가 없던 이전 형식 이벤트(null)는 할인 0으로 받는다")
+    void create_legacyEventWithoutDiscount() {
+        useCase.createCandidates(100L, CONFIRMED_AT, List.of(
+                new ConfirmedOrderItemDto(1001L, 1L, 7L, 10_000L, 1, 10_000L, null)));
+
+        assertEquals(10_000L, table.get(0).getSalePrice());
+        assertEquals(0L, table.get(0).getProductCouponDiscount());
+    }
+
+    @Test
+    @DisplayName("할인액이 음수이거나 항목 금액 이상이면 후보를 만들지 않고 실패 이력만 남긴다")
+    void create_invalidDiscount() {
+        int created = useCase.createCandidates(100L, CONFIRMED_AT, List.of(
+                new ConfirmedOrderItemDto(1001L, 1L, 7L, 10_000L, 1, 10_000L, 10_000L),   // 항목 금액과 같음
+                new ConfirmedOrderItemDto(1002L, 1L, 7L, 10_000L, 1, 10_000L, -1L),       // 음수
+                item(1003L, 7L, 10_000L)));                                                // 정상
+
+        assertEquals(1, created);
+        assertEquals(1003L, table.get(0).getOrderItemId());
+        SettlementProcessHistory rejected = histories.get(0);
+        assertEquals("400-SETTLEMENT_CANDIDATE_AMOUNT_INVALID", rejected.getErrorCode());
+        assertTrue(rejected.getFailReason().contains("상품 쿠폰 할인액"));
     }
 
     private static ConfirmedOrderItemDto item(Long orderItemId, Long sellerId, long lineAmount) {

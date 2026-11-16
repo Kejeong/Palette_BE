@@ -38,23 +38,31 @@ public class ApiV1TopupController {
 
     private final PaymentFacade paymentFacade;
 
-    @Operation(summary = "충전 준비", description = "충전 금액을 저장하고 토스 주문번호(TOPUP-…)를 발급한다. 응답의 orderId·amount로 토스 결제창을 띄운다")
+    @Operation(summary = "충전 준비", description = """
+            충전 금액과 결제할 PG를 저장하고 주문번호(TOPUP-…)를 발급한다. PG를 보내지 않으면 TOSS.
+            - TOSS: 응답의 orderId·amount로 토스 결제창을 띄운다 (checkout은 null)
+            - HECTO: 응답의 checkout.params를 checkout.url 결제창에 그대로 보낸다 (금액 암호화·해시는 서버가 만듦)""")
+    @ApiResponse(responseCode = "200", description = "200-1 충전 준비 완료")
+    @ApiResponse(responseCode = "400", description = "400-TOPUP_AMOUNT_INVALID 충전 금액이 정책에 맞지 않음 / 지원하지 않는 PG 값")
+    @ApiResponse(responseCode = "502", description = "502-EXTERNAL_SERVICE_ERROR PG 키 설정 오류로 결제창 요청 값을 만들지 못함")
     @PostMapping
     public RsData<TopupPrepareDto> prepareTopup(
             @AuthenticationPrincipal AuthMember authMember,
             @Valid @RequestBody TopupPrepareRequest request
     ) {
-        return RsData.of("200-1", "충전이 준비되었습니다.", paymentFacade.prepareTopup(authMember.memberId(), request.amount()));
+        return RsData.of("200-1", "충전이 준비되었습니다.", paymentFacade.prepareTopup(authMember.memberId(), request.amount(), request.pgProviderOrDefault()));
     }
 
     @Operation(summary = "충전 승인", description = """
-            토스 결제 성공 리다이렉트 후 호출한다. 금액을 검증하고 토스 승인 API를 호출해 예치금에 반영한다.
-            data.status가 DONE이면 반영 완료, PROCESSING이면 결과 확인 중(토스 응답 지연 등)이며 잠시 후 충전 내역에서 확인한다.""")
+            결제창 인증 성공 후 호출한다. 금액을 검증하고 충전 건의 PG 승인 API를 호출해 예치금에 반영한다.
+            - 토스: 성공 리다이렉트의 paymentKey·orderId·amount
+            - 헥토: 서버가 결제창 결과를 받아 충전 결과 화면으로 넘긴 paymentKey(헥토 거래번호)·orderId·amount
+            data.status가 DONE이면 반영 완료, PROCESSING이면 결과 확인 중(PG 응답 지연 등)이며 잠시 후 충전 내역에서 확인한다.""")
     @ApiResponse(responseCode = "200", description = "200-1 충전 완료(data.status: DONE) 또는 결과 확인 중(data.status: PROCESSING)")
-    @ApiResponse(responseCode = "400", description = "400-AMOUNT_MISMATCH 준비 금액과 다름 / 400-TOPUP_PAYMENT_DECLINED 카드 거절 등(data: 토스 오류 코드·메시지) / 400-TOPUP_METHOD_NOT_ALLOWED 충전에 쓸 수 없는 결제 수단(예치금에 반영하지 않고 결제를 자동 취소)")
+    @ApiResponse(responseCode = "400", description = "400-AMOUNT_MISMATCH 준비 금액과 다름 / 400-TOPUP_PAYMENT_DECLINED 카드 거절 등(data: PG 오류 코드·메시지) / 400-TOPUP_METHOD_NOT_ALLOWED 충전에 쓸 수 없는 결제 수단(예치금에 반영하지 않고 결제를 자동 취소)")
     @ApiResponse(responseCode = "404", description = "404-TOPUP_NOT_FOUND 충전 건 없음")
     @ApiResponse(responseCode = "409", description = "409-TOPUP_ALREADY_PROCESSED 이미 처리된 충전·결제키")
-    @ApiResponse(responseCode = "502", description = "502-EXTERNAL_SERVICE_ERROR 토스 인증 오류 등")
+    @ApiResponse(responseCode = "502", description = "502-EXTERNAL_SERVICE_ERROR PG 키 설정 오류 등")
     @PostMapping("/confirm")
     public RsData<TopupConfirmDto> confirmTopup(
             @AuthenticationPrincipal AuthMember authMember,
@@ -66,10 +74,11 @@ public class ApiV1TopupController {
     }
 
     @Operation(summary = "충전 실패 기록", description = """
-            토스 결제창에서 실패·취소로 돌아왔을 때(실패 리다이렉트) 또는 결제 요청(requestPayment)이 USER_CANCEL 오류로 끝났을 때 호출한다.
-            실패 URL이나 SDK 오류의 code·message를 그대로 넘긴다.
-            사용자 취소(PAY_PROCESS_CANCELED, USER_CANCEL)는 FAILED_USER_CANCEL, 그 외는 FAILED_PG_DECLINED로 기록한다.
-            사용자 취소 시 토스가 orderId를 주지 않으므로 충전 준비 응답의 topupId를 쓴다.""")
+            결제창에서 실패·취소로 돌아왔을 때 호출한다. 돌아온 URL(또는 SDK 오류)의 code·message를 그대로 넘긴다.
+            - 토스: 실패 리다이렉트, 또는 결제 요청(requestPayment)이 USER_CANCEL 오류로 끝났을 때
+            - 헥토: 서버가 결제창 결과를 받아 충전 결과 화면으로 넘긴 code·message (결제창 닫기는 USER_CANCEL)
+            사용자 취소(토스 PAY_PROCESS_CANCELED·USER_CANCEL, 헥토 USER_CANCEL)는 FAILED_USER_CANCEL, 그 외는 FAILED_PG_DECLINED로 기록한다.
+            사용자 취소 시 orderId가 오지 않을 수 있으므로 충전 준비 응답의 topupId를 쓴다.""")
     @ApiResponse(responseCode = "200", description = "200-1 실패 기록 완료")
     @ApiResponse(responseCode = "404", description = "404-TOPUP_NOT_FOUND 충전 건 없음")
     @ApiResponse(responseCode = "409", description = "409-TOPUP_ALREADY_PROCESSED 결제창 진행 전(READY)이 아닌 충전 건")

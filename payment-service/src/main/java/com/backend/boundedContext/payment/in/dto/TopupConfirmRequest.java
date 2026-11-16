@@ -5,10 +5,11 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * 충전 승인 요청. 토스 결제 성공 리다이렉트 URL의 쿼리 파라미터(paymentKey, orderId, amount)를 그대로 넘김
+ * 충전 승인 요청. 충전 결과 화면 URL의 쿼리 파라미터(paymentKey, orderId, amount)를 그대로 넘김
+ * (토스는 성공 리다이렉트, 헥토는 서버가 결제창 결과를 받아 넘긴 값)
  */
 public record TopupConfirmRequest(
-        @Schema(description = "토스 결제키", example = "tgen_20261013100000abcd1")
+        @Schema(description = "PG 결제키 (토스 결제키, 헥토 거래번호)", example = "tgen_20261013100000abcd1")
         @NotBlank
         String paymentKey,
 

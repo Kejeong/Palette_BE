@@ -51,7 +51,7 @@ public class PaymentReconcileCancelingTopupsUseCase {
     }
 
     /**
-     * 한 건 확인: PG에 결제키로 조회한 취소 합계를 우리가 기록한 금액과 비교해 이번 회차의 결과를 정함
+     * 한 건 확인: PG에 조회한 취소 합계를 우리가 기록한 금액과 비교해 이번 회차의 결과를 정함
      * 예: 30,000원 충전 건에서 1회차에 20,000원 확정(이전 취소), 2회차에 10,000원 요청 중(이번 취소)
      * - PG 취소 합계 30,000 → 2회차 취소가 처리됨 → 확정
      * - PG 취소 합계 20,000 → 2회차 요청이 PG에 닿지 않았거나 처리되지 않음 → 되돌림
@@ -61,7 +61,7 @@ public class PaymentReconcileCancelingTopupsUseCase {
     private TopupReconcileOutcome reconcile(TopupCancelReconcileTarget target) {
         PgPaymentResult result;
         try {
-            result = topupGateways.get(target.pgProvider()).getPayment(target.paymentKey());
+            result = topupGateways.get(target.pgProvider()).getPayment(target.payment());
         } catch (PgPaymentNotFoundException e) {
             // CANCELING은 PG가 승인한 결제를 취소하는 중이라, 정상이면 PG에 결제가 있음 (취소돼도 결제는 남고 상태만 바뀜). 되돌리면 이중 환불이 될 수 있어 사람이 확인
             log.error("취소 중인 충전 건의 결제가 PG에 없습니다. 확인이 필요합니다. topupId={}, pg={}", target.topupId(), target.pgProvider());

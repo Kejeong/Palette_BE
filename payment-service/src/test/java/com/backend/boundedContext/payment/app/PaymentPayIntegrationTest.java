@@ -150,7 +150,7 @@ class PaymentPayIntegrationTest {
 
     // 승인 완료(DONE)된 충전 건 (지갑 잔액은 setUp에서 따로 넣었으므로 여기서는 충전 건 기록만 만든다)
     private Topup doneTopup(long amount, LocalDateTime approvedAt) {
-        Topup topup = Topup.create(buyerMemberId, wallet, amount, PgProvider.TOSS);
+        Topup topup = Topup.create(buyerMemberId, wallet, amount, PgProvider.TOSS, LocalDateTime.now());
         topup.markProcessing("TEST-PK-" + UUID.randomUUID());
         topup.approve(approvedAt);
         Topup saved = topupRepository.save(topup);

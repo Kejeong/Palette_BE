@@ -111,7 +111,7 @@ class TopupCancelIntegrationTest {
         TestWalletCharger.charge(created, AMOUNT);   // 충전 반영(CHARGE)을 거친 것처럼 충전 금액만큼 잔액을 넣어 둠
         wallet = walletRepository.save(created);
 
-        Topup done = Topup.create(memberId, wallet, AMOUNT, PgProvider.TOSS);
+        Topup done = Topup.create(memberId, wallet, AMOUNT, PgProvider.TOSS, LocalDateTime.now());
         done.markProcessing("TEST-PK-" + UUID.randomUUID());
         done.approve(LocalDateTime.now().minusDays(1));
         topup = topupRepository.save(done);
@@ -415,12 +415,12 @@ class TopupCancelIntegrationTest {
     }
 
     private TossPaymentResponse tossCanceled(long cancelAmount) {
-        return new TossPaymentResponse(topup.getPaymentKey(), topup.getTossOrderId(), "PARTIAL_CANCELED", AMOUNT, "카드", null,
+        return new TossPaymentResponse(topup.getPaymentKey(), topup.getOrderId(), "PARTIAL_CANCELED", AMOUNT, "카드", null,
                 List.of(new TossPaymentResponse.Cancel(cancelAmount, "DONE")));
     }
 
     private TossPaymentResponse tossPayment(String status, List<TossPaymentResponse.Cancel> cancels) {
-        return new TossPaymentResponse(topup.getPaymentKey(), topup.getTossOrderId(), status, AMOUNT, "카드", null, cancels);
+        return new TossPaymentResponse(topup.getPaymentKey(), topup.getOrderId(), status, AMOUNT, "카드", null, cancels);
     }
 
     private void moveUpdatedAtMinutesAgo(int minutes) {
