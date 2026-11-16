@@ -20,10 +20,10 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * 카카오 로그인 API 클라이언트. 프론트가 받은 인가 코드로 카카오 회원번호를 조회함
+ * 카카오 로그인 API 클라이언트. 프론트가 받은 인가 코드로 카카오 회원번호와 프로필 이미지를 조회함
  * 1. 인가 코드 → 카카오 Access Token (kauth.kakao.com/oauth/token, Client Secret은 서버에만 있음)
- * 2. 카카오 Access Token → 회원번호 (kapi.kakao.com/v2/user/me)
- * 카카오 토큰은 회원번호를 받는 데만 쓰고 저장하지 않음. 우리 서비스 인증은 우리 JWT로만 함
+ * 2. 카카오 Access Token → 회원번호·프로필 이미지 (kapi.kakao.com/v2/user/me)
+ * 카카오 토큰은 사용자 정보를 받는 데만 쓰고 저장하지 않음. 우리 서비스 인증은 우리 JWT로만 함
  *
  * 실패
  * - 인가 코드가 만료·재사용됐거나 redirect_uri가 다름(invalid_grant) → 400 KAKAO_AUTH_FAILED (다시 로그인하면 됨)
@@ -33,6 +33,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public class KakaoOAuthClient {
 
     private static final String INVALID_GRANT = "invalid_grant";
+    private static final int PROFILE_IMAGE_URL_MAX_LENGTH = 500;   // member_social_account.profile_image_url 길이
 
     private final RestClient restClient;
     private final String authBaseUrl;
@@ -64,10 +65,29 @@ public class KakaoOAuthClient {
         this.redirectUri = redirectUri;
     }
 
-    // 프론트한테 받은 인가 코드로 카카오 회원번호를 조회함. 회원번호는 앱마다 정해지고 연결을 끊었다 다시 이어도 바뀌지 않음
-    public String getUserId(String authorizationCode) {
+    // 프론트한테 받은 인가 코드로 카카오 회원번호와 프로필 이미지를 조회함
+    public KakaoUser getUser(String authorizationCode) {
         String accessToken = requestAccessToken(authorizationCode);
-        return String.valueOf(requestUser(accessToken).id());
+        UserResponse user = requestUser(accessToken);
+        return new KakaoUser(String.valueOf(user.id()), profileImageUrl(user));
+    }
+
+    /**
+     * 프로필 이미지 주소를 꺼냄. 아래 경우는 보여 줄 이미지가 없으므로 null
+     * - 프로필 동의 항목에 동의하지 않음 (kakao_account·profile이 없음)
+     * - 카카오 기본 이미지 (is_default_image = true)
+     * - 빈 값이거나 컬럼 길이를 넘는 값
+     * http 주소는 https 사이트에서 혼합 콘텐츠로 막히므로 https로 바꿈 (카카오 이미지 서버는 https도 지원함)
+     */
+    private static String profileImageUrl(UserResponse user) {
+        if (user.kakaoAccount() == null || user.kakaoAccount().profile() == null) return null;
+        Profile profile = user.kakaoAccount().profile();
+        if (Boolean.TRUE.equals(profile.isDefaultImage())) return null;
+
+        String url = profile.profileImageUrl();
+        if (url == null || url.isBlank()) return null;
+        if (url.startsWith("http://")) url = "https://" + url.substring("http://".length());
+        return url.length() <= PROFILE_IMAGE_URL_MAX_LENGTH ? url : null;
     }
 
     // 프론트한테 받은 인가 코드로 토큰 요청을 하고, 카카오로부터 카카오 Access Token를 반환받음
@@ -98,7 +118,7 @@ public class KakaoOAuthClient {
         }
     }
 
-    // 카카오 Access Token(Bearer)으로 사용자 정보를 조회해 회원번호를 받음
+    // 카카오 Access Token(Bearer)으로 사용자 정보를 조회해 회원번호·프로필을 받음
     private UserResponse requestUser(String accessToken) {
         return call(() -> restClient.get()
                 .uri(apiBaseUrl + "/v2/user/me")
@@ -144,9 +164,24 @@ public class KakaoOAuthClient {
             String accessToken
     ) {}
 
-    // 회원번호만 사용함 (이메일·닉네임 등 동의 항목은 받지 않음)
+    // 회원번호와 프로필 이미지만 사용함 (이메일·닉네임 등 다른 항목은 받지 않음)
     @JsonIgnoreProperties(ignoreUnknown = true)
     record UserResponse(
-            long id
+            long id,
+            @JsonProperty("kakao_account")
+            KakaoAccount kakaoAccount   // 동의 항목이 하나도 없으면 없을 수 있음
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record KakaoAccount(
+            Profile profile   // 프로필 동의 항목에 동의하지 않았으면 없음
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Profile(
+            @JsonProperty("profile_image_url")
+            String profileImageUrl,
+            @JsonProperty("is_default_image")
+            Boolean isDefaultImage
     ) {}
 }
