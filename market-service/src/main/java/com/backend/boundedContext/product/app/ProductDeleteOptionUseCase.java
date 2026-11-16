@@ -21,7 +21,7 @@ public class ProductDeleteOptionUseCase {
      */
     public void deleteOption(Long sellerId, Long productId, Long optionId) {
         productSupport.lockSellerProduct(sellerId, productId);
-        ProductOption option = productSupport.getSellerOption(sellerId, productId, optionId);
+        ProductOption option = productSupport.lockSellerOption(sellerId, productId, optionId);   // 같은 옵션의 추가금 수정과 순서를 정한다
 
         boolean othersLeft = productOptionRepository.findAllByProductIdAndDeletedAtIsNullOrderByIdAsc(productId).stream()
                 .anyMatch(other -> !other.getId().equals(optionId));
