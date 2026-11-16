@@ -19,7 +19,7 @@ public record TopupDto(
         LocalDateTime createdAt
 ) {
     public static TopupDto from(Topup topup) {
-        return new TopupDto(topup.getId(), topup.getTossOrderId(), topup.getAmount(), topup.getRemainingAmount(),
+        return new TopupDto(topup.getId(), topup.getOrderId(), topup.getAmount(), topup.getRemainingAmount(),
                 topup.cancelableAmount(), topup.getCanceledAmount(), topup.getStatus(), topup.getFailReason(), topup.getApprovedAt(), topup.getCreatedAt());
     }
 }

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -27,8 +28,11 @@ import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.WalletRepository;
 import com.backend.boundedContext.payment.out.WalletTransactionRepository;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.PgPaymentStatus;
+import com.backend.boundedContext.payment.out.pg.TopupGatewayPort;
+import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
 
 class PaymentTopupConfirmProcessorTest {
@@ -41,15 +45,16 @@ class PaymentTopupConfirmProcessorTest {
     private final TopupRepository topupRepository = mock(TopupRepository.class);
     private final WalletRepository walletRepository = mock(WalletRepository.class);
     private final WalletTransactionRepository walletTransactionRepository = mock(WalletTransactionRepository.class);
+    private final TopupGateways topupGateways = new TopupGateways(List.of(gateway(PgProvider.TOSS)));
     private final PaymentTopupConfirmProcessor processor =
-            new PaymentTopupConfirmProcessor(topupRepository, walletRepository, walletTransactionRepository);
+            new PaymentTopupConfirmProcessor(topupRepository, walletRepository, walletTransactionRepository, topupGateways);
 
     @Test
     @DisplayName("승인 시작: READY 충전 건을 잠금 조회해 PROCESSING으로 바꾸고 결제키를 저장한다")
     void start_success() {
         Topup topup = readyTopup(20_000);
 
-        TopupConfirmStartResult result = processor.start(MEMBER_ID, topup.getTossOrderId(), "pk_1", 20_000);
+        TopupConfirmStartResult result = processor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 20_000);
 
         assertThat(result.isStarted()).isTrue();
         assertThat(result.pgProvider()).isEqualTo(PgProvider.TOSS);
@@ -62,7 +67,7 @@ class PaymentTopupConfirmProcessorTest {
     void start_amountMismatch() {
         Topup topup = readyTopup(20_000);
 
-        TopupConfirmStartResult result = processor.start(MEMBER_ID, topup.getTossOrderId(), "pk_1", 10_000);
+        TopupConfirmStartResult result = processor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 10_000);
 
         assertThat(result.outcome()).isEqualTo(TopupConfirmStartResult.Outcome.AMOUNT_MISMATCH);
         assertThat(topup.getStatus()).isEqualTo(TopupStatus.FAILED_AMOUNT_MISMATCH);
@@ -73,7 +78,7 @@ class PaymentTopupConfirmProcessorTest {
     @Test
     @DisplayName("승인 시작: 충전 건이 없거나 남의 충전 건이면 404 TOPUP_NOT_FOUND")
     void start_notFound() {
-        given(topupRepository.findByTossOrderIdAndMemberIdForUpdate("TOPUP-none", MEMBER_ID))
+        given(topupRepository.findByOrderIdAndMemberIdForUpdate("TOPUP-none", MEMBER_ID))
                 .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> processor.start(MEMBER_ID, "TOPUP-none", "pk_1", 20_000))
@@ -87,7 +92,7 @@ class PaymentTopupConfirmProcessorTest {
         Topup topup = readyTopup(20_000);
         topup.markProcessing("pk_1");
 
-        assertThatThrownBy(() -> processor.start(MEMBER_ID, topup.getTossOrderId(), "pk_1", 20_000))
+        assertThatThrownBy(() -> processor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 20_000))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("409-TOPUP_ALREADY_PROCESSED");
         assertThat(topup.getStatus()).isEqualTo(TopupStatus.PROCESSING);
@@ -99,7 +104,7 @@ class PaymentTopupConfirmProcessorTest {
         Topup topup = readyTopup(20_000);
         topup.markProcessing("pk_1");
 
-        assertThatThrownBy(() -> processor.start(MEMBER_ID, topup.getTossOrderId(), "pk_1", 10_000))
+        assertThatThrownBy(() -> processor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 10_000))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("409-TOPUP_ALREADY_PROCESSED");
         assertThat(topup.getStatus()).isEqualTo(TopupStatus.PROCESSING);
@@ -111,10 +116,23 @@ class PaymentTopupConfirmProcessorTest {
         Topup topup = readyTopup(20_000);
         given(topupRepository.existsByPaymentKey("pk_used")).willReturn(true);
 
-        assertThatThrownBy(() -> processor.start(MEMBER_ID, topup.getTossOrderId(), "pk_used", 20_000))
+        assertThatThrownBy(() -> processor.start(MEMBER_ID, topup.getOrderId(), "pk_used", 20_000))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("409-TOPUP_ALREADY_PROCESSED");
         assertThat(topup.getStatus()).isEqualTo(TopupStatus.READY);
+    }
+
+    @Test
+    @DisplayName("승인 시작: 충전 건의 PG가 연동되지 않았으면 선점하지 않고 IllegalStateException")
+    void start_pgNotSupported() {
+        PaymentTopupConfirmProcessor noPgProcessor =
+                new PaymentTopupConfirmProcessor(topupRepository, walletRepository, walletTransactionRepository, new TopupGateways(List.of()));
+        Topup topup = readyTopup(20_000);
+
+        assertThatThrownBy(() -> noPgProcessor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 20_000))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(topup.getStatus()).isEqualTo(TopupStatus.READY);
+        assertThat(topup.getPaymentKey()).isNull();
     }
 
     @Test
@@ -172,7 +190,7 @@ class PaymentTopupConfirmProcessorTest {
     @DisplayName("승인 반영: PG 결제가 승인(APPROVED)이 아니면 반영할 수 없다")
     void complete_notApproved() {
         Topup topup = processingTopup(Wallet.create(MEMBER_ID), 20_000);
-        PgPaymentResult aborted = new PgPaymentResult("pk_1", topup.getTossOrderId(), PgPaymentStatus.NOT_APPROVED, "ABORTED", 20_000, 0, PgPaymentMethod.CARD, null);
+        PgPaymentResult aborted = new PgPaymentResult("pk_1", topup.getOrderId(), PgPaymentStatus.NOT_APPROVED, "ABORTED", 20_000, 0, PgPaymentMethod.CARD, null);
 
         assertThatThrownBy(() -> processor.complete(TOPUP_ID, aborted))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -212,7 +230,7 @@ class PaymentTopupConfirmProcessorTest {
 
         assertThat(topup.getStatus()).isEqualTo(TopupStatus.METHOD_CANCELING);
         assertThat(start).hasValueSatisfying(s -> {
-            assertThat(s.paymentKey()).isEqualTo("pk_1");
+            assertThat(s.payment()).isEqualTo(PgPaymentRef.from(topup));
             assertThat(s.amount()).isEqualTo(20_000);
             assertThat(s.attempt()).isEqualTo(1);
             assertThat(s.idempotencyKey()).isEqualTo("TOPUP-" + TOPUP_ID + "-METHOD-CANCEL-1");
@@ -265,7 +283,7 @@ class PaymentTopupConfirmProcessorTest {
 
     // 승인 반영 대상: ID가 있는 PROCESSING 충전 건과 그 지갑을 잠금 조회로 돌려줌
     private Topup processingTopup(Wallet wallet, long amount) {
-        Topup topup = Topup.create(MEMBER_ID, wallet, amount, PgProvider.TOSS);
+        Topup topup = Topup.create(MEMBER_ID, wallet, amount, PgProvider.TOSS, LocalDateTime.now());
         ReflectionTestUtils.setField(topup, "id", TOPUP_ID);
         topup.markProcessing("pk_1");
         given(topupRepository.findByIdForUpdate(TOPUP_ID)).willReturn(Optional.of(topup));
@@ -274,13 +292,19 @@ class PaymentTopupConfirmProcessorTest {
     }
 
     private PgPaymentResult approved(Topup topup, long amount, PgPaymentMethod method) {
-        return new PgPaymentResult("pk_1", topup.getTossOrderId(), PgPaymentStatus.APPROVED, "DONE", amount, 0, method, APPROVED_AT);
+        return new PgPaymentResult("pk_1", topup.getOrderId(), PgPaymentStatus.APPROVED, "DONE", amount, 0, method, APPROVED_AT);
+    }
+
+    private static TopupGatewayPort gateway(PgProvider provider) {
+        TopupGatewayPort port = mock(TopupGatewayPort.class);
+        given(port.provider()).willReturn(provider);
+        return port;
     }
 
     // 잠금 조회로 돌려줄 READY 충전 건
     private Topup readyTopup(long amount) {
-        Topup topup = Topup.create(MEMBER_ID, Wallet.create(MEMBER_ID), amount, PgProvider.TOSS);
-        given(topupRepository.findByTossOrderIdAndMemberIdForUpdate(topup.getTossOrderId(), MEMBER_ID))
+        Topup topup = Topup.create(MEMBER_ID, Wallet.create(MEMBER_ID), amount, PgProvider.TOSS, LocalDateTime.now());
+        given(topupRepository.findByOrderIdAndMemberIdForUpdate(topup.getOrderId(), MEMBER_ID))
                 .willReturn(Optional.of(topup));
         return topup;
     }

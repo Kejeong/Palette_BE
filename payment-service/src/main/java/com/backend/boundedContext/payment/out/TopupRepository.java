@@ -26,12 +26,12 @@ public interface TopupRepository extends JpaRepository<Topup, Long>, JpaSpecific
     // 회원의 충전 목록 (정렬은 Pageable로 받음, idx_topup_member 사용)
     Page<Topup> findByMemberId(Long memberId, Pageable pageable);
 
-    Optional<Topup> findByTossOrderIdAndMemberId(String tossOrderId, Long memberId);
+    Optional<Topup> findByOrderIdAndMemberId(String orderId, Long memberId);
 
     // 승인 시작 전 충전 건 행을 잠금. 같은 충전 건의 동시 승인 요청은 순서대로 처리
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select t from Topup t where t.tossOrderId = :tossOrderId and t.memberId = :memberId")
-    Optional<Topup> findByTossOrderIdAndMemberIdForUpdate(@Param("tossOrderId") String tossOrderId, @Param("memberId") Long memberId);
+    @Query("select t from Topup t where t.orderId = :orderId and t.memberId = :memberId")
+    Optional<Topup> findByOrderIdAndMemberIdForUpdate(@Param("orderId") String orderId, @Param("memberId") Long memberId);
 
     boolean existsByPaymentKey(String paymentKey);
 

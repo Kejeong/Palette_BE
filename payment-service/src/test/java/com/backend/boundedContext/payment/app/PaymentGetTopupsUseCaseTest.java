@@ -7,6 +7,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -35,7 +36,7 @@ class PaymentGetTopupsUseCaseTest {
     @Test
     @DisplayName("요청한 정렬은 무시하고 최신순(createdAt, id 역순)으로 내 충전 건을 조회해 목록 항목으로 바꾼다")
     void getTopups() {
-        Topup topup = Topup.create(MEMBER_ID, Wallet.create(MEMBER_ID), 20_000, PgProvider.TOSS);
+        Topup topup = Topup.create(MEMBER_ID, Wallet.create(MEMBER_ID), 20_000, PgProvider.TOSS, LocalDateTime.now());
         given(topupRepository.findByMemberId(eq(MEMBER_ID), any(Pageable.class)))
                 .willAnswer(invocation -> new PageImpl<>(List.of(topup), invocation.getArgument(1), 1));
 
@@ -50,7 +51,7 @@ class PaymentGetTopupsUseCaseTest {
 
         assertThat(result.items()).hasSize(1);
         TopupDto item = result.items().get(0);
-        assertThat(item.orderId()).isEqualTo(topup.getTossOrderId());
+        assertThat(item.orderId()).isEqualTo(topup.getOrderId());
         assertThat(item.amount()).isEqualTo(20_000);
         assertThat(item.remainingAmount()).isZero();
         assertThat(item.status()).isEqualTo(TopupStatus.READY);

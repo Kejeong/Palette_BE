@@ -57,7 +57,7 @@ public record AdminTopupDto(
         LocalDateTime createdAt
 ) {
     public static AdminTopupDto of(Topup topup, String memberEmail) {
-        return new AdminTopupDto(topup.getId(), topup.getTossOrderId(), topup.getMemberId(), memberEmail,
+        return new AdminTopupDto(topup.getId(), topup.getOrderId(), topup.getMemberId(), memberEmail,
                 topup.getAmount(), topup.getRemainingAmount(), topup.getCanceledAmount(), topup.getStatus(), topup.getFailReason(),
                 topup.getApprovedAt(), topup.getCreatedAt());
     }

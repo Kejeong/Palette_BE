@@ -32,6 +32,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.backend.boundedContext.payment.app.dto.TopupConfirmDto;
 import com.backend.boundedContext.payment.app.dto.TopupPrepareDto;
+import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Topup;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
@@ -88,7 +89,7 @@ class TopupConfirmIntegrationTest {
         memberId = randomMemberId();
         paymentKey = PAYMENT_KEY + "-" + memberId;
         wallet = walletRepository.save(Wallet.create(memberId));
-        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, AMOUNT);
+        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, AMOUNT, PgProvider.TOSS);
         orderId = prepared.orderId();
     }
 
@@ -219,7 +220,7 @@ class TopupConfirmIntegrationTest {
     }
 
     private Topup savedTopup() {
-        return topupRepository.findByTossOrderIdAndMemberId(orderId, memberId).orElseThrow();
+        return topupRepository.findByOrderIdAndMemberId(orderId, memberId).orElseThrow();
     }
 
     private List<WalletTransaction> transactionsOfWallet() {
