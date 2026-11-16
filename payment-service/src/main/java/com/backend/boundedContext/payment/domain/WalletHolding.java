@@ -58,8 +58,8 @@ public class WalletHolding extends BaseIdAndTime {
 
     private LocalDateTime settledAt;
 
-    // 결제 성공 건의 금액 중 배송비를 뺀 금액을 홀딩
-    public static WalletHolding hold(Payment payment, LocalDateTime heldAt) {
+    // 결제 성공 건의 홀딩 금액(결제액 - 배송비)을 홀딩. 결제(Payment.pay)만 부를 수 있게 package-private
+    static WalletHolding hold(Payment payment, LocalDateTime heldAt) {
         if (!payment.isPaid()) throw new IllegalStateException("결제 완료 건만 홀딩할 수 있습니다: " + payment.getStatus());
         WalletHolding holding = new WalletHolding();
         holding.orderId = payment.getOrderId();
@@ -86,7 +86,7 @@ public class WalletHolding extends BaseIdAndTime {
         return amount - settledAmount;
     }
 
-    // 정산 지급: 이번 지급액만큼 누적하고, 다 차면 SETTLED. HELD가 아니면 404 HOLDING_NOT_FOUND
+    // 정산 지급
     public void settle(long settleAmount, LocalDateTime now) {
         if (settleAmount <= 0) throw new IllegalArgumentException("지급 금액은 0보다 커야 합니다: " + settleAmount);
         if (status != WalletHoldingStatus.HELD) throw new DomainException(PaymentErrorCode.HOLDING_NOT_FOUND);  // 해제·정산 완료된 홀딩은 정산 대상이 없다

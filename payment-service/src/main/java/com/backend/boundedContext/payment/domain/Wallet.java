@@ -37,27 +37,21 @@ public class Wallet extends BaseIdAndTime {
      * 잔액과 원장이 항상 같이 바뀌게 하려고 원장은 지갑이 만든다. 반환한 원장은 호출한 쪽에서 저장
      */
     public WalletTransaction change(WalletTransactionType type, long amount, Long referenceId, String idempotencyKey) {
-        if (type.isDeposit()) {
-            deposit(amount);
-        } else {
-            withdraw(amount);
-        }
+        if (type.isDeposit()) deposit(amount);
+        else withdraw(amount);
         return WalletTransaction.of(this, type, amount, referenceId, idempotencyKey);
     }
 
-    // 잔액 증가 (충전·환불·정산 입금)
-    public void deposit(long amount) {
+    private void deposit(long amount) {
         validatePositive(amount);
         this.balance += amount;
     }
 
-    // 이 금액을 결제할 잔액이 있는지
     public boolean canPay(long amount) {
         return balance >= amount;
     }
 
-    // 잔액 차감 (결제·충전 취소). 잔액 부족은 사용자가 만들 수 있는 실패라 402 INSUFFICIENT_BALANCE로 막음
-    public void withdraw(long amount) {
+    private void withdraw(long amount) {
         validatePositive(amount);
         if (balance < amount) {
             throw new DomainException(PaymentErrorCode.INSUFFICIENT_BALANCE);

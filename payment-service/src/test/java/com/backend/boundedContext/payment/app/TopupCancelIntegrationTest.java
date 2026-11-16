@@ -31,6 +31,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import com.backend.boundedContext.payment.support.TestWalletCharger;
 import com.backend.boundedContext.payment.app.dto.TopupCancelDto;
 import com.backend.boundedContext.payment.app.dto.TopupReconcileResult;
 import com.backend.boundedContext.payment.domain.PgProvider;
@@ -107,7 +108,7 @@ class TopupCancelIntegrationTest {
     void setUp() {
         memberId = randomMemberId();
         Wallet created = Wallet.create(memberId);
-        created.deposit(AMOUNT);   // 충전 반영(CHARGE)을 거친 것처럼 충전 금액만큼 잔액을 넣어 둠
+        TestWalletCharger.charge(created, AMOUNT);   // 충전 반영(CHARGE)을 거친 것처럼 충전 금액만큼 잔액을 넣어 둠
         wallet = walletRepository.save(created);
 
         Topup done = Topup.create(memberId, wallet, AMOUNT, PgProvider.TOSS);

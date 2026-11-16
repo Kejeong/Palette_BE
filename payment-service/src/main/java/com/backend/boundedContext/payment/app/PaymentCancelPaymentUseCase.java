@@ -50,7 +50,7 @@ public class PaymentCancelPaymentUseCase {
             return;
         }
 
-        Wallet platformWallet = lockPlatformWalletForShippingFee(payment);
+        Wallet platformWallet = lockPlatformWalletIfNeeded(payment);
         WalletHolding holding = lockHolding(payment);
 
         List<WalletTransaction> transactions = payment.cancel(wallet, platformWallet, holding, LocalDateTime.now());
@@ -64,8 +64,8 @@ public class PaymentCancelPaymentUseCase {
     }
 
     // 배송비가 있는 결제만 플랫폼(관리자) 지갑을 잠근다. 배송비가 없으면 null
-    private Wallet lockPlatformWalletForShippingFee(Payment payment) {
-        return payment.hasShippingFee() ? lockWallet(paymentPolicy.adminMemberId()) : null;
+    private Wallet lockPlatformWalletIfNeeded(Payment payment) {
+        return payment.needsPlatformWallet() ? lockWallet(paymentPolicy.adminMemberId()) : null;
     }
 
     // 정산 지급과 동시에 바꾸지 않게 홀딩을 잠근다. 지급이 시작됐으면 Payment.cancel에서 409 (트랜잭션 전체 롤백)

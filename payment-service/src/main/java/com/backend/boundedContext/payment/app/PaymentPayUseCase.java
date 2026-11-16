@@ -78,7 +78,7 @@ public class PaymentPayUseCase {
         );
         // 잠금 순서(구매자 지갑 → 충전 건 → 플랫폼 지갑)
         deductFromOldestTopups(command.buyerId(), payment);
-        Wallet platformWallet = lockPlatformWalletForShippingFee(payment);
+        Wallet platformWallet = lockPlatformWalletIfNeeded(payment);
 
         PaymentRecords records = payment.pay(wallet, platformWallet, now);
         walletTransactionRepository.saveAll(records.transactions());
@@ -97,8 +97,8 @@ public class PaymentPayUseCase {
 
     // 배송비가 있는 결제만 플랫폼(관리자) 지갑을 잠근다. 배송비가 없으면 null
     // shortcut: 배송비가 있는 결제마다 관리자 지갑 한 행을 잠가 결제끼리 잠깐 줄을 선다. 결제량이 늘면 플랫폼 지갑 반영을 비동기로 바꾼다
-    private Wallet lockPlatformWalletForShippingFee(Payment payment) {
-        return payment.hasShippingFee() ? lockWallet(paymentPolicy.adminMemberId()) : null;
+    private Wallet lockPlatformWalletIfNeeded(Payment payment) {
+        return payment.needsPlatformWallet() ? lockWallet(paymentPolicy.adminMemberId()) : null;
     }
 
     private Wallet lockWallet(Long buyerId) {

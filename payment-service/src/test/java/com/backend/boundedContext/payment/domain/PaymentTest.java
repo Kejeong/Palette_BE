@@ -10,6 +10,7 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.backend.boundedContext.payment.support.TestWalletCharger;
 import com.backend.global.exception.DomainException;
 
 class PaymentTest {
@@ -19,19 +20,21 @@ class PaymentTest {
     private final Wallet wallet = Wallet.create(3L);
 
     @Test
-    @DisplayName("결제 성공 건은 PAID이고 결제 일시가 남으며, 회원 ID는 지갑에서 가져온다")
-    void paid() {
-        Payment payment = Payment.paid(10L, "ORD-TEST-10", wallet, 25_000, "PAY-10-a", NOW);
+    @DisplayName("결제 준비 건은 READY이고 결제 일시가 없으며, 회원 ID는 지갑에서 가져온다")
+    void ready() {
+        Payment payment = Payment.ready(10L, "ORD-TEST-10", wallet, 25_000, 3_000, "PAY-10-a");
 
         assertThat(payment.getOrderId()).isEqualTo(10L);
         assertThat(payment.getOrderNumber()).isEqualTo("ORD-TEST-10");
         assertThat(payment.getMemberId()).isEqualTo(3L);
         assertThat(payment.getWallet()).isSameAs(wallet);
         assertThat(payment.getAmount()).isEqualTo(25_000);
+        assertThat(payment.getShippingFee()).isEqualTo(3_000);
+        assertThat(payment.holdingAmount()).isEqualTo(22_000);
         assertThat(payment.getIdempotencyKey()).isEqualTo("PAY-10-a");
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PAID);
-        assertThat(payment.getPaidAt()).isEqualTo(NOW);
-        assertThat(payment.isPaid()).isTrue();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.READY);
+        assertThat(payment.getPaidAt()).isNull();
+        assertThat(payment.isPaid()).isFalse();
     }
 
     @Test
@@ -56,15 +59,15 @@ class PaymentTest {
 
     @Test
     @DisplayName("결제 금액은 0보다 커야 한다")
-    void paid_nonPositiveAmount() {
-        assertThatThrownBy(() -> Payment.paid(10L, "ORD-TEST-10", wallet, 0, "PAY-10-a", NOW))
+    void ready_nonPositiveAmount() {
+        assertThatThrownBy(() -> Payment.ready(10L, "ORD-TEST-10", wallet, 0, 0, "PAY-10-a"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     @DisplayName("주문번호 없이는 결제 건을 만들 수 없다 (성공·실패 모두)")
     void orderNumberRequired() {
-        assertThatThrownBy(() -> Payment.paid(10L, null, wallet, 25_000, "PAY-10-a", NOW))
+        assertThatThrownBy(() -> Payment.ready(10L, null, wallet, 25_000, 0, "PAY-10-a"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> Payment.failed(10L, " ", wallet, 25_000, "PAY-10-a",
                 PaymentStatus.FAILED_INSUFFICIENT_BALANCE, "잔액 부족"))
@@ -171,7 +174,7 @@ class PaymentTest {
 
     private static Wallet walletWith(Long memberId, long balance) {
         Wallet wallet = Wallet.create(memberId);
-        if (balance > 0) wallet.deposit(balance);
+        if (balance > 0) TestWalletCharger.charge(wallet, balance);
         return wallet;
     }
 }

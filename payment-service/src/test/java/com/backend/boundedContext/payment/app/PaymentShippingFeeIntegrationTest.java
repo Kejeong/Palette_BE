@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import com.backend.boundedContext.payment.support.TestWalletCharger;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.domain.WalletHolding;
 import com.backend.boundedContext.payment.out.PaymentRepository;
@@ -60,7 +61,7 @@ class PaymentShippingFeeIntegrationTest {
     @BeforeEach
     void setUp() {
         Wallet buyer = Wallet.create(buyerMemberId);
-        buyer.deposit(30_000);
+        TestWalletCharger.charge(buyer, 30_000);
         buyerWallet = walletRepository.save(buyer);
         platformWallet = walletRepository.save(Wallet.create(PLATFORM_MEMBER_ID));
     }

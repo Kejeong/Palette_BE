@@ -48,7 +48,7 @@ public class Payment extends BaseIdAndTime {
     @Column(nullable = false)
     private long amount;
 
-    // amount 중 배송비. 홀딩에 넣지 않고 플랫폼(관리자) 지갑으로 옮긴다. 홀딩 금액 = amount - shippingFee
+    // amount 중 배송비. 홀딩에 넣지 않고 플랫폼(관리자) 지갑으로 옮긴다
     @Column(nullable = false)
     private long shippingFee;
 
@@ -68,27 +68,6 @@ public class Payment extends BaseIdAndTime {
     private LocalDateTime refundedAt;
 
     private LocalDateTime canceledAt;
-
-    // 결제 성공 건 (지갑 차감·홀딩 생성은 호출한 쪽에서 같은 트랜잭션으로 처리)
-    public static Payment paid(
-            Long orderId,
-            String orderNumber,
-            Wallet wallet,
-            long amount,
-            String idempotencyKey,
-            LocalDateTime paidAt
-    ) {
-        Payment payment = create(
-                orderId,
-                orderNumber,
-                wallet,
-                amount,
-                idempotencyKey,
-                PaymentStatus.PAID
-        );
-        payment.paidAt = paidAt;
-        return payment;
-    }
 
     public static Payment ready(
             Long orderId,
@@ -172,7 +151,7 @@ public class Payment extends BaseIdAndTime {
     }
 
     private void rejectIfPlatformWalletMissing(Wallet platformWallet) {
-        if (hasShippingFee() && platformWallet == null) {
+        if (needsPlatformWallet() && platformWallet == null) {
             throw new IllegalArgumentException("배송비가 있는 결제는 플랫폼 지갑이 필요합니다: shippingFee=" + shippingFee);
         }
     }
@@ -236,8 +215,12 @@ public class Payment extends BaseIdAndTime {
         return amount - shippingFee;
     }
 
-    // 배송비가 있으면 결제·취소할 때 플랫폼 지갑도 필요하다
-    public boolean hasShippingFee() {
+    // 배송비가 있으면 결제·취소할 때 플랫폼 지갑도 잠가서 넘겨야 한다
+    public boolean needsPlatformWallet() {
+        return hasShippingFee();
+    }
+
+    private boolean hasShippingFee() {
         return shippingFee > 0;
     }
 
@@ -266,13 +249,6 @@ public class Payment extends BaseIdAndTime {
     // 결제 원장(PAYMENT)의 멱등 키
     public String paymentIdempotencyKey() {
         return "PAYMENT-" + getId();
-    }
-
-    // 결제 취소 (홀딩 해제·지갑 환급은 호출한 쪽에서 같은 트랜잭션으로 처리)
-    public void cancel(LocalDateTime now) {
-        if (!isPaid()) throw new DomainException(PaymentErrorCode.PAYMENT_NOT_CANCELABLE);
-        this.status = PaymentStatus.CANCELED;
-        this.canceledAt = now;
     }
 
     // 결제 취소 원장(PAYMENT_CANCEL)의 멱등 키

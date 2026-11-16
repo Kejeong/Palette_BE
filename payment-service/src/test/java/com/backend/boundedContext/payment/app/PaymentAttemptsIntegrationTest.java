@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import com.backend.boundedContext.payment.support.TestPayments;
 import com.backend.boundedContext.payment.domain.Payment;
 import com.backend.boundedContext.payment.domain.PaymentStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
@@ -66,22 +67,23 @@ class PaymentAttemptsIntegrationTest {
                         PaymentStatus.FAILED_INSUFFICIENT_BALANCE,
                         "잔액 부족"
         ));
-        Payment paid = save(Payment.paid(
+        // 결제 완료 건만 필요하다 (홀딩은 저장하지 않음)
+        Payment paid = save(TestPayments.paid(
+                        wallet,
                         orderId,
                         "ORD-TEST-" + orderId,
-                        wallet,
                         72_900,
                         newKey(),
                         paidAt
-        ));
-        Payment otherOrderPaid = save(Payment.paid(
+        ).holding().getPayment());
+        Payment otherOrderPaid = save(TestPayments.paid(
+                wallet,
                 otherOrderId,
                 "ORD-TEST-" + otherOrderId,
-                wallet,
                 10_000,
                 newKey(),
                 paidAt
-        ));
+        ).holding().getPayment());
 
         List<PaymentAttemptDto> attempts = paymentFacade.getPaymentAttempts(orderId);
 

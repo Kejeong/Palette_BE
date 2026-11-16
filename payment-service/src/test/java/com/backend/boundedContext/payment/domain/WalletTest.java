@@ -13,26 +13,26 @@ import com.backend.global.exception.DomainException;
 class WalletTest {
 
     @Test
-    @DisplayName("입금하면 잔액이 늘어난다")
+    @DisplayName("입금 유형으로 바꾸면 잔액이 늘어난다")
     void deposit() {
         Wallet wallet = Wallet.create(1L);
 
-        wallet.deposit(10_000);
-        wallet.deposit(20_000);
+        wallet.change(WalletTransactionType.CHARGE, 10_000, 1L, "TEST");
+        wallet.change(WalletTransactionType.CHARGE, 20_000, 1L, "TEST");
 
         assertThat(wallet.getBalance()).isEqualTo(30_000);
     }
 
     @Test
-    @DisplayName("차감하면 잔액이 줄고, 잔액 전부를 차감할 수 있다")
+    @DisplayName("차감 유형으로 바꾸면 잔액이 줄고, 잔액 전부를 차감할 수 있다")
     void withdraw() {
         Wallet wallet = Wallet.create(1L);
-        wallet.deposit(30_000);
+        wallet.change(WalletTransactionType.CHARGE, 30_000, 1L, "TEST");
 
-        wallet.withdraw(10_000);
+        wallet.change(WalletTransactionType.PAYMENT, 10_000, 1L, "TEST");
         assertThat(wallet.getBalance()).isEqualTo(20_000);
 
-        wallet.withdraw(20_000);
+        wallet.change(WalletTransactionType.PAYMENT, 20_000, 1L, "TEST");
         assertThat(wallet.getBalance()).isZero();
     }
 
@@ -40,9 +40,9 @@ class WalletTest {
     @DisplayName("잔액보다 많이 차감하면 402 INSUFFICIENT_BALANCE로 거절하고 잔액은 그대로다")
     void withdraw_insufficient() {
         Wallet wallet = Wallet.create(1L);
-        wallet.deposit(10_000);
+        wallet.change(WalletTransactionType.CHARGE, 10_000, 1L, "TEST");
 
-        assertThatThrownBy(() -> wallet.withdraw(10_001))
+        assertThatThrownBy(() -> wallet.change(WalletTransactionType.PAYMENT, 10_001, 1L, "TEST"))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode")
                 .isEqualTo("402-INSUFFICIENT_BALANCE");
@@ -54,10 +54,10 @@ class WalletTest {
     @DisplayName("0 이하 금액으로는 입금·차감할 수 없다")
     void nonPositiveAmount(long amount) {
         Wallet wallet = Wallet.create(1L);
-        wallet.deposit(10_000);
+        wallet.change(WalletTransactionType.CHARGE, 10_000, 1L, "TEST");
 
-        assertThatThrownBy(() -> wallet.deposit(amount)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> wallet.withdraw(amount)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> wallet.change(WalletTransactionType.CHARGE, amount, 1L, "TEST")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> wallet.change(WalletTransactionType.PAYMENT, amount, 1L, "TEST")).isInstanceOf(IllegalArgumentException.class);
         assertThat(wallet.getBalance()).isEqualTo(10_000);
     }
 
@@ -65,7 +65,7 @@ class WalletTest {
     @DisplayName("change는 잔액을 바꾸고 같은 변화를 원장으로 돌려준다")
     void change() {
         Wallet wallet = Wallet.create(1L);
-        wallet.deposit(30_000);
+        wallet.change(WalletTransactionType.CHARGE, 30_000, 1L, "TEST");
 
         WalletTransaction transaction = wallet.change(WalletTransactionType.PAYMENT, 12_000, 3L, "PAYMENT-3");
 
