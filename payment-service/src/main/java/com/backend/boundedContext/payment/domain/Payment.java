@@ -1,6 +1,8 @@
 package com.backend.boundedContext.payment.domain;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.backend.global.exception.DomainException;
 import com.backend.global.jpa.entity.BaseIdAndTime;
@@ -88,9 +90,103 @@ public class Payment extends BaseIdAndTime {
         return payment;
     }
 
+    public static Payment ready(
+            Long orderId,
+            String orderNumber,
+            Wallet wallet,
+            long amount,
+            long shippingFee,
+            String idempotencyKey
+    ) {
+        return create(
+                orderId,
+                orderNumber,
+                wallet,
+                amount,
+                idempotencyKey,
+                PaymentStatus.READY
+        ).withShippingFee(shippingFee);
+    }
+
+    /**
+     * 결제: 구매자 지갑에서 결제 금액을 빼고, 배송비는 플랫폼 지갑으로, 나머지는 홀딩으로 보낸다
+     * 지갑은 잠금 조회한 것을 넘긴다. 배송비가 0이면 플랫폼 지갑은 null이어도 된다
+     */
+    public PaymentRecords pay(Wallet buyerWallet, Wallet platformWallet, LocalDateTime now) {
+        if (status != PaymentStatus.READY) throw new IllegalStateException("준비 상태의 결제만 결제할 수 있습니다: " + status);
+        rejectIfPlatformWalletMissing(platformWallet);
+
+        List<WalletTransaction> transactions = new ArrayList<>();
+        transactions.add(buyerWallet.change(
+                WalletTransactionType.PAYMENT,
+                amount,
+                getId(),
+                paymentIdempotencyKey()
+        ));
+        if (shippingFee > 0) {
+            transactions.add(platformWallet.change(
+                    WalletTransactionType.SHIPPING_FEE,
+                    shippingFee,
+                    getId(),
+                    shippingFeeIdempotencyKey()
+            ));
+        }
+        this.status = PaymentStatus.PAID;
+        this.paidAt = now;
+        return new PaymentRecords(transactions, WalletHolding.hold(this, now));
+    }
+
+    /**
+     * 결제 취소: pay()를 거꾸로 한다. 홀딩 해제 → 구매자 환급 → 플랫폼 지갑에서 배송비 회수
+     * 정산 지급이 시작된 홀딩이면 해제에서 409로 막혀 돈이 움직이지 않는다. 반환한 원장은 호출한 쪽에서 저장
+     */
+    public List<WalletTransaction> cancel(
+            Wallet buyerWallet,
+            Wallet platformWallet,
+            WalletHolding holding,
+            LocalDateTime now
+    ) {
+        if (!isPaid()) throw new DomainException(PaymentErrorCode.PAYMENT_NOT_CANCELABLE);
+        rejectIfPlatformWalletMissing(platformWallet);
+        holding.release(now);
+
+        this.status = PaymentStatus.CANCELED;
+        this.canceledAt = now;
+
+        List<WalletTransaction> transactions = new ArrayList<>();
+        transactions.add(buyerWallet.change(
+                WalletTransactionType.PAYMENT_CANCEL,
+                amount,
+                getId(),
+                cancelIdempotencyKey()
+        ));
+        if (shippingFee > 0) {
+            transactions.add(platformWallet.change(
+                    WalletTransactionType.SHIPPING_FEE_CANCEL,
+                    shippingFee,
+                    getId(),
+                    shippingFeeCancelIdempotencyKey()
+            ));
+        }
+        return transactions;
+    }
+
+    private void rejectIfPlatformWalletMissing(Wallet platformWallet) {
+        if (shippingFee > 0 && platformWallet == null) {
+            throw new IllegalArgumentException("배송비가 있는 결제는 플랫폼 지갑이 필요합니다: shippingFee=" + shippingFee);
+        }
+    }
+
     // 결제 실패 건 (FAILED_*). 결제 트랜잭션과 별도 트랜잭션으로 저장
-    public static Payment failed(Long orderId, String orderNumber, Wallet wallet, long amount, String idempotencyKey,
-                                 PaymentStatus failStatus, String failReason) {
+    public static Payment failed(
+            Long orderId,
+            String orderNumber,
+            Wallet wallet,
+            long amount,
+            String idempotencyKey,
+            PaymentStatus failStatus,
+            String failReason
+    ) {
         if (!failStatus.isFailure()) throw new IllegalArgumentException("실패 상태가 아닙니다: " + failStatus);
         Payment payment = create(
                 orderId,
@@ -104,10 +200,17 @@ public class Payment extends BaseIdAndTime {
         return payment;
     }
 
-    private static Payment create(Long orderId, String orderNumber, Wallet wallet, long amount, String idempotencyKey,
-                                  PaymentStatus status) {
+    private static Payment create(
+            Long orderId,
+            String orderNumber,
+            Wallet wallet,
+            long amount,
+            String idempotencyKey,
+            PaymentStatus status
+    ) {
         if (amount <= 0) throw new IllegalArgumentException("결제 금액은 0보다 커야 합니다: " + amount);
         if (orderNumber == null || orderNumber.isBlank()) throw new IllegalArgumentException("주문번호가 없습니다: orderId=" + orderId);
+
         Payment payment = new Payment();
         payment.orderId = orderId;
         payment.orderNumber = orderNumber;
