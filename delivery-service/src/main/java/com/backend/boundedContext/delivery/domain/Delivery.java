@@ -96,6 +96,13 @@ public class Delivery extends BaseIdAndTime {
     @Column(length = 40)
     private String lastTrackingStatus;
 
+    // 관리자 수동 완료 사유. 택배사 조회로 완료됐으면 null
+    @Column(length = 300)
+    private String manualCompletionReason;
+
+    // 관리자가 수동 완료를 처리한 시각(배송 완료 시각 deliveredAt과 다르다). 택배사 조회로 완료됐으면 null
+    private LocalDateTime manuallyCompletedAt;
+
     @OneToMany(mappedBy = "delivery", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id asc")
     @BatchSize(size = 100)
@@ -176,13 +183,34 @@ public class Delivery extends BaseIdAndTime {
         this.lastTrackingStatus = statusCode;
     }
 
-    /** 배송 완료: SHIPPED → DELIVERED. 완료는 택배사 조회 결과로만 정한다(확인 워커) */
+    /** 배송 완료: SHIPPED → DELIVERED. 택배사 조회 결과(확인 워커)나 관리자 수동 완료(completeManually)로 정한다 */
     public void complete(LocalDateTime deliveredAt) {
         if (status != SHIPPED) {
             throw new DomainException(DeliveryErrorCode.DELIVERY_STATE_INVALID);
         }
         this.status = DELIVERED;
         this.deliveredAt = deliveredAt;
+    }
+
+    /**
+     * 관리자 수동 완료: SHIPPED → DELIVERED.
+     * 콜백·조회 실패나 택배사 상태가 멈춰 확인 워커가 완료하지 못한 배송을 관리자가 확인한 뒤 완료한다.
+     *
+     * @param deliveredAt 관리자가 확인한 배송 완료 시각. 발송 시각보다 이르면 400
+     * @param reason      수동 완료 사유
+     * @param now         처리 시각
+     */
+    public void completeManually(LocalDateTime deliveredAt, String reason, LocalDateTime now) {
+        if (status != SHIPPED) {
+            throw new DomainException(DeliveryErrorCode.DELIVERY_STATE_INVALID);
+        }
+        if (shippedAt != null && deliveredAt.isBefore(shippedAt)) {
+            throw new DomainException(DeliveryErrorCode.DELIVERY_DELIVERED_AT_INVALID);
+        }
+        complete(deliveredAt);
+        this.manualCompletionReason = reason;
+        this.manuallyCompletedAt = now;
+        this.trackingCheckRequestedAt = null;
     }
 
     /** 확인 요청을 지운다. 조회를 시작한 뒤(startedAt 이후)에 온 콜백의 요청은 남겨 다음 회차에 다시 조회한다 */

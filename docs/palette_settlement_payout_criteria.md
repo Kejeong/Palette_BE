@@ -7,7 +7,7 @@
 
 | 시점 | 확인 | 어긋나면 | 위치 |
 | --- | --- | --- | --- |
-| 받을 때 (구매 확정 이벤트) | 필수 값, 금액(단가 × 수량, 0원 초과, 오버플로), 중복(주문 항목 유니크) | DLT, 거절 이력, 건너뜀 | `SettlementCreateCandidatesUseCase` |
+| 받을 때 (구매 확정 이벤트) | 필수 값, 금액(단가 × 수량, 0원 초과, 오버플로), 상품 쿠폰 할인액(0 이상, 항목 금액 미만), 중복(주문 항목 유니크). 판매가 = 항목 금액 - 상품 쿠폰 할인액 | DLT, 거절 이력, 건너뜀 | `SettlementCreateCandidatesUseCase` |
 | 판별 | 후보 금액 스냅샷 일관성 | BLOCK (확정하지 않음) | `CandidateAmountIntegrityRule` |
 | 판별 | 후보 수수료율 = 후보를 만든 시점의 정책 수수료율 | BLOCK | `CandidateAmountIntegrityRule` |
 | 판별 | 풀리지 않은 원장 재대조 불일치 | HOLD | `LedgerMismatchRule` |

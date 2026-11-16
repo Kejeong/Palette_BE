@@ -4,44 +4,82 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
 
+import com.backend.global.rsData.RsData;
+import com.backend.global.security.InternalApiKeyFilter;
 import com.backend.shared.member.dto.MemberDto;
 import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.out.MemberApi;
 
 /**
- * member-service 연결 전 임시 구현.
- * 판매자 ID와 회원 ID는 서로 다른 값이라 지어낸 판매자를 돌려주면 남의 정산서가 보이거나 지급 대상이 바뀐다.
- * 그래서 지어낸 값을 돌려주지 않는다: getSeller·getSellers는 예외(PaymentApiClient.transfer처럼 연결 전에는 실패해야 함),
- * 회원 ID로 찾기는 empty(판매자 신청 이력 없음).
- * 정산이 쓰지 않는 메서드도 UnsupportedOperationException.
+ * {@link MemberApi}를 회원 내부 API(/internal/v1/sellers)로 호출하는 구현 (member-service)
+ *
+ * 정산이 쓰는 것은 판매자 조회 세 가지다.
+ * - getSeller: 지급 직전 판매자 상태(제재 여부)와 지급 대상 회원 ID
+ * - getSellers: 판별, 확정의 제재 확인, 관리자 목록과 미리보기의 상호명
+ * - findSellerByMemberId: 판매자 화면(로그인한 회원 → 판매자 ID)
+ * 오류 처리는 {@link InternalApiCalls} 참고. 회원 서비스가 응답하지 않으면 502로, 지급이라면 그 정산서는 실패로 기록되고 재시도된다
  * 정산 코드는 SettlementMemberPort → SettlementMemberApiAdapter를 거쳐 이 구현을 부른다.
- * TODO 서비스 간 연결 작업에서 member-service 내부 API(/internal/v1/sellers)를 RestClient로 호출하도록 교체
  */
 @Component
 public class MemberApiClient implements MemberApi {
 
-    // ── 정산이 쓰는 메서드: 지어낸 값을 돌려주지 않음 ──
+    private final RestClient restClient;
 
-    // 지급 대상(판매자 회원 ID)을 정하는 호출이라 지어낸 값을 돌려주지 않는다
+    @Autowired
+    public MemberApiClient(
+            @Value("${custom.member.baseUrl}") String baseUrl,
+            @Value("${custom.internal.apiKey}") String internalApiKey,
+            @Value("${custom.member.connectTimeoutMillis}") long connectTimeoutMillis,
+            @Value("${custom.member.readTimeoutMillis}") long readTimeoutMillis
+    ) {
+        this(RestClient.builder().requestFactory(InternalApiCalls.requestFactory(connectTimeoutMillis, readTimeoutMillis)),
+                baseUrl, internalApiKey);
+    }
+
+    /**
+     * 테스트에서 MockRestServiceServer를 연결한 builder를 넘길 수 있게 열어 둔다
+     * 모든 요청에 내부 API 키 헤더(X-Internal-Key)를 넣는다. 없으면 회원 서비스가 401로 막는다
+     */
+    MemberApiClient(RestClient.Builder builder, String baseUrl, String internalApiKey) {
+        this.restClient = builder
+                .baseUrl(baseUrl)
+                .defaultHeader(InternalApiKeyFilter.HEADER, internalApiKey)
+                .build();
+    }
+
+    // ── 정산이 쓰는 메서드 ──
+
     @Override
     public SellerDto getSeller(Long sellerId) {
-        throw new UnsupportedOperationException("member-service 연결 전이라 판매자를 조회할 수 없습니다");
+        return InternalApiCalls.call(() -> restClient.get()
+                .uri("/internal/v1/sellers/{sellerId}", sellerId)
+                .retrieve()
+                .body(new ParameterizedTypeReference<RsData<SellerDto>>() {}));
     }
 
-    // 월 정산 집계가 제재 여부(SANCTIONED → 정산서 HOLD)를 판단하는 호출이라 빈 목록을 돌려주지 않는다.
-    // 빈 목록이면 제재된 판매자도 보통 정산서로 만들어져, 연결 후 재시도 때 지급된다.
-    // 예외를 던지면 그 판매자의 집계가 실패로 기록되고 후보는 READY로 남는다. 관리자 목록·미리보기(상호명 조회)도 연결 전까지 실패한다
     @Override
     public List<SellerDto> getSellers(Collection<Long> sellerIds) {
-        throw new UnsupportedOperationException("member-service 연결 전이라 판매자를 조회할 수 없습니다");
+        if (sellerIds.isEmpty()) return List.of();
+        List<SellerDto> sellers = InternalApiCalls.call(() -> restClient.get()
+                .uri(uri -> uri.path("/internal/v1/sellers").queryParam("ids", sellerIds).build())
+                .retrieve()
+                .body(new ParameterizedTypeReference<RsData<List<SellerDto>>>() {}));
+        return sellers == null ? List.of() : sellers;
     }
 
-    // 판매자 신청 이력이 없는 것으로 답함 (판매자 정산 조회는 빈 목록·상세 404, 시드 데이터는 건너뜀)
+    /** 판매자 신청 이력이 없으면 회원 서비스가 200 + data null로 응답한다 */
     @Override
     public Optional<SellerDto> findSellerByMemberId(Long memberId) {
-        return Optional.empty();
+        return Optional.ofNullable(InternalApiCalls.call(() -> restClient.get()
+                .uri("/internal/v1/sellers/by-member/{memberId}", memberId)
+                .retrieve()
+                .body(new ParameterizedTypeReference<RsData<SellerDto>>() {})));
     }
 
     // ── 정산이 쓰지 않는 메서드 ──

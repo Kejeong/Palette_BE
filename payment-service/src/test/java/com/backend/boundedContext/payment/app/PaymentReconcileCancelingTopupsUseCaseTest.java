@@ -20,6 +20,7 @@ import com.backend.boundedContext.payment.domain.PaymentPolicy;
 import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
 import com.backend.boundedContext.payment.out.pg.PgPaymentNotFoundException;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.PgPaymentStatus;
 import com.backend.boundedContext.payment.out.pg.PgResultUnknownException;
@@ -31,7 +32,7 @@ class PaymentReconcileCancelingTopupsUseCaseTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 12, 10, 0);
     // 30,000원 충전 건, 1회차에 20,000원 취소 확정, 2회차에 10,000원 취소 요청 중
     private static final LocalDateTime UPDATED_AT = LocalDateTime.of(2026, 11, 12, 9, 50);
-    private static final TopupCancelReconcileTarget TARGET = new TopupCancelReconcileTarget(7L, "pk_7", PgProvider.TOSS, 2, 20_000, 10_000, UPDATED_AT);
+    private static final TopupCancelReconcileTarget TARGET = new TopupCancelReconcileTarget(7L, ref("pk_7"), PgProvider.TOSS, 2, 20_000, 10_000, UPDATED_AT);
 
     private final PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 60, 1L);
     private final PaymentTopupCancelProcessor processor = mock(PaymentTopupCancelProcessor.class);
@@ -59,7 +60,7 @@ class PaymentReconcileCancelingTopupsUseCaseTest {
     @DisplayName("PG 취소 합계가 이전 취소 + 이번 취소 금액이면 이번 회차의 취소를 확정한다 (PG 상태가 PARTIAL_CANCELED여도)")
     void reconcile_completed() {
         targets(TARGET);
-        given(gateway.getPayment("pk_7")).willReturn(pg(PgPaymentStatus.PARTIALLY_CANCELED, 30_000));
+        given(gateway.getPayment(ref("pk_7"))).willReturn(pg(PgPaymentStatus.PARTIALLY_CANCELED, 30_000));
 
         TopupReconcileResult result = useCase.reconcileCancelingTopups(NOW);
 
@@ -72,7 +73,7 @@ class PaymentReconcileCancelingTopupsUseCaseTest {
     @DisplayName("PG 취소 합계가 이전 취소 금액 그대로면 이번 취소가 반영되지 않은 것으로 보고 되돌린다")
     void reconcile_notCanceled() {
         targets(TARGET);
-        given(gateway.getPayment("pk_7")).willReturn(pg(PgPaymentStatus.PARTIALLY_CANCELED, 20_000));
+        given(gateway.getPayment(ref("pk_7"))).willReturn(pg(PgPaymentStatus.PARTIALLY_CANCELED, 20_000));
 
         TopupReconcileResult result = useCase.reconcileCancelingTopups(NOW);
 
@@ -85,7 +86,7 @@ class PaymentReconcileCancelingTopupsUseCaseTest {
     @DisplayName("PG 취소 합계가 이전 취소와 이전 + 이번 취소 사이면 자동으로 정하지 않고 CANCELING으로 둔다")
     void reconcile_mismatch() {
         targets(TARGET);
-        given(gateway.getPayment("pk_7")).willReturn(pg(PgPaymentStatus.PARTIALLY_CANCELED, 25_000));
+        given(gateway.getPayment(ref("pk_7"))).willReturn(pg(PgPaymentStatus.PARTIALLY_CANCELED, 25_000));
 
         TopupReconcileResult result = useCase.reconcileCancelingTopups(NOW);
 
@@ -98,7 +99,7 @@ class PaymentReconcileCancelingTopupsUseCaseTest {
     @DisplayName("PG 취소 합계가 이전 + 이번 취소보다 많으면(따로 취소된 금액) 확정하지 않고 CANCELING으로 둔다")
     void reconcile_moreThanExpected() {
         targets(TARGET);
-        given(gateway.getPayment("pk_7")).willReturn(pg(PgPaymentStatus.PARTIALLY_CANCELED, 35_000));
+        given(gateway.getPayment(ref("pk_7"))).willReturn(pg(PgPaymentStatus.PARTIALLY_CANCELED, 35_000));
 
         TopupReconcileResult result = useCase.reconcileCancelingTopups(NOW);
 
@@ -110,10 +111,10 @@ class PaymentReconcileCancelingTopupsUseCaseTest {
     @Test
     @DisplayName("PG에 결제가 없거나 조회 결과를 모르면 되돌리지 않고 CANCELING으로 둔다")
     void reconcile_notFoundOrUnknown() {
-        TopupCancelReconcileTarget other = new TopupCancelReconcileTarget(8L, "pk_8", PgProvider.TOSS, 1, 0, 20_000, UPDATED_AT);
+        TopupCancelReconcileTarget other = new TopupCancelReconcileTarget(8L, ref("pk_8"), PgProvider.TOSS, 1, 0, 20_000, UPDATED_AT);
         targets(TARGET, other);
-        given(gateway.getPayment("pk_7")).willThrow(new PgPaymentNotFoundException(new RuntimeException()));
-        given(gateway.getPayment("pk_8")).willThrow(new PgResultUnknownException(new RuntimeException("Read timed out")));
+        given(gateway.getPayment(ref("pk_7"))).willThrow(new PgPaymentNotFoundException(new RuntimeException()));
+        given(gateway.getPayment(ref("pk_8"))).willThrow(new PgResultUnknownException(new RuntimeException("Read timed out")));
 
         TopupReconcileResult result = useCase.reconcileCancelingTopups(NOW);
 
@@ -125,10 +126,10 @@ class PaymentReconcileCancelingTopupsUseCaseTest {
     @Test
     @DisplayName("한 건에서 오류가 나도 나머지 건은 계속 처리한다")
     void reconcile_errorDoesNotStopOthers() {
-        TopupCancelReconcileTarget other = new TopupCancelReconcileTarget(8L, "pk_8", PgProvider.TOSS, 1, 0, 20_000, UPDATED_AT);
+        TopupCancelReconcileTarget other = new TopupCancelReconcileTarget(8L, ref("pk_8"), PgProvider.TOSS, 1, 0, 20_000, UPDATED_AT);
         targets(TARGET, other);
-        given(gateway.getPayment("pk_7")).willThrow(new IllegalStateException("예상 못 한 오류"));
-        given(gateway.getPayment("pk_8")).willReturn(pg(PgPaymentStatus.CANCELED, 20_000));
+        given(gateway.getPayment(ref("pk_7"))).willThrow(new IllegalStateException("예상 못 한 오류"));
+        given(gateway.getPayment(ref("pk_8"))).willReturn(pg(PgPaymentStatus.CANCELED, 20_000));
 
         TopupReconcileResult result = useCase.reconcileCancelingTopups(NOW);
 
@@ -143,5 +144,10 @@ class PaymentReconcileCancelingTopupsUseCaseTest {
 
     private static PgPaymentResult pg(PgPaymentStatus status, long canceledAmount) {
         return new PgPaymentResult("pk", "TOPUP-x", status, status.name(), 30_000, canceledAmount, PgPaymentMethod.CARD, null);
+    }
+
+    // PG 조회에 넘기는 충전 건 정보. 같은 결제키면 같은 값이라 목 설정과 대상이 맞물림
+    private static PgPaymentRef ref(String paymentKey) {
+        return new PgPaymentRef(paymentKey.replace("pk_", "TOPUP-"), paymentKey, 30_000, UPDATED_AT);
     }
 }

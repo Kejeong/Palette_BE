@@ -16,7 +16,7 @@ public record TopupConfirmDto(
         Long balance
 ) {
     public static TopupConfirmDto of(Topup topup, long balance) {
-        return new TopupConfirmDto(topup.getId(), topup.getTossOrderId(), topup.getStatus(), topup.getAmount(), balance);
+        return new TopupConfirmDto(topup.getId(), topup.getOrderId(), topup.getStatus(), topup.getAmount(), balance);
     }
 
     public static TopupConfirmDto processing(Long topupId, String orderId, long amount) {

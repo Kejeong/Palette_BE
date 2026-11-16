@@ -17,6 +17,8 @@ import com.backend.boundedContext.payment.domain.WalletTransactionType;
 import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.WalletRepository;
 import com.backend.boundedContext.payment.out.WalletTransactionRepository;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
+import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
 
 import lombok.RequiredArgsConstructor;
@@ -35,13 +37,15 @@ public class PaymentTopupCancelProcessor {
     private final TopupRepository topupRepository;
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
+    private final TopupGateways topupGateways;
 
     /**
      * Tx1: PG 취소 호출 전 남은 금액 전부를 취소 중으로 옮기고 지갑 잔액에서 먼저 뺌
      * 1. 지갑 → 충전 건 잠금 조회 (조건에 memberId 포함, 남의 충전 건이면 404)
-     * 2. DONE이 아니거나 남은 금액이 없으면 409 TOPUP_NOT_CANCELABLE
-     * 3. DONE → CANCELING, 남은 금액 → 취소 중 금액
-     * 4. 원장 CHARGE_CANCEL 기록(잔액 차감). 취소 중인 금액이 PG 응답을 기다리는 동안 결제에 쓰이지 않게 함
+     * 2. 충전 건의 PG가 연동되지 않았으면 IllegalStateException (상태는 그대로)
+     * 3. DONE이 아니거나 남은 금액이 없으면 409 TOPUP_NOT_CANCELABLE
+     * 4. DONE → CANCELING, 남은 금액 → 취소 중 금액
+     * 5. 원장 CHARGE_CANCEL 기록(잔액 차감). 취소 중인 금액이 PG 응답을 기다리는 동안 결제에 쓰이지 않게 함
      */
     @Transactional
     public TopupCancelStartResult start(Long memberId, Long topupId) {
@@ -50,11 +54,12 @@ public class PaymentTopupCancelProcessor {
         Topup topup = topupRepository.findByIdAndMemberIdForUpdate(topupId, memberId)
                 .orElseThrow(() -> new DomainException(PaymentErrorCode.TOPUP_NOT_FOUND));
 
+        topupGateways.checkSupported(topup.getPgProvider());
         topup.startCancel();
         String idempotencyKey = topup.cancelIdempotencyKey();
         walletTransactionRepository.save(WalletTransaction.record(wallet, WalletTransactionType.CHARGE_CANCEL, topup.getCancelingAmount(), topup.getId(), idempotencyKey));
 
-        return new TopupCancelStartResult(topup.getId(), topup.getTossOrderId(), topup.getPgProvider(), topup.getPaymentKey(), topup.getCancelingAmount(), topup.getCancelAttempts(), idempotencyKey);
+        return new TopupCancelStartResult(topup.getId(), topup.getPgProvider(), PgPaymentRef.from(topup), topup.getCancelingAmount(), topup.getCancelAttempts(), idempotencyKey);
     }
 
     /**
@@ -97,7 +102,7 @@ public class PaymentTopupCancelProcessor {
     @Transactional(readOnly = true)
     public List<TopupCancelReconcileTarget> findReconcileTargets(LocalDateTime cutoff, TopupReconcileCursor after, int limit) {
         return topupRepository.findStale(TopupStatus.CANCELING, cutoff, after.updatedAt(), after.topupId(), PageRequest.of(0, limit)).stream()
-                .map(topup -> new TopupCancelReconcileTarget(topup.getId(), topup.getPaymentKey(), topup.getPgProvider(), topup.getCancelAttempts(), topup.getCanceledAmount(), topup.getCancelingAmount(), topup.getUpdatedAt()))
+                .map(topup -> new TopupCancelReconcileTarget(topup.getId(), PgPaymentRef.from(topup), topup.getPgProvider(), topup.getCancelAttempts(), topup.getCanceledAmount(), topup.getCancelingAmount(), topup.getUpdatedAt()))
                 .toList();
     }
 

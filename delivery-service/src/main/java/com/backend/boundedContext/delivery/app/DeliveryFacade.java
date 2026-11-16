@@ -35,6 +35,7 @@ public class DeliveryFacade {
     private final DeliveryRequestTrackingCheckUseCase deliveryRequestTrackingCheckUseCase;
     private final DeliveryCheckTrackingUseCase deliveryCheckTrackingUseCase;
     private final DeliveryRegisterWebhookUseCase deliveryRegisterWebhookUseCase;
+    private final DeliveryCompleteManuallyUseCase deliveryCompleteManuallyUseCase;
     private final DeliveryRequestSafetyCheckUseCase deliveryRequestSafetyCheckUseCase;
     private final DeliveryRepository deliveryRepository;
 
@@ -44,7 +45,7 @@ public class DeliveryFacade {
         deliveryCreateUseCase.create(event);
     }
 
-    // 물류 배송 목록
+    // 배송 목록 (물류 담당자·관리자 공용)
     @Transactional(readOnly = true)
     public PageResponse<LogisticsDeliveryResponse> getDeliveries(DeliveryStatus status, Pageable pageable) {
         return deliveryGetDeliveriesUseCase.getDeliveries(status, pageable);
@@ -66,6 +67,12 @@ public class DeliveryFacade {
     @Transactional
     public LogisticsDeliveryResponse changeTracking(Long deliveryId, Courier courier, String trackingNumber) {
         return deliveryChangeTrackingUseCase.changeTracking(deliveryId, courier, trackingNumber);
+    }
+
+    // 관리자 수동 배송 완료
+    @Transactional
+    public LogisticsDeliveryResponse completeManually(Long deliveryId, LocalDateTime deliveredAt, String reason) {
+        return deliveryCompleteManuallyUseCase.completeManually(deliveryId, deliveredAt, reason, LocalDateTime.now());
     }
 
     // 주문의 배송 정보 (DeliveryApi)

@@ -24,7 +24,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class TopupAdminSearchResolver {
 
-    private static final int ORDER_ID_PREFIX_MIN_LENGTH = Topup.TOSS_ORDER_ID_PREFIX.length() + 4;  // TOPUP- + 4자리
+    private static final int ORDER_ID_PREFIX_MIN_LENGTH = Topup.ORDER_ID_PREFIX.length() + 4;  // TOPUP- + 4자리
 
     private final PaymentMemberPort memberPort;
 
@@ -43,7 +43,7 @@ public class TopupAdminSearchResolver {
                     .map(memberId -> AdminTopupSearch.ofMember(memberId, from, to))
                     .orElseGet(() -> AdminTopupSearch.none(from, to));
         }
-        if (trimmed.startsWith(Topup.TOSS_ORDER_ID_PREFIX) && trimmed.length() >= ORDER_ID_PREFIX_MIN_LENGTH) {
+        if (trimmed.startsWith(Topup.ORDER_ID_PREFIX) && trimmed.length() >= ORDER_ID_PREFIX_MIN_LENGTH) {
             return AdminTopupSearch.ofOrderIdPrefix(trimmed, from, to);
         }
         return AdminTopupSearch.none(from, to);

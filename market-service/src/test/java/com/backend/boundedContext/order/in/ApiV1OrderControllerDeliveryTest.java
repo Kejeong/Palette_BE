@@ -44,7 +44,7 @@ import com.backend.shared.member.dto.MemberRole;
 import com.backend.shared.order.dto.OrderStatus;
 
 /**
- * [QA] PR 4 주문 API의 HTTP 계약: 배송지 검증 400, 배송지 생략 허용, 주문 상세의 배송 필드 JSON, 409 ORDER_NOT_DELIVERED.
+ * [QA] PR 4 주문 API의 HTTP 계약: 배송지 검증 400, 배송지 생략 400, 주문 상세의 배송 필드 JSON, 409 ORDER_NOT_DELIVERED.
  */
 @WebMvcTest(ApiV1OrderController.class)
 @Import({SecurityConfig.class, JwtTokenProvider.class, JwtAuthenticationEntryPoint.class,
@@ -61,27 +61,27 @@ class ApiV1OrderControllerDeliveryTest {
     @Test
     @DisplayName("주문 생성: 예상 결제 금액이 다르면 409-PRICE_CHANGED이고 data.currentAmount에 실제 결제 금액을 담는다")
     void create_priceChanged() throws Exception {
-        given(orderFacade.createOrder(eq(MEMBER_ID), isNull(), eq(List.of(1L)), eq(22000L), isNull(), any()))
+        given(orderFacade.createOrder(eq(MEMBER_ID), isNull(), eq(List.of(1L)), eq(22000L), any(), any()))
                 .willThrow(new DomainException(OrderErrorCode.PRICE_CHANGED, new PriceChangedResponse(25000)));
 
         mockMvc.perform(post("/api/v1/orders").header("Authorization", bearer())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"cartItemIds\":[1],\"expectedTotalPrice\":22000}"))
+                        .content(body("01012345678", "06236").replace("30000", "22000")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.resultCode").value("409-PRICE_CHANGED"))
                 .andExpect(jsonPath("$.data.currentAmount").value(25000));
     }
 
     @Test
-    @DisplayName("주문 생성: shippingAddress를 생략하면(지금 프론트) 201이고 Facade에 null로 넘긴다")
-    void create_withoutShippingAddress() throws Exception {
+    @DisplayName("주문 생성: shippingAddress를 생략하면 400 VALIDATION_FAILED, 주문을 만들지 않는다 (배송지 필수)")
+    void create_withoutShippingAddress_400() throws Exception {
         mockMvc.perform(post("/api/v1/orders").header("Authorization", bearer())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"cartItemIds\":[1,2],\"expectedTotalPrice\":30000}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.resultCode").value("201-1"));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.data.fieldErrors[0].field").value("shippingAddress"));
 
-        verify(orderFacade).createOrder(eq(MEMBER_ID), isNull(), eq(List.of(1L, 2L)), eq(30000L), isNull(), any());
+        verify(orderFacade, never()).createOrder(anyLong(), any(), anyList(), anyLong(), any(), any());
     }
 
     @Test

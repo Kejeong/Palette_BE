@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import com.backend.boundedContext.payment.app.dto.TopupCancelDto;
 import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.out.PaymentMemberPort;
+import com.backend.boundedContext.payment.out.pg.PgCancelRequest;
 import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgDeclinedException;
 import com.backend.boundedContext.payment.out.pg.PgResultUnknownException;
@@ -49,7 +50,7 @@ public class PaymentCancelTopupUseCase {
 
         // 트랜잭션 밖: 충전 건의 PG로 취소 호출
         try {
-            topupGateways.get(start.pgProvider()).cancel(start.paymentKey(), start.cancelAmount(), CANCEL_REASON, start.idempotencyKey());
+            topupGateways.get(start.pgProvider()).cancel(new PgCancelRequest(start.payment(), start.cancelAmount(), CANCEL_REASON, start.attempt(), start.idempotencyKey()));
         } catch (PgResultUnknownException e) {
             log.warn("PG 취소 결과를 알 수 없어 결과 확인 대기로 둡니다. topupId={}", topupId, e);
             return TopupCancelDto.canceling(start);

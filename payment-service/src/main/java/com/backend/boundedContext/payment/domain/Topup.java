@@ -25,7 +25,7 @@ import lombok.NoArgsConstructor;
 @Table(name = "topup", indexes = @Index(name = "idx_topup_member", columnList = "member_id, created_at"))
 public class Topup extends BaseIdAndTime {
 
-    public static final String TOSS_ORDER_ID_PREFIX = "TOPUP-";
+    public static final String ORDER_ID_PREFIX = "TOPUP-";
 
     @Column(nullable = false)
     private Long memberId;
@@ -34,11 +34,11 @@ public class Topup extends BaseIdAndTime {
     @JoinColumn(name = "wallet_id", nullable = false)
     private Wallet wallet;
 
-    // 서버가 발급한 토스 주문번호 (TOPUP-{UUID})
+    // 서버가 발급한 주문번호 (TOPUP-{UUID}). 결제창 요청·PG 조회에 쓰며 PG와 상관없이 같은 형식
     @Column(nullable = false, unique = true, length = 64)
-    private String tossOrderId;
+    private String orderId;
 
-    // 토스 결제키. 승인 요청 때 저장하며, 같은 결제키는 한 번만 반영
+    // PG 결제키(헥토는 거래번호). 승인 요청 때 저장하며, 같은 결제키는 한 번만 반영
     @Column(unique = true, length = 200)
     private String paymentKey;
 
@@ -50,6 +50,10 @@ public class Topup extends BaseIdAndTime {
     // 충전 금액(원). 충전 준비 때 정하며 바뀌지 않음. 승인 요청 금액·PG 승인 금액과 같아야 함
     @Column(nullable = false)
     private long amount;
+
+    // 결제 요청 시각. 충전 준비 때 정하며, 결제창 요청 일시로 보내고 PG 조회의 원거래 일시로 씀 (헥토는 이 값이 결제창 요청과 같아야 조회됨)
+    @Column(nullable = false)
+    private LocalDateTime requestedAt;
 
     // 결제에 쓰이고 남은 금액. DONE이면 이 금액 전부를 PG에 취소할 수 있음
     @Column(nullable = false)
@@ -79,26 +83,27 @@ public class Topup extends BaseIdAndTime {
 
     private LocalDateTime canceledAt;
 
-    public static Topup create(Long memberId, Wallet wallet, long amount, PgProvider pgProvider) {
+    public static Topup create(Long memberId, Wallet wallet, long amount, PgProvider pgProvider, LocalDateTime requestedAt) {
         Topup topup = new Topup();
         topup.memberId = memberId;
         topup.wallet = wallet;
         topup.pgProvider = pgProvider;
-        topup.tossOrderId = TOSS_ORDER_ID_PREFIX + UUID.randomUUID();
+        topup.orderId = ORDER_ID_PREFIX + UUID.randomUUID();
         topup.amount = amount;
+        topup.requestedAt = requestedAt;
         topup.remainingAmount = 0;
         topup.status = TopupStatus.READY;
         return topup;
     }
 
-    // 토스 승인 호출 전: READY → PROCESSING, 결제키 저장
+    // PG 승인 호출 전: READY → PROCESSING, 결제키 저장
     public void markProcessing(String paymentKey) {
         if (status != TopupStatus.READY) throw new DomainException(PaymentErrorCode.TOPUP_ALREADY_PROCESSED);
         this.paymentKey = paymentKey;
         this.status = TopupStatus.PROCESSING;
     }
 
-    // 토스 승인 완료: PROCESSING → DONE. 이 충전 건의 남은 금액은 충전 금액 전체 (지갑 잔액 반영은 Wallet에서)
+    // PG 승인 완료: PROCESSING → DONE. 이 충전 건의 남은 금액은 충전 금액 전체 (지갑 잔액 반영은 Wallet에서)
     public void approve(LocalDateTime approvedAt) {
         if (status != TopupStatus.PROCESSING) throw new DomainException(PaymentErrorCode.TOPUP_ALREADY_PROCESSED);
         this.remainingAmount = amount;
@@ -206,12 +211,12 @@ public class Topup extends BaseIdAndTime {
 
     // 허용하지 않은 결제 수단 전액 취소의 PG 멱등 키. 충전 취소 키와 겹치지 않게 구분하고, 재시도마다 회차를 넣음
     public String methodCancelIdempotencyKey() {
-        return TOSS_ORDER_ID_PREFIX + getId() + "-METHOD-CANCEL-" + cancelAttempts;
+        return ORDER_ID_PREFIX + getId() + "-METHOD-CANCEL-" + cancelAttempts;
     }
 
     // 충전 반영 원장(CHARGE)의 멱등 키. 같은 충전 건은 한 번만 예치금에 반영
     public String chargeIdempotencyKey() {
-        return TOSS_ORDER_ID_PREFIX + getId() + "-CHARGE";
+        return ORDER_ID_PREFIX + getId() + "-CHARGE";
     }
 
     // 이 회차의 취소 결과를 아직 반영하지 않았는지. 취소 결과 반영(성공·실패)은 이 회차가 CANCELING일 때만 함
@@ -221,7 +226,7 @@ public class Topup extends BaseIdAndTime {
 
     // 취소 원장(CHARGE_CANCEL)과 PG 취소 요청의 멱등 키. 거절된 뒤 다시 취소해도 겹치지 않게 취소 회차를 넣음
     public String cancelIdempotencyKey() {
-        return TOSS_ORDER_ID_PREFIX + getId() + "-CANCEL-" + cancelAttempts;
+        return ORDER_ID_PREFIX + getId() + "-CANCEL-" + cancelAttempts;
     }
 
     // 취소 확정 실패 시 되돌림 원장(CHARGE_CANCEL_RESTORE)의 멱등 키

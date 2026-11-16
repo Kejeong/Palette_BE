@@ -21,7 +21,9 @@ import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.WalletRepository;
 import com.backend.boundedContext.payment.out.WalletTransactionRepository;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
+import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
 
 import lombok.RequiredArgsConstructor;
@@ -44,23 +46,27 @@ public class PaymentTopupConfirmProcessor {
     private final TopupRepository topupRepository;
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
+    private final TopupGateways topupGateways;
 
     /**
      * Tx1: PG 승인 호출 전 충전 건을 PROCESSING으로 선점
      * 1. 충전 건 행 잠금 조회 (조건에 memberId 포함, 남의 충전 건이면 404)
      * 2. READY가 아니면 409 TOPUP_ALREADY_PROCESSED (상태는 그대로)
      * 3. 이미 다른 충전 건에 쓰인 결제키면 409 TOPUP_ALREADY_PROCESSED
-     * 4. 저장 금액 ≠ 요청 금액이면 FAILED_AMOUNT_MISMATCH로 기록하고 결과로 반환 (예외를 던지지 않아 기록이 커밋됨)
-     * 5. READY → PROCESSING, 결제키 저장
+     * 4. 충전 건의 PG가 연동되지 않았으면 IllegalStateException (상태는 그대로)
+     * 5. 저장 금액 ≠ 요청 금액이면 FAILED_AMOUNT_MISMATCH로 기록하고 결과로 반환 (예외를 던지지 않아 기록이 커밋됨)
+     * 6. READY → PROCESSING, 결제키 저장
      */
     @Transactional
     public TopupConfirmStartResult start(Long memberId, String orderId, String paymentKey, long amount) {
-        Topup topup = topupRepository.findByTossOrderIdAndMemberIdForUpdate(orderId, memberId)
+        Topup topup = topupRepository.findByOrderIdAndMemberIdForUpdate(orderId, memberId)
                 .orElseThrow(() -> new DomainException(PaymentErrorCode.TOPUP_NOT_FOUND));
 
         if (topup.getStatus() != TopupStatus.READY || topupRepository.existsByPaymentKey(paymentKey)) {
             throw new DomainException(PaymentErrorCode.TOPUP_ALREADY_PROCESSED);
         }
+
+        topupGateways.checkSupported(topup.getPgProvider());
 
         if (topup.getAmount() != amount) {
             topup.fail(TopupStatus.FAILED_AMOUNT_MISMATCH, "충전 준비 금액과 승인 요청 금액이 다릅니다. (준비 " + topup.getAmount() + "원, 요청 " + amount + "원)");
@@ -127,7 +133,7 @@ public class PaymentTopupConfirmProcessor {
             return Optional.empty();
         }
         topup.startMethodCancel();
-        return Optional.of(new TopupMethodCancelStart(topup.getId(), topup.getPgProvider(), topup.getPaymentKey(),
+        return Optional.of(new TopupMethodCancelStart(topup.getId(), topup.getPgProvider(), PgPaymentRef.from(topup),
                 topup.getAmount(), topup.getCancelAttempts(), topup.methodCancelIdempotencyKey()));
     }
 
@@ -156,7 +162,7 @@ public class PaymentTopupConfirmProcessor {
             return Optional.empty();
         }
         topup.retryMethodCancel();
-        return Optional.of(new TopupMethodCancelStart(topup.getId(), topup.getPgProvider(), topup.getPaymentKey(),
+        return Optional.of(new TopupMethodCancelStart(topup.getId(), topup.getPgProvider(), PgPaymentRef.from(topup),
                 topup.getAmount(), topup.getCancelAttempts(), topup.methodCancelIdempotencyKey()));
     }
 
@@ -166,7 +172,7 @@ public class PaymentTopupConfirmProcessor {
     @Transactional(readOnly = true)
     public List<TopupMethodCancelTarget> findMethodCancelTargets(LocalDateTime cutoff, TopupReconcileCursor after, int limit) {
         return topupRepository.findStale(TopupStatus.METHOD_CANCELING, cutoff, after.updatedAt(), after.topupId(), PageRequest.of(0, limit)).stream()
-                .map(topup -> new TopupMethodCancelTarget(topup.getId(), topup.getPaymentKey(), topup.getPgProvider(), topup.getAmount(), topup.getCancelAttempts(), topup.getUpdatedAt()))
+                .map(topup -> new TopupMethodCancelTarget(topup.getId(), PgPaymentRef.from(topup), topup.getPgProvider(), topup.getAmount(), topup.getCancelAttempts(), topup.getUpdatedAt()))
                 .toList();
     }
 
@@ -192,7 +198,7 @@ public class PaymentTopupConfirmProcessor {
     @Transactional(readOnly = true)
     public List<TopupReconcileTarget> findReconcileTargets(LocalDateTime cutoff, TopupReconcileCursor after, int limit) {
         return topupRepository.findStale(TopupStatus.PROCESSING, cutoff, after.updatedAt(), after.topupId(), PageRequest.of(0, limit)).stream()
-                .map(topup -> new TopupReconcileTarget(topup.getId(), topup.getPaymentKey(), topup.getPgProvider(), topup.getUpdatedAt()))
+                .map(topup -> new TopupReconcileTarget(topup.getId(), PgPaymentRef.from(topup), topup.getPgProvider(), topup.getUpdatedAt()))
                 .toList();
     }
 }
