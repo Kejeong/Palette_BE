@@ -59,7 +59,8 @@ import com.backend.shared.product.out.ProductApi;
 /**
  * [QA] 관리자 반품 승인·거절에서 개발 테스트가 다루지 않은 경로를 실제 DB·실제 재고·행 잠금으로 확인한다 (TRSS-222 관리자 반품).
  * - 경합(순서 고정, 실제 대기 확인): 승인 ↔ 자동 확정(양방향), 거절 즉시 확정 ↔ 자동 확정, 승인 ↔ 승인, 승인 ↔ 판매자 재고 조정(양방향)
- * - 롤백: STOCK_LIMIT_EXCEEDED·OPTION_DELETED에서 앞 항목 복원·주문 상태·restore_stock·outbox 모두 롤백
+ * - 롤백: OPTION_DELETED에서 앞 항목 복원·주문 상태·restore_stock·outbox 모두 롤백
+ * - 재고 상한: 판매자가 재고를 상한까지 늘린 옵션도 반품 복원은 성공한다 (복원은 상한을 보지 않음, TRSS-268)
  * - 쿠폰: 승인·거절(즉시 확정 포함)이 쿠폰 포트를 부르지 않는다
  * - 이벤트 내용: OrderReturnedEvent의 orderId·buyerId·refundAmount(=pay_amount)·returnedAt(=returned_at)
  * - 거절 7일 경계(배송 완료 기준), 배송지 없는 주문(결제 시각 기준)
@@ -243,18 +244,17 @@ class OrderAdminReturnQaIntegrationTest {
     // ---------- 롤백 ----------
 
     @Test
-    @DisplayName("승인: 뒤 항목 복원이 재고 상한을 넘으면 400 STOCK_LIMIT_EXCEEDED, 앞 항목 복원·주문 상태·restore_stock·outbox 모두 롤백")
-    void approve_stockLimitExceeded_rollsBackAll() {
+    @DisplayName("승인: 판매자가 재고를 상한까지 늘린 옵션도 반품 복원은 성공한다 (복원은 재고 상한을 보지 않는다)")
+    void approve_stockAtLimit_restoresOverLimit() {
         Order order = returnRequestedOrder(LocalDateTime.now().minusDays(2));
         long orderId = order.getId();
         jdbcTemplate.update("update option_stock set stock = ? where option_id = ?", OptionStock.MAX_STOCK, optionB);
 
-        assertThatThrownBy(() -> orderFacade.approveReturn(orderId, decisions(order, true, true)))
-                .isInstanceOf(DomainException.class)
-                .extracting(e -> ((DomainException) e).getResultCode()).isEqualTo("400-STOCK_LIMIT_EXCEEDED");
+        orderFacade.approveReturn(orderId, decisions(order, true, true));
 
-        assertRolledBack(orderId);
-        assertThat(stock(optionB)).isEqualTo(OptionStock.MAX_STOCK);
+        assertThat(status(orderId)).isEqualTo(OrderStatus.RETURNED);
+        assertThat(stock(optionA)).isEqualTo(INITIAL_STOCK);
+        assertThat(stock(optionB)).isEqualTo(OptionStock.MAX_STOCK + 1);   // B 항목 수량 1을 돌려놓는다
     }
 
     @Test

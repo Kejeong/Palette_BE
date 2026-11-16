@@ -15,7 +15,9 @@ import lombok.NoArgsConstructor;
 import static jakarta.persistence.FetchType.LAZY;
 
 /**
- * 옵션의 재고. 옵션 하나에 하나이고, ID는 옵션 ID다. 재고는 0 이상 {@value #MAX_STOCK} 이하다.
+ * 옵션의 재고. 옵션 하나에 하나이고, ID는 옵션 ID다. 재고는 0 이상이다.
+ * 판매자가 넣는 재고(초기 재고, 재고를 늘리는 조정)는 {@value #MAX_STOCK} 이하로 막고,
+ * 주문 취소·반품 복원은 이미 판 수량을 돌려놓는 것이라 상한을 넘어도 받는다.
  *
  * <p>재고를 옵션({@link ProductOption})과 다른 행에 둔다. 옵션 정보를 수정해도 재고 행은 UPDATE되지 않아
  * 주문이 바꾼 재고를 옛 값으로 덮어쓰지 않고(lost update), 재고를 바꿀 때는 이 행만 잠가서
@@ -31,7 +33,10 @@ public class OptionStock extends BaseManualIdAndTime {
     /** 재고가 이 수 이하면 구매자에게 남은 수량을 보여 준다. */
     public static final int LOW_STOCK_THRESHOLD = 5;
 
-    /** 옵션 하나에 둘 수 있는 최대 재고. 재고 조정·복원이 int 범위를 넘지 않게 막는다. */
+    /**
+     * 판매자가 넣을 수 있는 최대 재고 (초기 재고, 재고를 늘리는 조정의 결과).
+     * 주문 취소·반품 복원에는 적용하지 않는다. 복원을 막으면 주문 취소·반품 승인이 실패하기 때문이다.
+     */
     public static final int MAX_STOCK = 1_000_000;
 
     /**
@@ -87,7 +92,7 @@ public class OptionStock extends BaseManualIdAndTime {
     /**
      * 주문 취소·반품으로 재고를 되돌린다. 상품 상태는 바꾸지 않는다 (중지된 상품도 재고만 는다).
      * 반품 복원(RETURN_RESTORE)은 삭제된 상품·옵션이면 409. 주문 취소 복원은 삭제돼도 재고를 늘린다.
-     * 결과가 {@value #MAX_STOCK}를 넘으면 400.
+     * 이미 판 수량을 돌려놓는 것이라 {@value #MAX_STOCK}를 넘어도 받는다 (판매자가 그사이 재고를 상한까지 늘렸어도 취소·반품이 실패하지 않게).
      */
     public void restoreStock(int quantity, StockChangeType changeType) {
         checkQuantity(quantity);
@@ -95,13 +100,18 @@ public class OptionStock extends BaseManualIdAndTime {
             if (option.getProduct().isDeleted()) throw new DomainException(ProductErrorCode.PRODUCT_DELETED);
             if (option.isDeleted()) throw new DomainException(ProductErrorCode.OPTION_DELETED);
         }
-        addStock(quantity);
+        long next = (long) stock + quantity;
+        if (next > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("복원한 재고가 int 범위를 넘습니다. stock=" + stock + ", quantity=" + quantity);
+        }
+        stock = (int) next;
     }
 
     /**
      * 판매자가 재고를 증감량만큼 조정한다. 늘리면 양수, 줄이면 음수.
      * 판매 중지·삭제된 상품이면 409(상품을 먼저 본다), 삭제된 옵션이면 409,
-     * 결과가 0 미만이거나 {@value #MAX_STOCK}를 넘으면 400.
+     * 결과가 0 미만이면 400, 늘린 결과가 {@value #MAX_STOCK}를 넘으면 400.
+     * 복원으로 이미 상한을 넘은 재고도 줄이는 조정은 받는다.
      */
     public void adjustStock(int changeQty) {
         if (changeQty == 0) {
@@ -114,13 +124,13 @@ public class OptionStock extends BaseManualIdAndTime {
         addStock(changeQty);
     }
 
-    /** 재고를 change만큼 바꾼다. int가 넘치지 않게 long으로 계산한다. */
+    /** 판매자 조정으로 재고를 change만큼 바꾼다. int가 넘치지 않게 long으로 계산하고, 상한은 늘릴 때만 본다. */
     private void addStock(long change) {
         long next = stock + change;
         if (next < 0) {
             throw new DomainException(ProductErrorCode.STOCK_NEGATIVE);
         }
-        if (next > MAX_STOCK) {
+        if (change > 0 && next > MAX_STOCK) {
             throw new DomainException(ProductErrorCode.STOCK_LIMIT_EXCEEDED);
         }
         stock = (int) next;

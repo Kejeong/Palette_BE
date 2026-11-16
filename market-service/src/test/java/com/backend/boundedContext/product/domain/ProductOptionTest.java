@@ -97,18 +97,30 @@ class ProductOptionTest {
     }
 
     @Test
-    @DisplayName("복원 결과가 최대 재고를 넘으면 STOCK_LIMIT_EXCEEDED, 최대 재고까지는 늘릴 수 있다")
-    void restoreStockLimitExceeded() {
+    @DisplayName("복원은 이미 판 수량을 돌려놓는 것이라 최대 재고를 넘어도 늘린다. int 범위를 넘으면 IllegalArgumentException")
+    void restoreStockOverLimit() {
         stock.restoreStock(OptionStock.MAX_STOCK - 5, StockChangeType.ORDER_RESTORE);
-        assertThat(stock.getStock()).isEqualTo(OptionStock.MAX_STOCK);
+        stock.restoreStock(1, StockChangeType.ORDER_RESTORE);
+        stock.restoreStock(2, StockChangeType.RETURN_RESTORE);
+        assertThat(stock.getStock()).isEqualTo(OptionStock.MAX_STOCK + 3);
 
-        assertThatThrownBy(() -> stock.restoreStock(1, StockChangeType.ORDER_RESTORE))
-                .isInstanceOf(DomainException.class)
-                .extracting("resultCode").isEqualTo("400-STOCK_LIMIT_EXCEEDED");
         assertThatThrownBy(() -> stock.restoreStock(Integer.MAX_VALUE, StockChangeType.RETURN_RESTORE))   // int가 넘쳐 음수가 되지 않는다
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(stock.getStock()).isEqualTo(OptionStock.MAX_STOCK + 3);
+    }
+
+    @Test
+    @DisplayName("재고 조정: 복원으로 최대 재고를 넘은 재고도 줄일 수 있고, 더 늘리는 것은 STOCK_LIMIT_EXCEEDED")
+    void adjustStockAboveLimitAfterRestore() {
+        stock.restoreStock(OptionStock.MAX_STOCK, StockChangeType.ORDER_RESTORE);   // 5 + 상한
+
+        stock.adjustStock(-1);   // 줄인 결과가 아직 상한보다 커도 받는다
+        assertThat(stock.getStock()).isEqualTo(OptionStock.MAX_STOCK + 4);
+
+        assertThatThrownBy(() -> stock.adjustStock(1))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("400-STOCK_LIMIT_EXCEEDED");
-        assertThat(stock.getStock()).isEqualTo(OptionStock.MAX_STOCK);
+        assertThat(stock.getStock()).isEqualTo(OptionStock.MAX_STOCK + 4);
     }
 
     @Test
