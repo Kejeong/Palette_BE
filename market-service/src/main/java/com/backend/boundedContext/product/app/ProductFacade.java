@@ -1,6 +1,7 @@
 package com.backend.boundedContext.product.app;
 
 import com.backend.boundedContext.product.app.dto.AdminCategoryTreeDto;
+import com.backend.boundedContext.product.app.dto.PopularKeywordDto;
 import com.backend.boundedContext.product.app.dto.AdminProductStopRequestDto;
 import com.backend.boundedContext.product.app.dto.AdminProductSummaryDto;
 import com.backend.boundedContext.product.domain.AdminProductDisplayStatus;
@@ -68,6 +69,7 @@ public class ProductFacade {
     private final ProductDeleteDiscountUseCase productDeleteDiscountUseCase;
     private final ProductEndDiscountUseCase productEndDiscountUseCase;
     private final ProductSearchProductsUseCase productSearchProductsUseCase;
+    private final ProductGetPopularKeywordsUseCase productGetPopularKeywordsUseCase;
     private final ProductGetProductDetailUseCase productGetProductDetailUseCase;
     private final ProductGetSellerProductsUseCase productGetSellerProductsUseCase;
     private final ProductModifyProductUseCase productModifyProductUseCase;
@@ -125,6 +127,11 @@ public class ProductFacade {
     public PageResponse<ProductSummaryDto> searchProducts(String keyword, Long categoryId, ProductSort sort,
                                                           boolean excludeSoldOut, Pageable pageable) {
         return productSearchProductsUseCase.searchProducts(keyword, categoryId, sort, excludeSoldOut, pageable);
+    }
+
+    /** 최근 24시간 인기 검색어와 한 시간 전 대비 순위 변동 (DB를 읽지 않는다) */
+    public List<PopularKeywordDto> getPopularKeywords() {
+        return productGetPopularKeywordsUseCase.getPopularKeywords(LocalDateTime.now());
     }
 
     /** 로그인하지 않은 구매자의 상품 상세 (찜 여부는 false) */
