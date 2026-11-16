@@ -166,8 +166,7 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      redis:
-        condition: service_healthy
+      # redis는 기다리지 않는다. 인기 검색어(부가 기능)만 쓰고 Redis가 없어도 검색이 실패하지 않으므로, Redis 상태 때문에 market 배포가 막히지 않게 한다
 
   # 예치금·충전·결제·정산 지급(payment-service). 같은 Dockerfile에서 MODULE만 바꿔 빌드한다.
   # 루트 모놀리스(app)가 하던 마지막 기능이라, 결제가 분리되면서 app 컨테이너를 이 서비스로 바꿨다.
