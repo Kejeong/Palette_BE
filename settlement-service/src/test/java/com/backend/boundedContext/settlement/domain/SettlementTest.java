@@ -67,6 +67,54 @@ class SettlementTest {
     }
 
     @Test
+    @DisplayName("보류 종류: 보류하면 종류와 사유가 남고, 해제하면 둘 다 지운다. 시도 횟수는 그대로")
+    void holdType_holdAndRelease() {
+        Settlement s = ready();
+        s.markFailed("1차", NOW, MAX_ATTEMPTS, RETRY_MINUTES);
+        s.hold(SettlementHoldType.LEDGER_MISMATCH, "원장 불일치");
+
+        assertTrue(s.isHeldBy(SettlementHoldType.LEDGER_MISMATCH));
+        assertFalse(s.isHeldBy(SettlementHoldType.SANCTION));
+        s.release();
+        assertEquals(SettlementStatus.READY, s.getStatus());
+        assertNull(s.getHoldType());
+        assertNull(s.getHoldReason());
+        assertEquals(1, s.getRetryCount());
+    }
+
+    @Test
+    @DisplayName("제재 해지: 제재 보류만 풀 수 있고, 풀면 READY + 시도 횟수 0 (MANUAL_REQUIRED였어도 자동 지급을 처음부터)")
+    void releaseSanctionHold_resetsAttempts() {
+        Settlement s = ready();
+        s.markFailed("1차", NOW, MAX_ATTEMPTS, RETRY_MINUTES);
+        s.markManualRequired("3회 실패");
+        s.hold(SettlementHoldType.SANCTION, "판매자 제재");
+
+        s.releaseSanctionHold();
+
+        assertEquals(SettlementStatus.READY, s.getStatus());
+        assertEquals(0, s.getRetryCount());
+        assertNull(s.getHoldType());
+
+        Settlement admin = ready();
+        admin.hold("관리자 보류");
+        assertEquals(SettlementHoldType.ADMIN, admin.getHoldType());
+        assertThrows(DomainException.class, admin::releaseSanctionHold);   // 관리자 보류는 이 경로로 풀지 않는다
+    }
+
+    @Test
+    @DisplayName("보류 종류로 만들면 처음부터 HOLD, 종류가 없으면 READY(사유도 남기지 않음)")
+    void createWithHoldType() {
+        Settlement sanctioned = Settlement.create(7L, "2026-09", SettlementHoldType.SANCTION, "판매자 제재");
+        assertEquals(SettlementStatus.HOLD, sanctioned.getStatus());
+        assertEquals(SettlementHoldType.SANCTION, sanctioned.getHoldType());
+
+        Settlement normal = Settlement.create(7L, "2026-09", null, "무시되는 사유");
+        assertEquals(SettlementStatus.READY, normal.getStatus());
+        assertNull(normal.getHoldReason());
+    }
+
+    @Test
     @DisplayName("holdReason이 있으면 처음부터 HOLD로 만들고, HOLD에도 후보를 담을 수 있다")
     void createHold() {
         Settlement s = Settlement.create(7L, "2026-09", "제재");

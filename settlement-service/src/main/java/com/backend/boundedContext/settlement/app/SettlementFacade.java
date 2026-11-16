@@ -62,6 +62,7 @@ public class SettlementFacade {
     private final SettlementHoldUseCase settlementHoldUseCase;
     private final SettlementReleaseUseCase settlementReleaseUseCase;
     private final SettlementHoldSellerUseCase settlementHoldSellerUseCase;
+    private final SettlementReleaseSanctionHoldsUseCase settlementReleaseSanctionHoldsUseCase;
     private final SettlementExcludeCandidateUseCase settlementExcludeCandidateUseCase;
     private final SettlementJudgeUseCase settlementJudgeUseCase;
     private final SettlementLedgerRecheckUseCase settlementLedgerRecheckUseCase;
@@ -350,6 +351,12 @@ public class SettlementFacade {
     @Transactional
     public int holdSellerBySanctionEvent(Long sellerId, String reason) {
         return settlementHoldSellerUseCase.holdSeller(sellerId, reason, SettlementTrigger.EVENT);
+    }
+
+    /** 판매자 제재 해지 이벤트: 제재 보류 정산서를 READY로 되돌리고 시도 횟수를 초기화한다(이벤트 처리 트랜잭션에 참여) */
+    @Transactional
+    public int releaseSanctionHoldsByEvent(Long sellerId, String reason) {
+        return settlementReleaseSanctionHoldsUseCase.releaseSanctionHolds(sellerId, reason, SettlementTrigger.EVENT);
     }
 
     /** 운영 알림: 사람이 처리해야 하는(MANUAL_REQUIRED) 정산서 수 */

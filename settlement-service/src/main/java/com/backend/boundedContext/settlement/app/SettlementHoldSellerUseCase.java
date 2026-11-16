@@ -1,6 +1,7 @@
 package com.backend.boundedContext.settlement.app;
 
 import com.backend.boundedContext.settlement.domain.Settlement;
+import com.backend.boundedContext.settlement.domain.SettlementHoldType;
 import com.backend.boundedContext.settlement.domain.SettlementProcessHistory;
 import com.backend.boundedContext.settlement.domain.SettlementStatus;
 import com.backend.boundedContext.settlement.domain.SettlementTrigger;
@@ -43,7 +44,7 @@ public class SettlementHoldSellerUseCase {
         List<Settlement> settlements = settlementRepository.findWithLockBySellerIdAndStatusIn(sellerId,
                 PAYABLE_STATUSES);
         for (Settlement settlement : settlements) {
-            settlement.hold(reason);
+            settlement.hold(SettlementHoldType.SANCTION, reason);
             settlementProcessHistoryRepository.save(SettlementProcessHistory.held(settlement.getId(), reason, trigger, now));
         }
         log.info("판매자 제재로 정산 보류 sellerId={} trigger={} held={}", sellerId, trigger, settlements.size());
