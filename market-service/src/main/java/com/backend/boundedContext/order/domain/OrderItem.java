@@ -117,7 +117,7 @@ public class OrderItem extends BaseIdAndTime {
 
     // 구매 확정 이벤트 항목으로 변환 (정산 후보 생성용)
     public ConfirmedOrderItemDto toConfirmedOrderItemDto() {
-        return new ConfirmedOrderItemDto(getId(), productId, sellerId, unitPrice, quantity, lineAmount);
+        return new ConfirmedOrderItemDto(getId(), productId, sellerId, unitPrice, quantity, lineAmount, discountAmount);
     }
 
     // 결제 완료 이벤트 항목으로 변환 (배송 피킹 목록용)

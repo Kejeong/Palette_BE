@@ -539,8 +539,18 @@ public record OrderReturnedEvent(Long orderId, Long buyerId, long refundAmount, 
 ```java
 package com.backend.shared.order.dto;
 
+/**
+ * 구매 확정 항목. lineAmount = 할인 전 항목 금액(unitPrice × quantity).
+ * productCouponDiscount = 항목 금액에서 빠진 상품 쿠폰 할인액(주문 항목 discount_amount, 없으면 0).
+ *   할인 후 금액(lineAmount - productCouponDiscount)으로 무엇을 계산할지는 정산 정책에 따른다.
+ *   장바구니 쿠폰 할인은 결제 시 플랫폼 지원금(COUPON_SUBSIDY)으로 홀딩을 보전하므로 이 필드에 넣지 않는다.
+ *   하위 호환: 이 필드가 없는 이전 형식 메시지(outbox PENDING·Kafka 보관분)는 0으로 읽는다.
+ *   (그래서 Long으로 받고 값이 없으면 0으로 본다. long으로 하면 값이 빠진 JSON을 읽을 때 오류가 난다.)
+ *   6개 인자 생성자는 할인 0으로 채운다.
+ */
 public record ConfirmedOrderItemDto(Long orderItemId, Long productId, Long sellerId,
-                                    long unitPrice, int quantity, long lineAmount) { }
+                                    long unitPrice, int quantity, long lineAmount,
+                                    Long productCouponDiscount) { }
 
 /** 주문 배송지 스냅샷 (주문할 때 받은 값 그대로). 로그에 남기지 않는다 */
 public record ShippingAddressDto(String receiverName, String receiverPhone, String zipCode,
