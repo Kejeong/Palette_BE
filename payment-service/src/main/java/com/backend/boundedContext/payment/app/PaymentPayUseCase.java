@@ -8,13 +8,12 @@ import org.springframework.stereotype.Component;
 import com.backend.boundedContext.payment.domain.Payment;
 import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.PaymentPolicy;
+import com.backend.boundedContext.payment.domain.PaymentRecords;
 import com.backend.boundedContext.payment.domain.PaymentStatus;
 import com.backend.boundedContext.payment.domain.Topup;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.TopupUsage;
 import com.backend.boundedContext.payment.domain.Wallet;
-import com.backend.boundedContext.payment.domain.WalletHolding;
-import com.backend.boundedContext.payment.domain.WalletTransactionType;
 import com.backend.boundedContext.payment.out.PaymentRepository;
 import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.TopupUsageRepository;
@@ -66,21 +65,24 @@ public class PaymentPayUseCase {
             return fail(command, wallet, PaymentStatus.FAILED_INSUFFICIENT_BALANCE, insufficientReason(wallet, command));
         }
 
-        // 결제 건을 먼저 저장한다 (원장·홀딩이 결제 ID를 가리켜야 하므로)
+        // 결제 건을 READY로 먼저 저장한다
         Payment payment = paymentRepository.save(
-                Payment.paid(
+                Payment.ready(
                         command.orderId(),
                         command.orderNumber(),
                         wallet,
                         command.amount(),
-                        command.idempotencyKey(),
-                        now
-                ).withShippingFee(command.shippingFee())
+                        command.shippingFee(),
+                        command.idempotencyKey()
+                )
         );
-        withdrawFromWallet(wallet, payment);
-        useTopups(command.buyerId(), payment);
-        depositShippingFee(payment);
-        walletHoldingRepository.save(WalletHolding.hold(payment, now));
+        // 잠금 순서(구매자 지갑 → 충전 건 → 플랫폼 지갑)
+        deductFromOldestTopups(command.buyerId(), payment);
+        Wallet platformWallet = lockPlatformWalletForShippingFee(payment);
+
+        PaymentRecords records = payment.pay(wallet, platformWallet, now);
+        walletTransactionRepository.saveAll(records.transactions());
+        walletHoldingRepository.save(records.holding());
 
         return toResult(payment, wallet);
     }
@@ -93,13 +95,10 @@ public class PaymentPayUseCase {
         }
     }
 
-    // 배송비는 홀딩(정산 대상)에 넣지 않고 플랫폼(관리자) 지갑으로 옮긴다. 구매자 지갑 차감은 PAYMENT 원장에 이미 포함돼 있다
+    // 배송비가 있는 결제만 플랫폼(관리자) 지갑을 잠근다. 배송비가 없으면 null
     // shortcut: 배송비가 있는 결제마다 관리자 지갑 한 행을 잠가 결제끼리 잠깐 줄을 선다. 결제량이 늘면 플랫폼 지갑 반영을 비동기로 바꾼다
-    private void depositShippingFee(Payment payment) {
-        if (payment.getShippingFee() == 0) return;
-        Wallet platformWallet = lockWallet(paymentPolicy.adminMemberId());
-        walletTransactionRepository.save(platformWallet.change(WalletTransactionType.SHIPPING_FEE,
-                payment.getShippingFee(), payment.getId(), payment.shippingFeeIdempotencyKey()));
+    private Wallet lockPlatformWalletForShippingFee(Payment payment) {
+        return payment.hasShippingFee() ? lockWallet(paymentPolicy.adminMemberId()) : null;
     }
 
     private Wallet lockWallet(Long buyerId) {
@@ -117,15 +116,9 @@ public class PaymentPayUseCase {
         return "잔액 부족: 잔액 " + wallet.getBalance() + "원, 결제 금액 " + command.amount() + "원";
     }
 
-    // 구매자 지갑에서 결제 금액을 빼고 원장 PAYMENT를 남긴다
-    private void withdrawFromWallet(Wallet wallet, Payment payment) {
-        walletTransactionRepository.save(wallet.change(WalletTransactionType.PAYMENT,
-                payment.getAmount(), payment.getId(), payment.paymentIdempotencyKey()));
-    }
-
     // 오래된 충전 건부터 결제 금액만큼 차감하고 차감 내역을 남긴다 (충전 취소 가능 여부 판단용)
     // 잔액에는 환불·정산으로 들어온 돈도 있어서, 충전 건을 다 써도 결제 금액이 남을 수 있다 (그 부분은 기록할 충전 건이 없음)
-    private void useTopups(Long memberId, Payment payment) {
+    private void deductFromOldestTopups(Long memberId, Payment payment) {
         long amountToCover = payment.getAmount();   // 충전 건에서 아직 빼야 할 금액
         for (Topup topup : topupRepository.findUsableForUpdate(memberId, TopupStatus.DONE)) {
             if (amountToCover == 0) break;

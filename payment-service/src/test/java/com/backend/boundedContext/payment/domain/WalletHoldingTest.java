@@ -88,7 +88,7 @@ class WalletHoldingTest {
         holding.settle(25_000, NOW);
 
         assertThatThrownBy(() -> holding.settle(1, NOW))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(DomainException.class);
     }
 
     @Test

@@ -123,7 +123,7 @@ public class Payment extends BaseIdAndTime {
                 getId(),
                 paymentIdempotencyKey()
         ));
-        if (shippingFee > 0) {
+        if (hasShippingFee()) {
             transactions.add(platformWallet.change(
                     WalletTransactionType.SHIPPING_FEE,
                     shippingFee,
@@ -160,7 +160,7 @@ public class Payment extends BaseIdAndTime {
                 getId(),
                 cancelIdempotencyKey()
         ));
-        if (shippingFee > 0) {
+        if (hasShippingFee()) {
             transactions.add(platformWallet.change(
                     WalletTransactionType.SHIPPING_FEE_CANCEL,
                     shippingFee,
@@ -172,7 +172,7 @@ public class Payment extends BaseIdAndTime {
     }
 
     private void rejectIfPlatformWalletMissing(Wallet platformWallet) {
-        if (shippingFee > 0 && platformWallet == null) {
+        if (hasShippingFee() && platformWallet == null) {
             throw new IllegalArgumentException("배송비가 있는 결제는 플랫폼 지갑이 필요합니다: shippingFee=" + shippingFee);
         }
     }
@@ -234,6 +234,11 @@ public class Payment extends BaseIdAndTime {
     // 홀딩에 들어가는 금액 (정산 대상 금액)
     public long holdingAmount() {
         return amount - shippingFee;
+    }
+
+    // 배송비가 있으면 결제·취소할 때 플랫폼 지갑도 필요하다
+    public boolean hasShippingFee() {
+        return shippingFee > 0;
     }
 
     // 배송비 원장(SHIPPING_FEE)·배송비 취소 원장(SHIPPING_FEE_CANCEL)의 멱등 키

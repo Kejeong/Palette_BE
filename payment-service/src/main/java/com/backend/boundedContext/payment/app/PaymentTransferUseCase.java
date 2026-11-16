@@ -15,7 +15,6 @@ import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.PaymentPolicy;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.domain.WalletHolding;
-import com.backend.boundedContext.payment.domain.WalletHoldingStatus;
 import com.backend.boundedContext.payment.domain.WalletTransaction;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
 import com.backend.boundedContext.payment.out.WalletHoldingRepository;
@@ -107,10 +106,10 @@ public class PaymentTransferUseCase {
 
         amountByOrderId.forEach((orderId, amount) -> {
             WalletHolding holding = holdings.get(orderId);
-            if (holding == null || holding.getStatus() != WalletHoldingStatus.HELD) {
+            if (holding == null) {
                 throw new DomainException(PaymentErrorCode.HOLDING_NOT_FOUND);
             }
-            holding.settle(amount, now);  // 남은 금액보다 많으면 409 HOLDING_INSUFFICIENT
+            holding.settle(amount, now);  // HELD가 아니면 404 HOLDING_NOT_FOUND, 남은 금액보다 많으면 409 HOLDING_INSUFFICIENT
         });
     }
 

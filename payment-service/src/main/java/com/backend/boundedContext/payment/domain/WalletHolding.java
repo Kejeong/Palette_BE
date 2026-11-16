@@ -86,10 +86,10 @@ public class WalletHolding extends BaseIdAndTime {
         return amount - settledAmount;
     }
 
-    // 정산 지급: 이번 지급액만큼 누적하고, 다 차면 SETTLED (HELD인지는 호출한 쪽에서 먼저 확인)
+    // 정산 지급: 이번 지급액만큼 누적하고, 다 차면 SETTLED. HELD가 아니면 404 HOLDING_NOT_FOUND
     public void settle(long settleAmount, LocalDateTime now) {
         if (settleAmount <= 0) throw new IllegalArgumentException("지급 금액은 0보다 커야 합니다: " + settleAmount);
-        if (status != WalletHoldingStatus.HELD) throw new IllegalStateException("HELD 홀딩만 정산할 수 있습니다: " + status);
+        if (status != WalletHoldingStatus.HELD) throw new DomainException(PaymentErrorCode.HOLDING_NOT_FOUND);  // 해제·정산 완료된 홀딩은 정산 대상이 없다
         if (settleAmount > remainingAmount()) throw new DomainException(PaymentErrorCode.HOLDING_INSUFFICIENT);
 
         this.settledAmount += settleAmount;
