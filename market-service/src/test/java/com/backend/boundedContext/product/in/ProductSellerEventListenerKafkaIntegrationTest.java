@@ -26,6 +26,7 @@ import com.backend.boundedContext.product.domain.OptionStock;
 import com.backend.boundedContext.product.domain.Product;
 import com.backend.boundedContext.product.domain.ProductOption;
 import com.backend.boundedContext.product.domain.ProductSaleStatus;
+import com.backend.boundedContext.product.domain.ProductStoppedBy;
 import com.backend.boundedContext.product.out.CategoryRepository;
 import com.backend.boundedContext.product.out.OptionStockRepository;
 import com.backend.boundedContext.product.out.ProductOptionRepository;
@@ -35,6 +36,7 @@ import com.backend.global.outbox.OutboxEvent;
 import com.backend.shared.event.DomainEvent;
 import com.backend.shared.event.EventEnvelope;
 import com.backend.shared.member.event.SellerSanctionedEvent;
+import com.backend.shared.member.event.SellerUnsanctionedEvent;
 import com.backend.shared.member.event.SellerWithdrawalRejectedEvent;
 import com.backend.shared.member.event.SellerWithdrawalRequestedEvent;
 
@@ -75,6 +77,10 @@ class ProductSellerEventListenerKafkaIntegrationTest {
     private Long productId;
     private Long optionId;
 
+    /** 테스트 안에서 더 만든 상품·옵션 (정리용) */
+    private final List<Long> extraProductIds = new ArrayList<>();
+    private final List<Long> extraOptionIds = new ArrayList<>();
+
     @BeforeEach
     void setUp() {
         transactionTemplate.executeWithoutResult(status -> {
@@ -90,6 +96,8 @@ class ProductSellerEventListenerKafkaIntegrationTest {
         transactionTemplate.executeWithoutResult(status -> {
             productOptionRepository.deleteById(optionId);
             productRepository.deleteById(productId);
+            extraOptionIds.forEach(productOptionRepository::deleteById);
+            extraProductIds.forEach(productRepository::deleteById);
         });
         eventIds.forEach(id -> jdbcTemplate.update("delete from processed_event where event_id = ?", id));
     }
@@ -112,6 +120,29 @@ class ProductSellerEventListenerKafkaIntegrationTest {
         // 같은 키(sellerId)라 같은 파티션에서 보낸 순서대로 처리한다. 둘 다 처리된 뒤 최종 상태를 본다
         await().atMost(WAIT).until(() -> processed(requested) && processed(rejected));
         assertThat(status()).isEqualTo(ProductSaleStatus.ON_SALE);
+    }
+
+    @Test
+    @DisplayName("제재 뒤 제재 해지 이벤트가 오면 제재로 중지된 상품은 다시 판매 중이 되고, 관리자가 멈춘 상품은 그대로다")
+    void sanctionedThenUnsanctioned_resumesOnlySellerWithdrawnProducts() {
+        Long adminStoppedId = transactionTemplate.execute(status -> {
+            Product product = productRepository.save(Product.create(
+                    sellerId, categoryRepository.findByParentNameAndName("뷰티", "스킨케어").orElseThrow(), "관리자 중지 크림", "설명", 10_000L));
+            extraOptionIds.add(saveOption(product, 10).getId());
+            product.stopByAdmin("허위 광고");
+            return product.getId();
+        });
+        extraProductIds.add(adminStoppedId);
+
+        UUID sanctioned = send(new SellerSanctionedEvent(sellerId, "위조 상품 판매"));
+        UUID unsanctioned = send(new SellerUnsanctionedEvent(sellerId, "소명 확인"));
+
+        // 같은 키(sellerId)라 보낸 순서대로 처리한다. 둘 다 처리된 뒤 최종 상태를 본다
+        await().atMost(WAIT).until(() -> processed(sanctioned) && processed(unsanctioned));
+        assertThat(status()).isEqualTo(ProductSaleStatus.ON_SALE);
+        Product adminStopped = productRepository.findById(adminStoppedId).orElseThrow();
+        assertThat(adminStopped.getStatus()).isEqualTo(ProductSaleStatus.STOPPED);
+        assertThat(adminStopped.getStoppedBy()).isEqualTo(ProductStoppedBy.ADMIN);
     }
 
     @Test
