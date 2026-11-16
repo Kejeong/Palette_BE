@@ -8,6 +8,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.out.pg.PgCancelRequest;
+import com.backend.boundedContext.payment.out.pg.PgCheckout;
 import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgDeclinedException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
@@ -35,7 +37,8 @@ class HectoTopupGatewayAdapterTest {
     private static final PgPaymentRef PAYMENT = new PgPaymentRef(ORDER_ID, TRD_NO, AMOUNT, REQUESTED_AT);
 
     private final HectoClient hectoClient = mock(HectoClient.class);
-    private final HectoTopupGatewayAdapter adapter = new HectoTopupGatewayAdapter(hectoClient);
+    private final HectoCheckout hectoCheckout = mock(HectoCheckout.class);
+    private final HectoTopupGatewayAdapter adapter = new HectoTopupGatewayAdapter(hectoClient, hectoCheckout);
 
     @Test
     @DisplayName("PG는 HECTO이고, 결제창을 닫아 돌아온 USER_CANCEL만 사용자 취소로 본다")
@@ -44,6 +47,17 @@ class HectoTopupGatewayAdapterTest {
         assertThat(adapter.isUserCancel("USER_CANCEL")).isTrue();
         assertThat(adapter.isUserCancel("ST09")).isFalse();
         assertThat(adapter.isUserCancel(null)).isFalse();
+    }
+
+    @Test
+    @DisplayName("결제창 요청 값은 HectoCheckout이 만들고, 키가 없어 만들지 못하면 PgConfigurationException")
+    void checkout() {
+        PgCheckout checkout = new PgCheckout("https://window", Map.of("mchtTrdNo", ORDER_ID));
+        given(hectoCheckout.create(PAYMENT)).willReturn(checkout);
+        assertThat(adapter.checkout(PAYMENT)).contains(checkout);
+
+        given(hectoCheckout.create(PAYMENT)).willThrow(new IllegalStateException("헥토 금액 암호화·복호화에 실패했습니다."));
+        assertThatThrownBy(() -> adapter.checkout(PAYMENT)).isInstanceOf(PgConfigurationException.class);
     }
 
     @Test

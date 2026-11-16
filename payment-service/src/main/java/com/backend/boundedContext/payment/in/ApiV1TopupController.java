@@ -38,13 +38,19 @@ public class ApiV1TopupController {
 
     private final PaymentFacade paymentFacade;
 
-    @Operation(summary = "충전 준비", description = "충전 금액을 저장하고 토스 주문번호(TOPUP-…)를 발급한다. 응답의 orderId·amount로 토스 결제창을 띄운다")
+    @Operation(summary = "충전 준비", description = """
+            충전 금액과 결제할 PG를 저장하고 주문번호(TOPUP-…)를 발급한다. PG를 보내지 않으면 TOSS.
+            - TOSS: 응답의 orderId·amount로 토스 결제창을 띄운다 (checkout은 null)
+            - HECTO: 응답의 checkout.params를 checkout.url 결제창에 그대로 보낸다 (금액 암호화·해시는 서버가 만듦)""")
+    @ApiResponse(responseCode = "200", description = "200-1 충전 준비 완료")
+    @ApiResponse(responseCode = "400", description = "400-TOPUP_AMOUNT_INVALID 충전 금액이 정책에 맞지 않음 / 지원하지 않는 PG 값")
+    @ApiResponse(responseCode = "502", description = "502-EXTERNAL_SERVICE_ERROR PG 키 설정 오류로 결제창 요청 값을 만들지 못함")
     @PostMapping
     public RsData<TopupPrepareDto> prepareTopup(
             @AuthenticationPrincipal AuthMember authMember,
             @Valid @RequestBody TopupPrepareRequest request
     ) {
-        return RsData.of("200-1", "충전이 준비되었습니다.", paymentFacade.prepareTopup(authMember.memberId(), request.amount()));
+        return RsData.of("200-1", "충전이 준비되었습니다.", paymentFacade.prepareTopup(authMember.memberId(), request.amount(), request.pgProviderOrDefault()));
     }
 
     @Operation(summary = "충전 승인", description = """

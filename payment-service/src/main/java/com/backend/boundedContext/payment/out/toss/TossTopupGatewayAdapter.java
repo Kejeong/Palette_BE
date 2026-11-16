@@ -1,12 +1,14 @@
 package com.backend.boundedContext.payment.out.toss;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
 import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.out.pg.PgCancelRequest;
+import com.backend.boundedContext.payment.out.pg.PgCheckout;
 import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgDeclinedException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
@@ -86,6 +88,11 @@ public class TossTopupGatewayAdapter implements TopupGatewayPort {
     @Override
     public PgProvider provider() {
         return PgProvider.TOSS;
+    }
+
+    @Override
+    public Optional<PgCheckout> checkout(PgPaymentRef payment) {
+        return Optional.empty();
     }
 
     @Override

@@ -1,10 +1,12 @@
 package com.backend.boundedContext.payment.out.pg;
 
+import java.util.Optional;
+
 import com.backend.boundedContext.payment.domain.PgProvider;
 
 /**
  * 충전에서 쓰는 PG 기능만 담은 Port. 충전 로직이 특정 PG의 API·응답 형식·오류 코드를 모르게 함
- * 구현체: TossTopupGatewayAdapter (토스페이먼츠)
+ * 구현체: TossTopupGatewayAdapter (토스페이먼츠), HectoTopupGatewayAdapter (헥토파이낸셜)
  *
  * 실패는 결과로 판단할 수 있는 예외 종류로만 알림
  * - PgResultUnknownException : 응답 없음·5xx·이미 처리된 결제 → 승인·취소됐는지 알 수 없음
@@ -15,6 +17,9 @@ import com.backend.boundedContext.payment.domain.PgProvider;
 public interface TopupGatewayPort {
 
     PgProvider provider();
+
+    // 결제창을 띄우는 데 필요한 값. 서버에서 만들 값이 없는 PG(토스는 SDK가 주문번호·금액으로 띄움)는 빈 값
+    Optional<PgCheckout> checkout(PgPaymentRef payment);
 
     // 결제창 실패 코드가 사용자 취소(결제창 닫기 등)인지. 코드는 PG마다 달라 어댑터가 판단함
     boolean isUserCancel(String failCode);

@@ -47,6 +47,12 @@ class TossTopupGatewayAdapterTest {
     private TossTopupGatewayAdapter adapter;
 
     @Test
+    @DisplayName("토스는 SDK가 주문번호·금액으로 결제창을 띄워 서버가 만들 결제창 값이 없다")
+    void checkout() {
+        assertThat(adapter.checkout(PAYMENT)).isEmpty();
+    }
+
+    @Test
     @DisplayName("PG는 토스")
     void provider() {
         assertThat(adapter.provider()).isEqualTo(PgProvider.TOSS);

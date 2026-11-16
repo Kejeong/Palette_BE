@@ -19,6 +19,7 @@ import com.backend.boundedContext.payment.app.dto.TopupFailDto;
 import com.backend.boundedContext.payment.app.dto.TopupPrepareDto;
 import com.backend.boundedContext.payment.app.dto.TopupReconcileResult;
 import com.backend.boundedContext.payment.app.dto.WalletTransactionDto;
+import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
 import com.backend.global.page.PageResponse;
 import com.backend.shared.payment.dto.PayCommand;
@@ -96,8 +97,8 @@ public class PaymentFacade {
 
     // 충전 준비
     @Transactional
-    public TopupPrepareDto prepareTopup(Long memberId, long amount) {
-        return paymentPrepareTopupUseCase.prepareTopup(memberId, amount);
+    public TopupPrepareDto prepareTopup(Long memberId, long amount, PgProvider pgProvider) {
+        return paymentPrepareTopupUseCase.prepareTopup(memberId, amount, pgProvider);
     }
 
     // 충전 승인. PG 호출을 DB 트랜잭션 밖에서 해야 하므로 @Transactional을 붙이지 않음 (트랜잭션은 PaymentTopupConfirmProcessor의 Tx1·Tx2에서 각각 실행)

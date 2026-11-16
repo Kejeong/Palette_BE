@@ -2,12 +2,14 @@ package com.backend.boundedContext.payment.out.hecto;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 import org.springframework.stereotype.Component;
 
 import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.out.pg.PgCancelRequest;
+import com.backend.boundedContext.payment.out.pg.PgCheckout;
 import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgDeclinedException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
@@ -68,10 +70,21 @@ public class HectoTopupGatewayAdapter implements TopupGatewayPort {
     private static final String CONFIGURATION_ERROR = "HECTO_CONFIGURATION_ERROR";
 
     private final HectoClient hectoClient;
+    private final HectoCheckout hectoCheckout;
 
     @Override
     public PgProvider provider() {
         return PgProvider.HECTO;
+    }
+
+    // 결제창 요청 값. 키가 없어 금액을 암호화하지 못하면 설정 오류
+    @Override
+    public Optional<PgCheckout> checkout(PgPaymentRef payment) {
+        try {
+            return Optional.of(hectoCheckout.create(payment));
+        } catch (IllegalStateException e) {
+            throw new PgConfigurationException(CONFIGURATION_ERROR, e);
+        }
     }
 
     @Override

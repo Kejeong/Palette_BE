@@ -24,6 +24,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.backend.boundedContext.payment.app.dto.AdminTopupDto;
 import com.backend.boundedContext.payment.app.dto.TopupPrepareDto;
+import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.out.PaymentMemberPort;
 import com.backend.boundedContext.payment.out.TopupRepository;
@@ -166,7 +167,7 @@ class AdminTopupQueryIntegrationTest {
     }
 
     private TopupPrepareDto prepare(long amount) {
-        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, amount);
+        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, amount, PgProvider.TOSS);
         topupIds.add(prepared.topupId());
         return prepared;
     }

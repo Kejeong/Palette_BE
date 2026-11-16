@@ -102,6 +102,8 @@ custom:
     mchtId: ${HECTO_MCHT_ID:}
     aesKey: ${HECTO_AES_KEY:}      # 금액 암호화 키 (AES-256, 32자)
     hashKey: ${HECTO_HASH_KEY:}    # 위변조 확인 해시 키
+    windowUrl: ${HECTO_WINDOW_URL:https://tbnpg.settlebank.co.kr/card/main.do}   # 신용카드 결제창. 기본값은 테스트베드, 운영은 https://npg.settlebank.co.kr/card/main.do
+    callbackBaseUrl: ${HECTO_CALLBACK_BASE_URL:http://localhost:8083}   # 결제창 결과(nextUrl·cancUrl·notiUrl)를 받을 우리 서버 주소 앞부분. 운영은 게이트웨이 공개 주소
     connectTimeoutSeconds: 5   # 헥토 서버 접속 제한 시간(초)
     readTimeoutSeconds: 30     # 요청 후 헥토 응답 대기 제한 시간(초). 넘으면 결과를 모르는 것으로 보고 스케줄러가 조회로 최종 결과를 반영
   outbox:
