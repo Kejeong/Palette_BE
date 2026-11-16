@@ -95,7 +95,7 @@ class MemberWithdrawalIntegrationTest {
     @DisplayName("조건을 충족하면 탈퇴되고, 개인정보가 비식별화되어 원래 이메일로 로그인할 수 없다. 카카오 연결 정보도 지워진다")
     void withdraw() throws Exception {
         String kakaoUserId = "test-" + UUID.randomUUID();
-        memberSocialAccountLinker.link(member.getId(), SocialProvider.KAKAO, kakaoUserId);
+        memberSocialAccountLinker.link(member.getId(), SocialProvider.KAKAO, kakaoUserId, null);
         String bearer = "Bearer " + jwtTokenProvider.createAccessToken(member.getId(), member.getRole());
 
         mockMvc.perform(get("/api/v1/users/me/withdrawal")
