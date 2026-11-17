@@ -121,6 +121,9 @@ public class Order extends BaseIdAndTime {
 
     private LocalDateTime returnedAt;
 
+    // 반품 환불 완료 시각 (결제 서비스가 환불한 시각). RETURNED인데 null이면 아직 환불 전
+    private LocalDateTime refundedAt;
+
     // 배송지 스냅샷
     @Embedded
     private ShippingAddress shippingAddress;
@@ -405,6 +408,23 @@ public class Order extends BaseIdAndTime {
         items.forEach(item -> item.decideRestoreStock(restoreByItemId.get(item.getId())));
         this.returnedAt = now;
         changeStatus(OrderStatus.RETURNED, null);
+    }
+
+    /**
+     * 반품 환불 완료를 기록한다(환불 확인 스케줄러). RETURNED이고 아직 기록 전일 때만 기록하고 true, 아니면 그대로 두고 false.
+     * 환불은 결제 서비스가 반품 승인 이벤트를 받아 하므로, 주문은 결과만 받아 적는다.
+     */
+    public boolean markRefunded(LocalDateTime refundedAt) {
+        if (status != OrderStatus.RETURNED || this.refundedAt != null) {
+            return false;
+        }
+        this.refundedAt = refundedAt;
+        return true;
+    }
+
+    /** 반품 승인됐는데 아직 환불 전인지 (회원 탈퇴를 막는다) */
+    public boolean isRefundPending() {
+        return status == OrderStatus.RETURNED && refundedAt == null;
     }
 
     /**
