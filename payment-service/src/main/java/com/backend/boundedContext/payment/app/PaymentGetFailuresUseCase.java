@@ -101,7 +101,11 @@ public class PaymentGetFailuresUseCase {
                 limit -> paymentRefundRepository.findFailures(REFUND_FAILED_STATUSES, fromAt, toAt, limit)));
         rows.sort(Comparator.comparing(PaymentGetFailuresUseCase::occurredAtOf).reversed()
                 .thenComparing(PaymentGetFailuresUseCase::idOf, Comparator.reverseOrder()));
+        // 건수와 목록은 다른 쿼리라, 그사이 실패가 아니게 된 건(예: 환불 재시도 성공)이 있으면 목록이 건수보다 적을 수 있다
         int start = (int) pageable.getOffset();
+        if (start >= rows.size()) {
+            return toResponse(new PageImpl<>(List.of(), pageable, total));
+        }
         int end = Math.min(start + pageable.getPageSize(), rows.size());
         return toResponse(new PageImpl<>(rows.subList(start, end), pageable, total));
     }

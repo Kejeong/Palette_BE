@@ -209,6 +209,28 @@ class PaymentGetFailuresUseCaseTest {
         verify(paymentRefundRepository, never()).findFailures(anyCollection(), any(), any(), any());
     }
 
+    @Test
+    @DisplayName("합쳐 볼 때 건수를 센 뒤 실패가 아니게 된 건이 있어 목록이 요청 위치보다 짧으면 오류 없이 빈 페이지를 준다")
+    void mergedRowsShrunkAfterCount_emptyPage() {
+        // 건수를 셀 때는 결제 20 + 환불 2 = 22건, 목록을 읽을 때는 환불 2건이 재시도로 성공해 결제 19건만 남음
+        given(paymentRepository.countFailures(anyCollection(), any(), any())).willReturn(20L);
+        given(paymentRefundRepository.countFailures(anyCollection(), any(), any())).willReturn(2L);
+        List<Payment> remaining = new ArrayList<>();
+        for (int i = 0; i < 19; i++) {
+            remaining.add(payment(100L - i, 3L, 500L + i, 1_000L, PaymentStatus.FAILED_SYSTEM_ERROR,
+                    LocalDateTime.of(2026, 11, 9, 12, 0).minusMinutes(i)));
+        }
+        given(paymentRepository.findFailures(anyCollection(), any(), any(), any()))
+                .willReturn(new PageImpl<>(remaining, PageRequest.of(0, 20), 19));
+        given(paymentRefundRepository.findFailures(anyCollection(), any(), any(), any()))
+                .willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 2), 0));
+
+        PageResponse<AdminFailureItem> page = useCase.getFailures(null, null, null, PageRequest.of(1, 20));
+
+        assertThat(page.items()).isEmpty();
+        assertThat(page.totalElements()).isEqualTo(22L);
+    }
+
     /** 리포지토리 대역: 건수와, 최신순 목록의 앞에서 요청 크기만큼 */
     private void stubFailures(List<Payment> payments, List<PaymentRefund> refunds) {
         given(paymentRepository.countFailures(anyCollection(), any(), any())).willReturn((long) payments.size());
