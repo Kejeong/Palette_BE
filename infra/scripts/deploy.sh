@@ -14,6 +14,10 @@ set -euo pipefail
 # 서비스가 분리되면 여기에 추가한다.
 APP_SERVICES=(member market payment settlement delivery notification ai)
 
+# 모니터링 서비스 목록. infra/monitoring/<이름>/ 설정 파일을 bind mount하는 compose 서비스다.
+# 첫 배포·DEPLOY_ALL=1이면 전부 재시작해 설정을 다시 읽게 한다.
+MONITORING_SERVICES=(alloy grafana loki prometheus)
+
 # 모든 앱 이미지에 들어가는 파일. 하나라도 바뀌면 앱을 전부 다시 빌드한다.
 #   common/(공통 코드), Gradle 설정, Dockerfile, infra/compose.prod.yaml(앱 build.args 등이 여기 있어 바뀌면 이미지를 다시 만든다)
 SHARED_PATHS='^(common/|gradle/|gradlew$|build\.gradle\.kts$|settings\.gradle\.kts$|lombok\.config$|Dockerfile$|infra/compose\.prod\.yaml$)'
@@ -84,6 +88,14 @@ main() {
         echo "▶ nginx: 설정이 그대로라 재시작하지 않습니다"
     fi
 
+    # 모니터링 설정 파일도 bind mount라 git pull만으로 실행 중인 컨테이너에 반영되지 않는다(Grafana provisioning은 뜰 때만 읽음).
+    # 모니터링 컨테이너는 앱 실행 확인 대상이 아니라 배포 성공 판단에는 넣지 않는다
+    DEPLOY_STAGE="모니터링 재시작"
+    if [ "${#RESTART_MONITORING[@]}" -gt 0 ]; then
+        echo "▶ 모니터링 설정 다시 읽기: ${RESTART_MONITORING[*]}"
+        "${compose[@]}" restart "${RESTART_MONITORING[@]}"
+    fi
+
     # 시간이 아니라 상태로 판단한다(compose.prod.yaml의 x-app-healthcheck).
     #   starting  : 뜨는 중 → 계속 기다린다
     #   healthy   : 다 떴다
@@ -132,21 +144,25 @@ main() {
     done
 }
 
-# 마지막 배포 커밋과 이번 커밋을 비교해 다시 빌드할 앱(BUILD_SERVICES)과 nginx 재시작 여부(RESTART_NGINX)를 정한다.
-#   - 기록이 없거나(첫 배포) 비교할 수 없으면, 또는 DEPLOY_ALL=1이면 → 앱 전부, nginx 재시작
+# 마지막 배포 커밋과 이번 커밋을 비교해 다시 빌드할 앱(BUILD_SERVICES), nginx 재시작 여부(RESTART_NGINX),
+# 재시작할 모니터링 컨테이너(RESTART_MONITORING)를 정한다.
+#   - 기록이 없거나(첫 배포) 비교할 수 없으면, 또는 DEPLOY_ALL=1이면 → 앱 전부, nginx·모니터링 재시작
 #   - 공통 파일(SHARED_PATHS)이 바뀌면 → 앱 전부
 #   - <이름>-service/ 아래가 바뀌면 → 그 앱만
 #   - infra/nginx/ 아래가 바뀌면 → nginx 재시작
+#   - infra/monitoring/<이름>/ 아래가 바뀌면 → 같은 이름의 compose 서비스 재시작(alloy·grafana·loki·prometheus)
 pick_changed_apps() {
-    local current="$1" last="" changed shared service
+    local current="$1" last="" changed shared service monitoring
     BUILD_SERVICES=()
     RESTART_NGINX=false
+    RESTART_MONITORING=()
     [ -f "$STATE_FILE" ] && last="$(cat "$STATE_FILE")"
 
     if [ "${DEPLOY_ALL:-0}" = 1 ]; then
         echo "  DEPLOY_ALL=1 → 앱 전부"
         BUILD_SERVICES=("${APP_SERVICES[@]}")
         RESTART_NGINX=true
+        RESTART_MONITORING=("${MONITORING_SERVICES[@]}")
         return
     fi
     # 기록한 커밋이 서버 git에 없거나, 이번 커밋의 조상이 아니면(되돌린 배포 등) 비교하지 않고 전부 빌드한다
@@ -154,6 +170,7 @@ pick_changed_apps() {
         echo "  마지막 배포 기록이 없거나 비교할 수 없음 → 앱 전부"
         BUILD_SERVICES=("${APP_SERVICES[@]}")
         RESTART_NGINX=true
+        RESTART_MONITORING=("${MONITORING_SERVICES[@]}")
         return
     fi
 
@@ -170,6 +187,11 @@ pick_changed_apps() {
         done
     fi
     grep -q '^infra/nginx/' <<< "$changed" && RESTART_NGINX=true
+    # 바뀐 파일이 없으면 grep이 실패하므로 || true (set -e)
+    monitoring="$(grep -oE '^infra/monitoring/[a-z]+/' <<< "$changed" || true)"
+    if [ -n "$monitoring" ]; then
+        RESTART_MONITORING=($(cut -d/ -f3 <<< "$monitoring" | sort -u))
+    fi
     return 0
 }
 

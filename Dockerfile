@@ -72,7 +72,12 @@ USER app
 ARG APP_VERSION=unknown
 ENV LOGGING_STRUCTURED_ECS_SERVICE_VERSION=${APP_VERSION}
 
+# actuator(/actuator/health·prometheus)는 앱 포트가 아닌 관리 포트 9091에 따로 띄운다.
+# Alloy는 9091을 연 컨테이너만 스크랩하고(monitoring/alloy/config.alloy), nginx는 808x만 넘기므로 /actuator가 밖으로 나가지 않는다.
+# 컨테이너마다 네트워크가 따로라 7개 앱이 같은 9091을 써도 충돌하지 않는다. 로컬 bootRun에는 적용되지 않는다(앱 포트에 뜬다)
+ENV MANAGEMENT_SERVER_PORT=9091
+
 # member-service 8081, market-service 8082, payment-service 8083, settlement-service 8084, delivery-service 8085, notification-service 8086, ai-service 8087
-# (각 application.yaml의 server.port)
-EXPOSE 8081 8082 8083 8084 8085 8086 8087
+# (각 application.yaml의 server.port). 9091은 관리 포트(위)
+EXPOSE 8081 8082 8083 8084 8085 8086 8087 9091
 ENTRYPOINT ["java", "-jar", "app.jar"]
