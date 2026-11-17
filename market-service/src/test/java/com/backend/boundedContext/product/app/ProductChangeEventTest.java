@@ -130,8 +130,6 @@ class ProductChangeEventTest {
     }
 
     @Test
-    @DisplayName("재고만 바꾸면 상품 변경 이벤트를 발행하지 않는다")
-    void stockChangeDoesNotPublish() {
     @DisplayName("재고: 품절 여부가 바뀔 때만 발행하고 soldOut을 담는다 (주문 차감·복원, 판매자 조정)")
     void publishOnlyWhenSoldOutChanges() {
         Long productId = createBeauty("수분 크림", "정제수");   // 재고 10
@@ -165,13 +163,21 @@ class ProductChangeEventTest {
         assertThat(events(productId)).hasSize(5);   // 등록 + 옵션 추가·삭제 + 할인 등록·종료
     }
 
+    @Test
+    @DisplayName("할인 경계: 할인이 시작했거나 끝난 상품의 이벤트를 발행한다 (할인 경계 스케줄러)")
+    void publishOnDiscountBoundary() {
         Long productId = createBeauty("수분 크림", "정제수");
-        ProductOption option = productOptionRepository.findAll().stream()
-                .filter(o -> o.getProduct().getId().equals(productId)).findFirst().orElseThrow();
+        LocalDateTime start = LocalDateTime.now().plusDays(1).withNano(0);
+        Long discountId = productFacade.createDiscount(MEMBER_ID, productId, 20_000, start, start.plusDays(7));
+        moveDiscountStart(discountId, LocalDateTime.now().minusMinutes(1));   // 방금 시작했다
+        int before = events(productId).size();
 
-        productFacade.adjustStock(MEMBER_ID, productId, option.getId(), 5);
+        int published = productFacade.publishDiscountBoundaryChanges(null, LocalDateTime.now());
 
-        assertThat(events(productId)).hasSize(1);   // 등록 때 한 번뿐
+        assertThat(published).isGreaterThanOrEqualTo(1);
+        assertThat(events(productId)).hasSize(before + 1);
+    }
+
     @Test
     @DisplayName("소분류를 사용 중지하면 그 소분류 상품을 onSale=false로 발행한다 (AI 추천에서 빠지게)")
     void publishOnCategoryDeactivation() {

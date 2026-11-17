@@ -14,7 +14,6 @@ import com.backend.global.exception.DomainException;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 
@@ -30,14 +29,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 상품 검색 색인 맞추기. DB가 원본이고 색인은 검색용 사본이다.
- * 변경한 트랜잭션은 {@link #requestIndex}로 요청만 남기고, 커밋 뒤 리스너가 {@link #indexProducts}로 DB의 최신 값을 색인한다.
+ * 상품을 바꾼 트랜잭션은 상품 변경 이벤트(ProductChangedEvent)를 outbox에 남기고, 검색 색인 컨슈머가 Kafka로 받아
+ * {@link #indexProducts}로 DB의 최신 값을 색인한다.
  * 판매 중인 상품만 색인하고, 판매 중이 아니거나 없는 상품은 색인에서 지운다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ProductSearchIndexSupport {
-    private final ApplicationEventPublisher eventPublisher;
     private final ProductRepository productRepository;
     private final ProductDiscountRepository productDiscountRepository;
     private final ProductSupport productSupport;
@@ -58,16 +57,6 @@ public class ProductSearchIndexSupport {
      * 재색인 뒤 보정을 재색인 시작이 아니라 이 시각부터 해야 그사이 바뀐 상품이 새 인덱스에 빠지지 않는다
      */
     private volatile LocalDateTime outdatedSince;
-
-    /** 커밋 뒤에 이 상품들을 다시 색인해 달라고 요청한다 */
-    public void requestIndex(Collection<Long> productIds) {
-        if (productIds.isEmpty()) return;
-        eventPublisher.publishEvent(new ProductSearchIndexRequestedEvent(Set.copyOf(productIds)));
-    }
-
-    public void requestIndex(Long productId) {
-        requestIndex(Set.of(productId));
-    }
 
     /** 상품들을 DB의 지금 값으로 색인한다. 판매 중이 아니거나 없는 상품은 색인에서 지운다 */
     public void indexProducts(Collection<Long> productIds) {

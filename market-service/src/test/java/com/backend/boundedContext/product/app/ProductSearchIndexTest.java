@@ -2,12 +2,10 @@ package com.backend.boundedContext.product.app;
 
 import com.backend.boundedContext.product.app.dto.ProductOptionSpec;
 import com.backend.boundedContext.product.domain.ProductDiscount;
-import com.backend.boundedContext.product.domain.ProductOption;
 import com.backend.boundedContext.product.domain.ProductPolicy;
 import com.backend.boundedContext.product.domain.ProductSaleStatus;
 import com.backend.boundedContext.product.out.CategoryRepository;
 import com.backend.boundedContext.product.out.ProductDiscountRepository;
-import com.backend.boundedContext.product.out.ProductOptionRepository;
 import com.backend.boundedContext.product.out.ProductRepository;
 import com.backend.boundedContext.product.out.search.ProductSearchDocument;
 import com.backend.boundedContext.product.out.search.ProductSearchIndexPort;
@@ -16,17 +14,13 @@ import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
 import com.backend.shared.member.out.MemberApi;
 import com.backend.shared.order.out.OrderApi;
-import com.backend.shared.product.dto.StockChangeDto;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.event.ApplicationEvents;
-import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,7 +29,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.OptionalInt;
-import java.util.Set;
 
 import static com.backend.boundedContext.product.ProductImageFixtures.THUMBNAIL;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,7 +38,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
 /**
- * 상품 검색 색인: 변경 시 색인 요청 이벤트, 색인 문서 값(할인가·품절), 할인 경계 대상, DB 검색 설정의 재색인 거부,
+ * 상품 검색 색인: 색인 문서 값(할인가·할인율·품절), 할인 경계 대상, DB 검색 설정의 재색인 거부,
  * 전체 재색인(alias가 없을 때만 복구 재색인, 한 번에 하나만 실행).
  * 재색인 중 다른 트랜잭션이 바꾼 상품의 보정은 테스트 트랜잭션 없이 {@link ProductSearchIndexRebuildCatchUpTest}에서 확인한다.
  * 테스트 설정은 DB 검색(engine=jpa)이라 색인 포트가 아무것도 하지 않으므로, 문서 값은 기록용 포트를 넣은 Support로 확인한다.
@@ -53,7 +46,6 @@ import static org.mockito.BDDMockito.given;
  */
 @SpringBootTest
 @Transactional
-@RecordApplicationEvents
 class ProductSearchIndexTest {
 
     private static final long MEMBER_ID = 111L;
@@ -62,9 +54,6 @@ class ProductSearchIndexTest {
 
     @Autowired
     private ProductFacade productFacade;
-
-    @Autowired
-    private ApplicationEventPublisher eventPublisher;
 
     @Autowired
     private ProductSupport productSupport;
@@ -82,16 +71,10 @@ class ProductSearchIndexTest {
     private ProductRepository productRepository;
 
     @Autowired
-    private ProductOptionRepository productOptionRepository;
-
-    @Autowired
     private ProductDiscountRepository productDiscountRepository;
 
     @Autowired
     private EntityManager entityManager;
-
-    @Autowired
-    private ApplicationEvents events;
 
     @MockitoBean
     private MemberApi memberApi;
@@ -110,36 +93,8 @@ class ProductSearchIndexTest {
                 .willReturn(List.of(new SellerDto(SELLER_ID, MEMBER_ID, "색인 상점", SellerStatus.APPROVED)));
 
         indexPort = new RecordingIndexPort();
-        indexSupport = new ProductSearchIndexSupport(eventPublisher, productRepository, productDiscountRepository,
+        indexSupport = new ProductSearchIndexSupport(productRepository, productDiscountRepository,
                 productSupport, productDiscountSupport, indexPort, productPolicy, entityManager);
-    }
-
-    @Test
-    @DisplayName("요청: 상품 등록·수정·할인 등록이 그 상품의 색인을 요청한다")
-    void requestOnProductAndDiscountChange() {
-        Long productId = create();
-        productFacade.modifyProduct(MEMBER_ID, productId, "새이름", null, null, null, null, null, List.of(), null);
-        LocalDateTime start = tomorrow();
-        productFacade.createDiscount(MEMBER_ID, productId, 15_000, start, start.plusDays(7));
-
-        assertThat(requestedIds()).containsExactly(Set.of(productId), Set.of(productId), Set.of(productId));
-    }
-
-    @Test
-    @DisplayName("요청: 재고 조정·주문 차감은 옵션 품절 여부가 바뀔 때만 색인을 요청한다")
-    void requestOnlyWhenSoldOutChanges() {
-        Long productId = create();
-        ProductOption white = options(productId).get(0);
-        events.clear();
-
-        productFacade.adjustStock(MEMBER_ID, productId, white.getId(), -3);   // 10 → 7
-        assertThat(requestedIds()).isEmpty();
-
-        productFacade.deductStock(List.of(new StockChangeDto(1L, 9001L, white.getId(), 7)));   // 7 → 0 (품절)
-        assertThat(requestedIds()).containsExactly(Set.of(productId));
-
-        productFacade.adjustStock(MEMBER_ID, productId, white.getId(), 5);   // 0 → 5 (품절 풀림)
-        assertThat(requestedIds()).containsExactly(Set.of(productId), Set.of(productId));
     }
 
     @Test
@@ -309,10 +264,6 @@ class ProductSearchIndexTest {
                 .extracting("resultCode").isEqualTo("409-SEARCH_INDEX_DISABLED");
     }
 
-    private List<Set<Long>> requestedIds() {
-        return events.stream(ProductSearchIndexRequestedEvent.class).map(ProductSearchIndexRequestedEvent::productIds).toList();
-    }
-
     private Long create() {
         Long categoryId = categoryRepository.findByParentNameAndName("뷰티", "스킨케어").orElseThrow().getId();
         return productFacade.createProduct(MEMBER_ID, categoryId, "색인테스트셔츠", "설명", PRICE, List.of("색상"),
@@ -333,10 +284,6 @@ class ProductSearchIndexTest {
         ReflectionTestUtils.setField(discount, "startsAt", startsAt);
         ReflectionTestUtils.setField(discount, "endsAt", endsAt);
         entityManager.flush();
-    }
-
-    private List<ProductOption> options(Long productId) {
-        return productOptionRepository.findAllByProductIdAndDeletedAtIsNullOrderByIdAsc(productId);
     }
 
     private static LocalDateTime tomorrow() {
