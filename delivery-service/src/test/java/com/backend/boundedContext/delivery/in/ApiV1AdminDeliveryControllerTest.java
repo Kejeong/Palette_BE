@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Stream;
@@ -41,6 +42,9 @@ import com.backend.global.security.JwtAuthenticationEntryPoint;
 import com.backend.global.security.JwtTokenProvider;
 import com.backend.global.security.SecurityConfig;
 import com.backend.global.security.SecurityErrorResponseWriter;
+import com.backend.shared.admin.dto.AdminFailureItem;
+import com.backend.shared.admin.dto.AdminFailureTargetType;
+import com.backend.shared.admin.dto.AdminFailureType;
 import com.backend.shared.delivery.dto.DeliveryStatus;
 import com.backend.shared.member.dto.MemberRole;
 
@@ -69,12 +73,13 @@ class ApiV1AdminDeliveryControllerTest {
     static Stream<Arguments> allEndpoints() {
         return Stream.of(
                 Arguments.of("목록", get(BASE)),
+                Arguments.of("실패 거래", get(BASE + "/failures")),
                 Arguments.of("수동 완료", post(BASE + "/1/complete").contentType(MediaType.APPLICATION_JSON).content(COMPLETE_BODY)));
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("allEndpoints")
-    @DisplayName("관리자(ADMIN)는 두 경로 모두 200")
+    @DisplayName("관리자(ADMIN)는 모든 경로 200")
     void admin_allowed(String name, MockHttpServletRequestBuilder request) throws Exception {
         given(deliveryFacade.getDeliveries(any(), any())).willReturn(new PageResponse<>(List.of(), 0, 20, 0, 0));
 
@@ -85,7 +90,7 @@ class ApiV1AdminDeliveryControllerTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("allEndpoints")
-    @DisplayName("로그인하지 않으면 두 경로 모두 401")
+    @DisplayName("로그인하지 않으면 모든 경로 401")
     void anonymous_unauthorized(String name, MockHttpServletRequestBuilder request) throws Exception {
         mockMvc.perform(request)
                 .andExpect(status().isUnauthorized());
@@ -99,7 +104,7 @@ class ApiV1AdminDeliveryControllerTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("nonAdminCases")
-    @DisplayName("구매자(USER)·물류 담당자(LOGISTICS)는 두 경로 모두 403 FORBIDDEN")
+    @DisplayName("구매자(USER)·물류 담당자(LOGISTICS)는 모든 경로 403 FORBIDDEN")
     void nonAdmin_forbidden(String name, MockHttpServletRequestBuilder request, MemberRole role) throws Exception {
         mockMvc.perform(request.header("Authorization", bearer(role)))
                 .andExpect(status().isForbidden())
@@ -120,6 +125,38 @@ class ApiV1AdminDeliveryControllerTest {
 
         verify(deliveryFacade).getDeliveries(eq(DeliveryStatus.SHIPPED), any(Pageable.class));
         verify(deliveryFacade).getDeliveries(eq(DeliveryStatus.READY), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("실패 거래: from·to를 날짜로 넘기고 공통 형식(AdminFailureItem) 페이지로 응답한다")
+    void getTrackingFailures() throws Exception {
+        AdminFailureItem item = new AdminFailureItem(AdminFailureType.DELIVERY_TRACKING_FAILED,
+                LocalDateTime.of(2026, 11, 1, 9, 30), AdminFailureTargetType.SELLER, 7L, "팔레트상점", null,
+                "STALLED_AFTER_SHIPPED", "송장 등록 후 15일 지남", "LOGISTICS_CHECK", "물류 담당자 확인", 31L, 142L);
+        given(deliveryFacade.getTrackingFailures(any(), any(), any())).willReturn(new PageResponse<>(List.of(item), 0, 20, 1, 1));
+
+        mockMvc.perform(get(BASE + "/failures").param("from", "2026-11-01").param("to", "2026-11-09")
+                        .header("Authorization", bearer(MemberRole.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.msg").value("실패 거래(배송)를 조회했습니다."))
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.items[0].type").value("DELIVERY_TRACKING_FAILED"))
+                .andExpect(jsonPath("$.data.items[0].occurredAt").value("2026-11-01T09:30:00"))
+                .andExpect(jsonPath("$.data.items[0].targetType").value("SELLER"))
+                .andExpect(jsonPath("$.data.items[0].amount").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].refId").value(31))
+                .andExpect(jsonPath("$.data.items[0].orderId").value(142));
+
+        verify(deliveryFacade).getTrackingFailures(eq(LocalDate.of(2026, 11, 1)), eq(LocalDate.of(2026, 11, 9)), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("실패 거래: 날짜 형식이 틀리면 400, Facade를 부르지 않는다")
+    void getTrackingFailures_invalidDate() throws Exception {
+        mockMvc.perform(get(BASE + "/failures").param("from", "2026/11/01")
+                        .header("Authorization", bearer(MemberRole.ADMIN)))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(deliveryFacade);
     }
 
     @Test
