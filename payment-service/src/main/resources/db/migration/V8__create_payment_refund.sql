@@ -1,5 +1,5 @@
 -- 반품 환불 기록. 반품 승인 이벤트(OrderReturnedEvent)를 받으면 먼저 REQUESTED로 남기고, 환불을 따로 처리한다
--- 환불이 실패해도 이 행과 실패 사유가 남아 재시도 스케줄러가 다시 처리한다
+-- 환불이 실패해도 이 행과 실패 사유가 남는다. 일시 오류는 Kafka 컨슈머 재시도로 다시 처리한다
 -- order_id 유니크: 주문당 반품 승인은 한 번뿐이라, 이벤트 ID가 달라도 같은 주문은 한 번만 환불한다
 -- payment_id: 처리할 때 주문의 결제를 찾아 채운다. 결제를 못 찾으면(FAILED_PAYMENT_NOT_PAID) 비어 있다
 create table payment_refund (
@@ -20,6 +20,3 @@ create table payment_refund (
     constraint uk_payment_refund_order_id unique (order_id),
     constraint fk_payment_refund_payment_id foreign key (payment_id) references payment (id)
 );
-
--- 재시도 스케줄러가 상태로 대상을 고른다
-create index idx_payment_refund_status on payment_refund (status, updated_at);

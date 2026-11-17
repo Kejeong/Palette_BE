@@ -15,7 +15,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 // 반품 환불 기록 (주문당 1개). 반품 승인 이벤트를 받으면 REQUESTED로 먼저 남기고, 환불은 따로 처리한다.
-// 환불이 실패해도 이 행과 사유가 남아 재시도 스케줄러가 다시 처리한다
+// 환불이 실패해도 이 행과 사유가 남는다. 일시 오류는 Kafka 컨슈머 재시도로 다시 처리한다(재시도 횟수는 retryCount)
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -73,10 +73,10 @@ public class PaymentRefund extends BaseIdAndTime {
         return refund;
     }
 
-    // 지금 환불을 처리해도 되는 상태인지: 처리 전이거나, 시스템 오류로 실패했지만 재시도 횟수가 남은 경우
+    // 지금 환불을 처리해도 되는 상태인지 확인: 처리 전이거나, 시스템 오류로 실패했지만 재시도 횟수가 남은 경우
     public boolean isProcessable() {
-        return status == PaymentRefundStatus.REQUESTED
-                || (status == PaymentRefundStatus.FAILED_SYSTEM_ERROR && retryCount < MAX_SYSTEM_ERROR_RETRIES);
+        return status == PaymentRefundStatus.REQUESTED ||
+                (status == PaymentRefundStatus.FAILED_SYSTEM_ERROR && retryCount < MAX_SYSTEM_ERROR_RETRIES);
     }
 
     // 단순 변심이면 처음 배송비를 돌려주지 않는다. 그리고 반품 배송비를 뺀다. 기타·불량·사유 없음은 전액 환불한다.
@@ -121,7 +121,6 @@ public class PaymentRefund extends BaseIdAndTime {
         return idempotencyKey() + "-RETURN_PICKUP_FEE";
     }
 
-    // 처리할 수 없는 상태(완료, 사람이 볼 실패, 재시도 끝)에서 바꾸려 하면 호출한 쪽 버그다
     private void requireProcessable() {
         if (!isProcessable()) throw new IllegalStateException("처리할 수 없는 환불 상태입니다: " + status + ", retryCount=" + retryCount);
     }
