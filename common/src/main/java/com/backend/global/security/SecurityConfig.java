@@ -2,6 +2,8 @@ package com.backend.global.security;
 
 import java.util.List;
 
+import jakarta.servlet.DispatcherType;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -140,6 +142,8 @@ public class SecurityConfig {
                         .authenticationEntryPoint(authenticationEntryPoint)  // 401
                         .accessDeniedHandler(accessDeniedHandler))           // 403
                 .authorizeHttpRequests(auth -> auth
+                        // 원래 요청에서 이미 인증·인가를 통과한 비동기 응답 마무리(SSE 종료)와 오류 처리 디스패치는 다시 검사하지 않음
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers(SWAGGER_URLS).permitAll()
                         .requestMatchers(PUBLIC_API_URLS).permitAll()
                         // 인플루언서 프로필(/api/v1/influencers/*)은 공개지만 내 신청 정보는 로그인 필요. 공개 규칙보다 먼저 둔다

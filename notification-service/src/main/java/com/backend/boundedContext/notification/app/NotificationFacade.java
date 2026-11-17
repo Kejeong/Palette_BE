@@ -5,6 +5,7 @@ import com.backend.boundedContext.notification.domain.NotificationType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * 알림 컨텍스트의 유일한 입구
@@ -20,6 +21,7 @@ public class NotificationFacade {
     private final NotificationGetNotificationsUseCase notificationGetNotificationsUseCase;
     private final NotificationGetUnreadCountUseCase notificationGetUnreadCountUseCase;
     private final NotificationReadUseCase notificationReadUseCase;
+    private final NotificationSubscribeUseCase notificationSubscribeUseCase;
 
     @Transactional
     public void createOrderPaid(Long memberId, Long orderId, String productName, Integer itemCount) {
@@ -44,6 +46,11 @@ public class NotificationFacade {
     @Transactional(readOnly = true)
     public long getUnreadCount(Long memberId) {
         return notificationGetUnreadCountUseCase.getUnreadCount(memberId);
+    }
+
+    // 연결이 이어지는 동안 트랜잭션을 잡지 않도록 트랜잭션 없이 둠. 안 읽은 개수 조회는 리포지토리 기본 트랜잭션으로 처리됨
+    public SseEmitter subscribe(Long memberId) {
+        return notificationSubscribeUseCase.subscribe(memberId);
     }
 
     @Transactional

@@ -1,0 +1,113 @@
+package com.backend.boundedContext.notification.in;
+
+import com.backend.boundedContext.notification.domain.Notification;
+import com.backend.boundedContext.notification.out.NotificationEmitters;
+import com.backend.boundedContext.notification.out.NotificationRepository;
+import com.backend.global.security.JwtTokenProvider;
+import com.backend.shared.member.dto.MemberRole;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+
+/**
+ * 실제 서버(임의 포트)에 SSE로 연결해 응답 형식과 연결 저장소를 확인함
+ * MockMvc는 비동기 응답을 끝까지 흘려보내지 않아 실제 HTTP 연결로 확인함.
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class NotificationSseIntegrationTest {
+
+    @LocalServerPort private int port;
+    @Autowired private JwtTokenProvider jwtTokenProvider;
+    @Autowired private NotificationRepository notificationRepository;
+    @Autowired private NotificationEmitters notificationEmitters;
+
+    // 다른 테스트와 겹치지 않는 회원 ID
+    private final long memberId = ThreadLocalRandom.current().nextLong(8_000_000_000L, 9_000_000_000L);
+
+    private final HttpClient client = HttpClient.newHttpClient();
+
+    @AfterEach
+    void cleanUp() {
+        notificationRepository.deleteAll(notificationRepository.findAll().stream()
+                .filter(n -> n.getMemberId().equals(memberId)).toList());
+    }
+
+    @Test
+    @DisplayName("구독하면 text/event-stream으로 연결되고 안 읽은 개수를 바로 받음")
+    void subscribe_sendsUnreadCount() throws Exception {
+        notificationRepository.save(Notification.orderPaid(memberId, 10L, "립스틱", 1));
+        notificationRepository.save(Notification.deliveryCompleted(memberId, 10L, null));
+
+        HttpResponse<InputStream> response = client.send(subscribeRequest(), HttpResponse.BodyHandlers.ofInputStream());
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.headers().firstValue("Content-Type")).hasValueSatisfying(
+                    type -> assertThat(type).startsWith("text/event-stream"));
+            assertThat(readEvent(reader)).containsExactly("event:unread-count", "data:2");
+            assertThat(notificationEmitters.count(memberId)).isEqualTo(1);
+        }
+    }
+
+    @Test
+    @DisplayName("토큰 없이 구독하면 401이고 연결이 저장되지 않음")
+    void subscribe_unauthenticated() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/notifications/subscribe")).build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(401);
+        assertThat(notificationEmitters.count(memberId)).isZero();
+    }
+
+    @Test
+    @DisplayName("클라이언트가 연결을 끊으면 다음 전송 때 저장소에서 지워짐")
+    void disconnect_removedOnNextSend() throws Exception {
+        HttpResponse<InputStream> response = client.send(subscribeRequest(), HttpResponse.BodyHandlers.ofInputStream());
+        BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8));
+        readEvent(reader);
+        reader.close();
+
+        // 끊긴 것은 쓰기를 시도해야 알 수 있으므로, 지워질 때까지 계속 보냄
+        await().atMost(Duration.ofSeconds(10)).until(() -> {
+            notificationEmitters.send(memberId, NotificationEmitters.UNREAD_COUNT, 0L);
+            return notificationEmitters.count(memberId) == 0;
+        });
+    }
+
+    private HttpRequest subscribeRequest() {
+        return HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/notifications/subscribe"))
+                .header("Authorization", "Bearer " + jwtTokenProvider.createAccessToken(memberId, MemberRole.USER))
+                .header("Accept", "text/event-stream")
+                .build();
+    }
+
+    // 빈 줄이 나올 때까지 읽어 이벤트 하나의 줄들을 돌려줌
+    private static List<String> readEvent(BufferedReader reader) throws Exception {
+        List<String> lines = new ArrayList<>();
+        String line;
+        while ((line = reader.readLine()) != null && !line.isEmpty()) {
+            lines.add(line);
+        }
+        return lines;
+    }
+}
