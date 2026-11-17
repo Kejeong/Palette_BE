@@ -148,20 +148,20 @@ class ProductSearchIndexTest {
     }
 
     @Test
-    @DisplayName("할인 경계: 지난 성공 실행이 있으면 그 시각에서 겹침(30초)만큼 앞부터 본다")
+    @DisplayName("할인 경계: 지난 성공 실행이 있으면 그 시각 바로 뒤부터만 본다 (구간을 겹치지 않아 같은 경계를 두 번 발행하지 않는다)")
     void discountBoundaryTargetsSinceLastRun() {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime lastRun = now.minusSeconds(10);
         Long justStarted = create();
-        Long inOverlap = create();
-        Long beforeOverlap = create();
+        Long atLastRun = create();
+        Long beforeLastRun = create();
         moveDiscount(createActive(justStarted, 15_000), now.minusSeconds(5), now.plusDays(1));
-        moveDiscount(createActive(inOverlap, 15_000), lastRun.minusSeconds(20), now.plusDays(1));     // 지난 실행 20초 전: 겹침 안
-        moveDiscount(createActive(beforeOverlap, 15_000), lastRun.minusMinutes(1), now.plusDays(1));  // 첫 실행이었다면 대상이지만 이미 처리됨
+        moveDiscount(createActive(atLastRun, 15_000), lastRun, now.plusDays(1));                     // 지난 실행 구간의 끝: 이미 발행함
+        moveDiscount(createActive(beforeLastRun, 15_000), lastRun.minusSeconds(20), now.plusDays(1)); // 지난 실행 전: 이미 발행함
 
         assertThat(indexSupport.findDiscountBoundaryProductIds(lastRun, now))
-                .contains(justStarted, inOverlap)
-                .doesNotContain(beforeOverlap);
+                .contains(justStarted)
+                .doesNotContain(atLastRun, beforeLastRun);
     }
 
     @Test

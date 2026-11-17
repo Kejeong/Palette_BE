@@ -73,8 +73,11 @@ public class ProductSearchIndexSupport {
     }
 
     /**
-     * (from, now] 사이에 할인이 시작했거나 끝난 상품 ID (할인 경계 재색인 대상).
-     * from은 지난 성공 실행 시각에서 겹침(overlap)만큼 앞이고, 지난 실행 시각이 없으면(기동 후 첫 실행) now에서 lookback만큼 앞이다.
+     * (from, now] 사이에 할인이 시작했거나 끝난 상품 ID (할인 경계 대상).
+     * from은 지난 성공 실행 시각이고, 지난 실행 시각이 없으면(기동 후 첫 실행) now에서 lookback만큼 앞이다.
+     * 구간을 겹치지 않게 이어 붙여 같은 경계의 이벤트를 한 번만 발행한다. 겹쳐 읽을 필요가 없는 이유는
+     * 할인 시각은 등록할 때 미래로만 정해지고, 등록·수정은 그 자체로 상품 변경 이벤트를 내며,
+     * 색인은 이벤트를 처리하는 시점의 DB를 다시 읽기 때문이다 (경계 직전에 커밋된 할인도 그 이벤트가 맞춘다).
      */
     public List<Long> findDiscountBoundaryProductIds(LocalDateTime lastSucceededAt, LocalDateTime now) {
         return productDiscountRepository.findProductIdsByBoundaryBetween(discountBoundaryFrom(lastSucceededAt, now), now);
@@ -84,7 +87,7 @@ public class ProductSearchIndexSupport {
         if (lastSucceededAt == null) {
             return now.minusMinutes(productPolicy.getDiscountBoundaryLookbackMinutes());
         }
-        return lastSucceededAt.minusSeconds(productPolicy.getDiscountBoundaryOverlapSeconds());
+        return lastSucceededAt;
     }
 
     /**
@@ -158,7 +161,8 @@ public class ProductSearchIndexSupport {
         LocalDateTime catchUpFrom = since != null && since.isBefore(startedAt) ? since : startedAt;
         Set<Long> changed = new HashSet<>(productRepository.findIdsChangedSince(
                 catchUpFrom.minusSeconds(productPolicy.getDiscountBoundaryOverlapSeconds())));
-        changed.addAll(findDiscountBoundaryProductIds(catchUpFrom, LocalDateTime.now()));   // 안에서 같은 겹침을 뺀다
+        changed.addAll(findDiscountBoundaryProductIds(
+                catchUpFrom.minusSeconds(productPolicy.getDiscountBoundaryOverlapSeconds()), LocalDateTime.now()));
         indexProducts(changed);   // 묶음마다 1차 캐시를 비웠으므로 DB의 최신 값을 읽는다
         outdatedSince = null;
         log.info("상품 검색 전체 재색인을 마쳤습니다. index={}, 상품 {}개, {} 이후 바뀌어 다시 반영한 상품 {}개",
