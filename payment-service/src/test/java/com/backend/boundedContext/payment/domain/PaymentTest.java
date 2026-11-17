@@ -238,7 +238,7 @@ class PaymentTest {
         WalletHolding holding = payment.pay(buyer, platform, NOW).holding();
         PaymentRefund refund = refundRequest(ReturnReasonCode.DEFECTIVE);
 
-        List<WalletTransaction> transactions = payment.refund(buyer, platform, holding, refund, 2_500, NOW);
+        List<WalletTransaction> transactions = payment.refund(buyer, platform, holding, refund, NOW);
 
         assertThat(transactions).extracting(WalletTransaction::getType, WalletTransaction::getAmount, WalletTransaction::getIdempotencyKey)
                 .containsExactly(
@@ -256,7 +256,7 @@ class PaymentTest {
     }
 
     @Test
-    @DisplayName("단순 변심 반품: 구매자는 처음 배송비·반품 회수 택배비를 뺀 금액, 회수 택배비는 홀딩에서 플랫폼으로 간다")
+    @DisplayName("단순 변심 반품: 구매자는 상품값만(처음 배송비 제외) 받고, 처음 배송비는 플랫폼에 남는다. 회수 택배비는 여기서 다루지 않는다")
     void refund_changeOfMind() {
         Wallet buyer = walletWith(1L, 30_000);
         Wallet platform = walletWith(99L, 10_000);
@@ -264,17 +264,16 @@ class PaymentTest {
         WalletHolding holding = payment.pay(buyer, platform, NOW).holding();
         PaymentRefund refund = refundRequest(ReturnReasonCode.CHANGE_OF_MIND);
 
-        List<WalletTransaction> transactions = payment.refund(buyer, platform, holding, refund, 2_500, NOW);
+        List<WalletTransaction> transactions = payment.refund(buyer, platform, holding, refund, NOW);
 
         assertThat(transactions).extracting(WalletTransaction::getType, WalletTransaction::getAmount, WalletTransaction::getIdempotencyKey)
                 .containsExactly(
-                        tuple(WalletTransactionType.REFUND, 24_500L, "REFUND-301"),
-                        tuple(WalletTransactionType.COUPON_SUBSIDY_CANCEL, 3_000L, "REFUND-301-COUPON_SUBSIDY"),
-                        tuple(WalletTransactionType.RETURN_PICKUP_FEE, 2_500L, "REFUND-301-RETURN_PICKUP_FEE"));
-        assertThat(buyer.getBalance()).isEqualTo(25_000);      // 처음 배송비 + 회수 택배비 5,000원 부담
-        assertThat(platform.getBalance()).isEqualTo(15_000);   // 처음 배송비 + 회수 택배비 5,000원 수입
-        assertThat(refund.getAmount()).isEqualTo(24_500);
-        assertThat(refund.getReturnPickupFee()).isEqualTo(2_500);
+                        tuple(WalletTransactionType.REFUND, 27_000L, "REFUND-301"),
+                        tuple(WalletTransactionType.COUPON_SUBSIDY_CANCEL, 3_000L, "REFUND-301-COUPON_SUBSIDY"));
+        assertThat(buyer.getBalance()).isEqualTo(27_500);      // 처음 배송비 2,500원 부담
+        assertThat(platform.getBalance()).isEqualTo(12_500);   // 처음 배송비 2,500원 수입
+        assertThat(refund.getAmount()).isEqualTo(27_000);
+        assertThat(refund.getStatus()).isEqualTo(PaymentRefundStatus.COMPLETED);
     }
 
     @Test
@@ -287,7 +286,7 @@ class PaymentTest {
             WalletHolding holding = payment.pay(buyer, platform, NOW).holding();
             PaymentRefund refund = refundRequest(reason);
 
-            payment.refund(buyer, platform, holding, refund, 2_500, NOW);
+            payment.refund(buyer, platform, holding, refund, NOW);
 
             assertThat(buyer.getBalance()).as("사유 %s", reason).isEqualTo(30_000);
             assertThat(refund.getReturnPickupFee()).as("사유 %s", reason).isZero();
@@ -302,7 +301,7 @@ class PaymentTest {
         WalletHolding holding = payment.pay(buyer, null, NOW).holding();
 
         List<WalletTransaction> transactions = payment.refund(buyer, walletWith(99L, 0), holding,
-                refundRequest(ReturnReasonCode.DEFECTIVE), 2_500, NOW);
+                refundRequest(ReturnReasonCode.DEFECTIVE), NOW);
 
         assertThat(transactions).extracting(WalletTransaction::getType).containsExactly(WalletTransactionType.REFUND);
         assertThat(buyer.getBalance()).isEqualTo(30_000);
@@ -318,7 +317,7 @@ class PaymentTest {
         holding.settle(1_000, NOW);
         PaymentRefund refund = refundRequest(ReturnReasonCode.DEFECTIVE);
 
-        assertThatThrownBy(() -> payment.refund(buyer, platform, holding, refund, 2_500, NOW))
+        assertThatThrownBy(() -> payment.refund(buyer, platform, holding, refund, NOW))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("409-REFUND_HOLDING_SETTLED");
         assertThat(buyer.getBalance()).isEqualTo(500);
@@ -329,18 +328,20 @@ class PaymentTest {
     }
 
     @Test
-    @DisplayName("단순 변심인데 결제 금액 − 배송비가 회수 택배비 이하면 REFUND_PICKUP_FEE_EXCEEDED로 막는다 (구매자가 0원 이하를 받게 됨)")
-    void refund_pickupFeeExceeded() {
+    @DisplayName("상품값이 회수 택배비보다 작은 단순 변심(2,000원 립밤)도 상품값 2,000원을 그대로 환불한다")
+    void refund_changeOfMindCheapProduct() {
         Wallet buyer = walletWith(1L, 10_000);
         Wallet platform = walletWith(99L, 0);
-        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 5_000, 2_500, 0, "PAY-10-a");   // 상품 2,500원
+        Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 4_500, 2_500, 0, "PAY-10-a");   // 상품 2,000 + 배송비 2,500
         WalletHolding holding = payment.pay(buyer, platform, NOW).holding();
 
-        assertThatThrownBy(() -> payment.refund(buyer, platform, holding, refundRequest(ReturnReasonCode.CHANGE_OF_MIND), 2_500, NOW))
-                .isInstanceOf(DomainException.class)
-                .extracting("resultCode").isEqualTo("409-REFUND_PICKUP_FEE_EXCEEDED");
-        assertThat(buyer.getBalance()).isEqualTo(5_000);
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PAID);
+        List<WalletTransaction> transactions = payment.refund(buyer, platform, holding,
+                refundRequest(ReturnReasonCode.CHANGE_OF_MIND), NOW);
+
+        assertThat(transactions).extracting(WalletTransaction::getType, WalletTransaction::getAmount)
+                .containsExactly(tuple(WalletTransactionType.REFUND, 2_000L));
+        assertThat(buyer.getBalance()).isEqualTo(7_500);
+        assertThat(platform.getBalance()).isEqualTo(2_500);
     }
 
     @Test
@@ -351,7 +352,7 @@ class PaymentTest {
         WalletHolding holding = payment.pay(buyer, walletWith(99L, 10_000), NOW).holding();
         Wallet drainedPlatform = walletWith(99L, 1_499);   // 지원금 1,000원을 돌려받아도 2,499원이라 배송비 2,500원에 1원 모자람
 
-        assertThatThrownBy(() -> payment.refund(buyer, drainedPlatform, holding, refundRequest(ReturnReasonCode.DEFECTIVE), 2_500, NOW))
+        assertThatThrownBy(() -> payment.refund(buyer, drainedPlatform, holding, refundRequest(ReturnReasonCode.DEFECTIVE), NOW))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("409-REFUND_PLATFORM_BALANCE_INSUFFICIENT");
         assertThat(buyer.getBalance()).isEqualTo(500);
@@ -367,7 +368,7 @@ class PaymentTest {
         WalletHolding holding = payment.pay(buyer, walletWith(99L, 10_000), NOW).holding();
         Wallet platform = walletWith(99L, 1_500);
 
-        payment.refund(buyer, platform, holding, refundRequest(ReturnReasonCode.DEFECTIVE), 2_500, NOW);
+        payment.refund(buyer, platform, holding, refundRequest(ReturnReasonCode.DEFECTIVE), NOW);
 
         assertThat(platform.getBalance()).isZero();
     }
@@ -378,7 +379,7 @@ class PaymentTest {
         Wallet buyer = walletWith(1L, 30_000);
         Payment payment = Payment.ready(10L, "ORD-TEST-10", buyer, 25_000, 0, 0, "PAY-10-a");
 
-        assertThatThrownBy(() -> payment.refund(buyer, null, null, refundRequest(ReturnReasonCode.DEFECTIVE), 2_500, NOW))
+        assertThatThrownBy(() -> payment.refund(buyer, null, null, refundRequest(ReturnReasonCode.DEFECTIVE), NOW))
                 .isInstanceOf(IllegalStateException.class);
     }
 

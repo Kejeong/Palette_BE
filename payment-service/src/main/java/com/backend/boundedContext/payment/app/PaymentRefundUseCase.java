@@ -64,14 +64,21 @@ public class PaymentRefundUseCase {
 
         WalletHolding holding = walletHoldingRepository.findByPaymentIdForUpdate(payment.getId())
                 .orElseThrow(() -> new DomainException(PaymentErrorCode.HOLDING_NOT_FOUND));
-        Map<Long, Wallet> wallets = lockWallets(payment.getMemberId(), paymentPolicy.adminMemberId());
 
+        // 단순 변심: 구매자가 반품 회수 택배비를 결제해야 환불한다. 여기서는 환불할 수 있는지만 보고 결제 대기로 둔다(돈은 그대로)
+        // 정산이 시작된 홀딩이면 택배비를 받아도 환불할 수 없으니 지금 막는다(③에서 FAILED_HOLDING_SETTLED)
+        if (refund.isChangeOfMind()) {
+            if (!holding.isReleasable()) throw new DomainException(PaymentErrorCode.REFUND_HOLDING_SETTLED);
+            refund.requirePickupFee(payment.getId());
+            return;
+        }
+
+        Map<Long, Wallet> wallets = lockWallets(payment.getMemberId(), paymentPolicy.adminMemberId());
         List<WalletTransaction> transactions = payment.refund(
                 wallets.get(payment.getMemberId()),
                 wallets.get(paymentPolicy.adminMemberId()),
                 holding,
                 refund,
-                paymentPolicy.returnPickupFee(),
                 LocalDateTime.now());
         walletTransactionRepository.saveAll(transactions);
     }

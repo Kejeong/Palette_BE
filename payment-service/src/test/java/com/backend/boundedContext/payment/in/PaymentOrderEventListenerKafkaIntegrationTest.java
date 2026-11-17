@@ -151,7 +151,7 @@ class PaymentOrderEventListenerKafkaIntegrationTest {
     void transientFailureIsRetriedByKafka() {
         willThrow(new IllegalStateException("DB 연결 끊김")).willCallRealMethod()
                 .given(paymentRefundUseCase).refund(anyLong());
-        UUID eventId = publish(returned(ReturnReasonCode.CHANGE_OF_MIND));
+        UUID eventId = publish(returned(ReturnReasonCode.DEFECTIVE));
 
         relayUntilPublished(eventId);
 
@@ -159,7 +159,7 @@ class PaymentOrderEventListenerKafkaIntegrationTest {
         verify(paymentRefundUseCase, times(2)).refund(anyLong());
         PaymentRefund refund = paymentRefundRepository.findByOrderId(orderId).orElseThrow();
         assertThat(refund.getRetryCount()).isEqualTo(1);           // 첫 실패가 기록돼 있다
-        assertThat(balance(buyerMemberId)).isEqualTo(25_000);      // 단순 변심 24,500원을 한 번만 받았다
+        assertThat(balance(buyerMemberId)).isEqualTo(30_000);      // 불량 전액 29,500원을 한 번만 받았다
     }
 
     private OrderReturnedEvent returned(ReturnReasonCode reason) {

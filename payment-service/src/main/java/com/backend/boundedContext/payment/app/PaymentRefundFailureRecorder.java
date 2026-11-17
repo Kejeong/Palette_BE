@@ -47,9 +47,6 @@ public class PaymentRefundFailureRecorder {
             if (PaymentErrorCode.REFUND_HOLDING_SETTLED.resultCode().equals(resultCode)) {
                 return PaymentRefundStatus.FAILED_HOLDING_SETTLED;
             }
-            if (PaymentErrorCode.REFUND_PICKUP_FEE_EXCEEDED.resultCode().equals(resultCode)) {
-                return PaymentRefundStatus.FAILED_RETURN_PICKUP_FEE;
-            }
             if (PaymentErrorCode.REFUND_PLATFORM_BALANCE_INSUFFICIENT.resultCode().equals(resultCode)) {
                 return PaymentRefundStatus.FAILED_PLATFORM_BALANCE;
             }

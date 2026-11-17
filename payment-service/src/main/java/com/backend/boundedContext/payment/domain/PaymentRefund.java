@@ -38,11 +38,11 @@ public class PaymentRefund extends BaseIdAndTime {
     @Column(nullable = false)
     private long requestedAmount;
 
-    // 구매자가 실제로 받은 금액 (COMPLETED 때 채움). 단순 변심이면 처음 배송비·반품 배송비를 뺀 금액
+    // 구매자가 실제로 받은 금액 (COMPLETED 때 채움). 단순 변심이면 상품값만(처음 배송비 제외)
     @Column(nullable = false)
     private long amount;
 
-    // 구매자가 낸 반품 배송비 (단순 변심만, 나머지는 0)
+    // 구매자가 결제한 반품 회수 택배비 (단순 변심만, 결제할 때 채움. 나머지는 0)
     @Column(nullable = false)
     private long returnPickupFee;
 
@@ -79,19 +79,36 @@ public class PaymentRefund extends BaseIdAndTime {
                 (status == PaymentRefundStatus.FAILED_SYSTEM_ERROR && retryCount < MAX_SYSTEM_ERROR_RETRIES);
     }
 
-    // 단순 변심이면 처음 배송비를 돌려주지 않는다. 그리고 반품 배송비를 뺀다. 기타·불량·사유 없음은 전액 환불한다.
+    // 단순 변심이면 처음 배송비를 돌려주지 않고(상품값만 환불), 구매자가 반품 회수 택배비를 따로 결제해야 환불한다.
+    // 기타·불량·사유 없음은 바로 전액 환불한다.
     public boolean isChangeOfMind() {
         return reason == ReturnReasonCode.CHANGE_OF_MIND;
     }
 
-    public void complete(Long paymentId, long amount, long returnPickupFee, LocalDateTime now) {
+    // 단순 변심: 확인(결제·금액·정산 여부)은 끝났고, 구매자가 회수 택배비를 결제할 때까지 환불을 미룬다. 돈은 움직이지 않는다
+    public void requirePickupFee(Long paymentId) {
         requireProcessable();
+        if (!isChangeOfMind()) throw new IllegalStateException("단순 변심 반품만 회수 택배비를 받습니다: " + reason);
+        this.paymentId = paymentId;
+        this.status = PaymentRefundStatus.PICKUP_FEE_REQUIRED;
+        this.failReason = null;
+    }
+
+    // 환불 완료. 처리할 수 있는 상태이거나, 단순 변심이면 회수 택배비를 결제한 뒤여야 한다
+    public void complete(Long paymentId, long amount, LocalDateTime now) {
+        if (!isProcessable() && !isPickupFeePaid()) {
+            throw new IllegalStateException("환불을 완료할 수 없는 상태입니다: " + status + ", returnPickupFee=" + returnPickupFee);
+        }
         this.paymentId = paymentId;
         this.amount = amount;
-        this.returnPickupFee = returnPickupFee;
         this.status = PaymentRefundStatus.COMPLETED;
         this.failReason = null;
         this.refundedAt = now;
+    }
+
+    // 결제 대기 중에 회수 택배비가 결제됐는지 (6단계 결제 API가 returnPickupFee를 채운다)
+    private boolean isPickupFeePaid() {
+        return status == PaymentRefundStatus.PICKUP_FEE_REQUIRED && returnPickupFee > 0;
     }
 
     // 실패 기록. 시스템 오류면 재시도 횟수를 늘린다. paymentId는 결제를 찾은 경우에만 넘긴다(못 찾았으면 null)
@@ -117,8 +134,13 @@ public class PaymentRefund extends BaseIdAndTime {
         return idempotencyKey() + "-SHIPPING_FEE";
     }
 
+    // 회수 택배비: 플랫폼 입금(RETURN_PICKUP_FEE)·구매자 차감(RETURN_PICKUP_FEE_PAYMENT)
     public String pickupFeeIdempotencyKey() {
         return idempotencyKey() + "-RETURN_PICKUP_FEE";
+    }
+
+    public String pickupFeePaymentIdempotencyKey() {
+        return idempotencyKey() + "-RETURN_PICKUP_FEE_PAYMENT";
     }
 
     private void requireProcessable() {

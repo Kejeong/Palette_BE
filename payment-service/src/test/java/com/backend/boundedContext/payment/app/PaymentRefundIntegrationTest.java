@@ -141,20 +141,36 @@ class PaymentRefundIntegrationTest {
     }
 
     @Test
-    @DisplayName("단순 변심 반품: 구매자는 처음 배송비·회수 택배비 2,500원(설정값)을 뺀 24,500원을 받는다")
+    @DisplayName("단순 변심 반품: 확인만 하고 회수 택배비 결제 대기(PICKUP_FEE_REQUIRED)로 둔다. 돈은 움직이지 않는다")
     void refund_changeOfMind() {
         pay();
 
         paymentFacade.refundReturnedOrder(event(29_500, ReturnReasonCode.CHANGE_OF_MIND));
 
-        assertThat(balance(buyerMemberId)).isEqualTo(25_000);
-        assertThat(balance(PLATFORM_MEMBER_ID)).isEqualTo(15_000);
         PaymentRefund refund = refund();
-        assertThat(refund.getAmount()).isEqualTo(24_500);
-        assertThat(refund.getReturnPickupFee()).isEqualTo(2_500);
-        assertThat(refundLedger(refund)).extracting(WalletTransaction::getType)
-                .containsExactlyInAnyOrder(WalletTransactionType.REFUND, WalletTransactionType.COUPON_SUBSIDY_CANCEL,
-                        WalletTransactionType.RETURN_PICKUP_FEE);
+        assertThat(refund.getStatus()).isEqualTo(PaymentRefundStatus.PICKUP_FEE_REQUIRED);
+        assertThat(refund.getPaymentId()).isEqualTo(paymentId);
+        assertThat(refundLedger(refund)).isEmpty();
+        assertThat(payment().getStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(holding().getStatus()).isEqualTo(WalletHoldingStatus.HELD);
+        assertThat(balance(buyerMemberId)).isEqualTo(500);
+        assertThat(balance(PLATFORM_MEMBER_ID)).isEqualTo(9_500);
+
+        // 승인 이벤트를 다시 받아도(Kafka 재전달) 결제 대기 그대로
+        paymentFacade.refundReturnedOrder(event(29_500, ReturnReasonCode.CHANGE_OF_MIND));
+        assertThat(refund().getStatus()).isEqualTo(PaymentRefundStatus.PICKUP_FEE_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("단순 변심인데 홀딩이 일부라도 정산됐으면 결제 대기로 두지 않고 FAILED_HOLDING_SETTLED (택배비를 받아도 환불할 수 없음)")
+    void refund_changeOfMindHoldingSettled() {
+        pay();
+        transactionTemplate.executeWithoutResult(status ->
+                walletHoldingRepository.findByPaymentIdForUpdate(paymentId).orElseThrow().settle(1_000, LocalDateTime.now()));
+
+        paymentFacade.refundReturnedOrder(event(29_500, ReturnReasonCode.CHANGE_OF_MIND));
+
+        assertThat(refund().getStatus()).isEqualTo(PaymentRefundStatus.FAILED_HOLDING_SETTLED);
     }
 
     @Test

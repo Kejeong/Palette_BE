@@ -28,7 +28,7 @@ class PaymentRefundTest {
     }
 
     @Test
-    @DisplayName("단순 변심만 구매자가 배송비를 낸다 (기타·불량·사유 없음은 전액 환불)")
+    @DisplayName("단순 변심만 회수 택배비를 내고 상품값만 환불받는다 (기타·불량·사유 없음은 전액 환불)")
     void isChangeOfMind() {
         assertThat(PaymentRefund.request(1L, 1, ReturnReasonCode.CHANGE_OF_MIND).isChangeOfMind()).isTrue();
         assertThat(PaymentRefund.request(1L, 1, ReturnReasonCode.DEFECTIVE).isChangeOfMind()).isFalse();
@@ -37,19 +37,39 @@ class PaymentRefundTest {
     }
 
     @Test
-    @DisplayName("완료: 결제 ID·실제 환불 금액·반품 배송비·환불 시각을 남기고, 다시 처리할 수 없다")
+    @DisplayName("완료: 결제 ID·실제 환불 금액·환불 시각을 남기고, 다시 처리할 수 없다")
     void complete() {
-        PaymentRefund refund = PaymentRefund.request(55L, 29_500, ReturnReasonCode.CHANGE_OF_MIND);
+        PaymentRefund refund = PaymentRefund.request(55L, 29_500, ReturnReasonCode.DEFECTIVE);
 
-        refund.complete(101L, 24_500, 2_500, NOW);
+        refund.complete(101L, 29_500, NOW);
 
         assertThat(refund.getStatus()).isEqualTo(PaymentRefundStatus.COMPLETED);
         assertThat(refund.getPaymentId()).isEqualTo(101L);
-        assertThat(refund.getAmount()).isEqualTo(24_500);
-        assertThat(refund.getReturnPickupFee()).isEqualTo(2_500);
+        assertThat(refund.getAmount()).isEqualTo(29_500);
         assertThat(refund.getRefundedAt()).isEqualTo(NOW);
         assertThat(refund.isProcessable()).isFalse();
-        assertThatThrownBy(() -> refund.complete(101L, 24_500, 2_500, NOW)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> refund.complete(101L, 29_500, NOW)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("단순 변심은 결제 대기(PICKUP_FEE_REQUIRED)로 둔다. 회수 택배비를 내기 전에는 완료할 수 없고, 다시 처리 대상도 아니다")
+    void requirePickupFee() {
+        PaymentRefund refund = PaymentRefund.request(55L, 29_500, ReturnReasonCode.CHANGE_OF_MIND);
+
+        refund.requirePickupFee(101L);
+
+        assertThat(refund.getStatus()).isEqualTo(PaymentRefundStatus.PICKUP_FEE_REQUIRED);
+        assertThat(refund.getPaymentId()).isEqualTo(101L);
+        assertThat(refund.isProcessable()).isFalse();   // Kafka가 승인 이벤트를 다시 줘도 그대로 둔다
+        assertThatThrownBy(() -> refund.complete(101L, 27_000, NOW)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("단순 변심이 아니면 결제 대기로 둘 수 없다")
+    void requirePickupFee_onlyChangeOfMind() {
+        PaymentRefund refund = PaymentRefund.request(55L, 29_500, ReturnReasonCode.DEFECTIVE);
+
+        assertThatThrownBy(() -> refund.requirePickupFee(101L)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -96,7 +116,7 @@ class PaymentRefundTest {
         PaymentRefund refund = PaymentRefund.request(55L, 29_500, null);
         refund.fail(PaymentRefundStatus.FAILED_SYSTEM_ERROR, null, "lock timeout");
 
-        refund.complete(101L, 29_500, 0, NOW);
+        refund.complete(101L, 29_500, NOW);
 
         assertThat(refund.getStatus()).isEqualTo(PaymentRefundStatus.COMPLETED);
         assertThat(refund.getFailReason()).isNull();
