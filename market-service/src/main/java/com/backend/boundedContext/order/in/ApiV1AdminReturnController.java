@@ -59,7 +59,7 @@ public class ApiV1AdminReturnController {
                     + "사용한 쿠폰은 돌려주지 않습니다. 삭제된 상품·옵션에 restoreStock=true를 보내면 409이고 아무것도 바뀌지 않으므로 그 항목을 false로 다시 승인하세요.")
     @ApiResponse(responseCode = "200", description = "200-1 승인 완료(status: RETURNED, confirmType: null)")
     @ApiResponse(responseCode = "400", description = "400-VALIDATION_FAILED items 비어 있음·값 누락 / 400-INVALID_REQUEST 본문 형식 오류 / "
-            + "400-RETURN_ITEMS_MISMATCH 항목 누락·중복·다른 주문의 항목 / 400-STOCK_LIMIT_EXCEEDED 복원하면 재고 상한 초과")
+            + "400-RETURN_ITEMS_MISMATCH 항목 누락·중복·다른 주문의 항목")
     @ApiResponse(responseCode = "404", description = "404-ORDER_NOT_FOUND")
     @ApiResponse(responseCode = "409", description = "409-ORDER_STATE_INVALID 반품 요청 중(RETURN_REQUESTED)이 아님(이미 승인·거절됨 포함) / "
             + "409-PRODUCT_DELETED 삭제된 상품 복원 / 409-OPTION_DELETED 삭제된 옵션 복원")
