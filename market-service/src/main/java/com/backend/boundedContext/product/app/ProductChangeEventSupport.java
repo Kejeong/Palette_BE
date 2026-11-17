@@ -1,5 +1,6 @@
 package com.backend.boundedContext.product.app;
 
+import com.backend.boundedContext.product.domain.OptionStock;
 import com.backend.boundedContext.product.domain.Product;
 import com.backend.boundedContext.product.domain.ProductSaleStatus;
 import com.backend.boundedContext.product.out.ProductRepository;
@@ -25,6 +26,7 @@ public class ProductChangeEventSupport {
 
     private final ProductRepository productRepository;
     private final ProductImageSupport productImageSupport;
+    private final ProductSupport productSupport;
     private final EventPublisher eventPublisher;
 
     public void publishChanged(Collection<Long> productIds) {
@@ -34,7 +36,9 @@ public class ProductChangeEventSupport {
                 .sorted(Comparator.comparing(Product::getId))
                 .toList();
         Map<Long, String> thumbnails = productImageSupport.getThumbnailUrls(productIds);
-        products.forEach(product -> eventPublisher.publish(toEvent(product, thumbnails.get(product.getId()))));
+        Map<Long, List<OptionStock>> stocks = productSupport.getOptionStocksByProductId(productIds);
+        products.forEach(product -> eventPublisher.publish(toEvent(product, thumbnails.get(product.getId()),
+                ProductSupport.isSoldOut(stocks.getOrDefault(product.getId(), List.of())))));
     }
 
     /**
@@ -56,7 +60,7 @@ public class ProductChangeEventSupport {
         return published;
     }
 
-    private static ProductChangedEvent toEvent(Product product, String thumbnailUrl) {
+    private static ProductChangedEvent toEvent(Product product, String thumbnailUrl, boolean soldOut) {
         return new ProductChangedEvent(
                 product.getId(),
                 product.getName(),
@@ -66,6 +70,7 @@ public class ProductChangeEventSupport {
                 product.getIngredientsText(),
                 product.getPrice(),
                 thumbnailUrl,
-                product.isDisplayable());
+                product.isDisplayable(),
+                soldOut);
     }
 }

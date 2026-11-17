@@ -2,7 +2,9 @@ package com.backend.boundedContext.product.app;
 
 import com.backend.boundedContext.product.app.dto.CategoryTreeDto;
 import com.backend.boundedContext.product.app.dto.ProductOptionSpec;
+import com.backend.boundedContext.product.domain.ProductDiscount;
 import com.backend.boundedContext.product.domain.ProductOption;
+import com.backend.boundedContext.product.out.ProductDiscountRepository;
 import com.backend.boundedContext.product.out.ProductOptionRepository;
 import com.backend.global.outbox.OutboxEvent;
 import com.backend.global.outbox.OutboxEventRepository;
@@ -10,6 +12,8 @@ import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
 import com.backend.shared.member.out.MemberApi;
 import com.backend.shared.order.out.OrderApi;
+import com.backend.shared.product.dto.StockChangeDto;
+import com.backend.shared.product.dto.StockRestoreReason;
 import com.backend.shared.product.event.ProductChangedEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -17,9 +21,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 
@@ -29,6 +35,7 @@ import static org.mockito.BDDMockito.given;
 
 /**
  * 상품 변경 이벤트(ProductChangedEvent)가 상품을 바꾼 트랜잭션에서 outbox에 저장되는지.
+ * AI 추천과 검색 색인이 같은 이벤트를 받으므로, 상품 내용·판매 상태뿐 아니라 품절 여부·옵션·할인·할인 경계·카테고리 변경에서도 발행한다.
  * 카테고리는 마이그레이션이 넣은 기본 카테고리를 쓴다. 테스트마다 롤백된다.
  */
 @SpringBootTest
@@ -44,6 +51,9 @@ class ProductChangeEventTest {
 
     @Autowired
     private ProductOptionRepository productOptionRepository;
+
+    @Autowired
+    private ProductDiscountRepository productDiscountRepository;
 
     @Autowired
     private OutboxEventRepository outboxEventRepository;
@@ -81,6 +91,7 @@ class ProductChangeEventTest {
         assertThat(event.price()).isEqualTo(25_000);
         assertThat(event.thumbnailUrl()).isNotBlank();
         assertThat(event.onSale()).isTrue();
+        assertThat(event.soldOut()).isFalse();
     }
 
     @Test
@@ -121,6 +132,39 @@ class ProductChangeEventTest {
     @Test
     @DisplayName("재고만 바꾸면 상품 변경 이벤트를 발행하지 않는다")
     void stockChangeDoesNotPublish() {
+    @DisplayName("재고: 품절 여부가 바뀔 때만 발행하고 soldOut을 담는다 (주문 차감·복원, 판매자 조정)")
+    void publishOnlyWhenSoldOutChanges() {
+        Long productId = createBeauty("수분 크림", "정제수");   // 재고 10
+        ProductOption option = options(productId).getFirst();
+
+        productFacade.adjustStock(MEMBER_ID, productId, option.getId(), -3);   // 10 → 7
+        assertThat(events(productId)).hasSize(1);   // 등록 때 한 번뿐
+
+        productFacade.deductStock(List.of(new StockChangeDto(1L, 9001L, option.getId(), 7)));   // 7 → 0 (품절)
+        assertThat(events(productId)).hasSize(2);
+        assertThat(lastEvent(productId).soldOut()).isTrue();
+
+        productFacade.restoreStock(List.of(new StockChangeDto(1L, 9001L, option.getId(), 7)), StockRestoreReason.ORDER_RESTORE);   // 0 → 7
+        assertThat(events(productId)).hasSize(3);
+        assertThat(lastEvent(productId).soldOut()).isFalse();
+    }
+
+    @Test
+    @DisplayName("옵션 추가·삭제와 할인 등록·지금 종료가 발행한다 (검색 색인의 품절·가격·할인율이 바뀔 수 있다)")
+    void publishOnOptionAndDiscountChange() {
+        Long productId = productFacade.createProduct(MEMBER_ID, categoryId("뷰티", "스킨케어"), "수분 크림", "설명", 25_000,
+                List.of("용량"), List.of(new ProductOptionSpec(List.of("50ml"), 0, 10)), THUMBNAIL, List.of(), "정제수");
+
+        Long added = productFacade.addOption(MEMBER_ID, productId, new ProductOptionSpec(List.of("100ml"), 5_000, 3));
+        productFacade.deleteOption(MEMBER_ID, productId, added);
+        LocalDateTime start = LocalDateTime.now().plusDays(1).withNano(0);
+        Long discountId = productFacade.createDiscount(MEMBER_ID, productId, 20_000, start, start.plusDays(7));
+        moveDiscountStart(discountId, LocalDateTime.now().minusHours(1));   // 진행 중으로 옮긴다
+        productFacade.endDiscount(MEMBER_ID, productId, discountId);
+
+        assertThat(events(productId)).hasSize(5);   // 등록 + 옵션 추가·삭제 + 할인 등록·종료
+    }
+
         Long productId = createBeauty("수분 크림", "정제수");
         ProductOption option = productOptionRepository.findAll().stream()
                 .filter(o -> o.getProduct().getId().equals(productId)).findFirst().orElseThrow();
@@ -128,6 +172,15 @@ class ProductChangeEventTest {
         productFacade.adjustStock(MEMBER_ID, productId, option.getId(), 5);
 
         assertThat(events(productId)).hasSize(1);   // 등록 때 한 번뿐
+    @Test
+    @DisplayName("소분류를 사용 중지하면 그 소분류 상품을 onSale=false로 발행한다 (AI 추천에서 빠지게)")
+    void publishOnCategoryDeactivation() {
+        Long productId = createBeauty("수분 크림", "정제수");
+
+        productFacade.modifyCategory(categoryId("뷰티", "스킨케어"), null, false);
+
+        assertThat(events(productId)).hasSize(2);
+        assertThat(lastEvent(productId).onSale()).isFalse();
     }
 
     @Test
@@ -148,6 +201,17 @@ class ProductChangeEventTest {
     private Long createBeauty(String name, String ingredientsText) {
         return productFacade.createProduct(MEMBER_ID, categoryId("뷰티", "스킨케어"), name, "설명", 25_000,
                 List.of(), List.of(ProductOptionSpec.single(10)), THUMBNAIL, List.of(), ingredientsText);
+    }
+
+    private List<ProductOption> options(Long productId) {
+        return productOptionRepository.findAllByProductIdAndDeletedAtIsNullOrderByIdAsc(productId);
+    }
+
+    /** 할인은 시작 전으로만 등록되므로 시작 시각을 옮겨 진행 중으로 만든다 */
+    private void moveDiscountStart(Long discountId, LocalDateTime startsAt) {
+        ProductDiscount discount = productDiscountRepository.findById(discountId).orElseThrow();
+        ReflectionTestUtils.setField(discount, "startsAt", startsAt);
+        productDiscountRepository.flush();
     }
 
     private List<OutboxEvent> events(Long productId) {

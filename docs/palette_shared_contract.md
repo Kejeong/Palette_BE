@@ -374,7 +374,7 @@ public record WishAddedEvent(Long memberId, Long productId) implements DomainEve
 /** 구매자가 찜을 해제함. 찜하지 않은 상품을 해제하면 발행하지 않는다 */
 public record WishRemovedEvent(Long memberId, Long productId) implements DomainEvent { }  // aggregateType PRODUCT, aggregateId productId
 
-/** 상품의 내용이나 판매 상태가 바뀜(등록·수정·삭제·판매 중지·중지 해제). 바뀐 부분이 아니라 상품의 지금 상태 전체를 담는다 */
+/** 상품의 내용·판매 상태·품절 여부·할인·카테고리가 바뀜. 바뀐 부분이 아니라 상품의 지금 상태 전체를 담는다 */
 public record ProductChangedEvent(
         Long productId, String name, String description,
         String categoryName,      // 소분류 이름
@@ -382,14 +382,18 @@ public record ProductChangedEvent(
         String ingredientsText,   // 전성분 원문. 뷰티가 아니거나 아직 안 넣었으면 null
         long price,               // 정가
         String thumbnailUrl,      // 없으면 null
-        boolean onSale            // 판매 중이고 카테고리 사용 중. 삭제·판매 중지면 false
+        boolean onSale,           // 판매 중이고 카테고리 사용 중. 삭제·판매 중지면 false
+        Boolean soldOut           // 삭제되지 않은 옵션의 재고가 모두 0인지. 이 필드 전 메시지면 null (나중에 더한 필드는 래퍼 타입)
 ) implements DomainEvent { }      // aggregateType PRODUCT, aggregateId productId
 ```
 
 - 찜 추가·해제와 같은 트랜잭션에서 outbox에 저장하고, 릴레이가 Kafka 토픽 `product.events`로 발행한다(키 `productId`, 같은 상품의 찜 이벤트는 순서대로 전달된다).
 - 아직 받는 쪽은 없다. 상품 검색 색인(ES)의 찜 수 반영에 쓸 예정이다(TRSS-167).
-- `ProductChangedEvent`는 상품 등록·수정·삭제, 관리자 판매 중지, 판매 중지 요청 승인, 판매자 철회·제재로 인한 전체 중지와 철회 거절로 인한 재개 때 같은 트랜잭션에서 outbox에 저장한다. 재고·옵션·할인만 바뀌면 발행하지 않는다.
-  받는 쪽은 AI 추천(ai-service, TRSS-243)이고, 같은 상품의 더 오래된 이벤트(봉투 `occurredAt`)는 버린다.
+- `ProductChangedEvent`는 상품 등록·수정·삭제, 관리자 판매 중지, 판매 중지 요청 승인, 판매자 철회·제재로 인한 전체 중지와 철회 거절·제재 해지로 인한 재개,
+  품절 여부가 바뀐 재고 차감·복원·조정, 옵션 추가·삭제, 할인 등록·수정·삭제·지금 종료, 소분류 이름·사용 여부 변경 때 같은 트랜잭션에서 outbox에 저장한다.
+  할인이 시작·종료되는 시각에는 할인 경계 스케줄러가 발행한다(TRSS-279).
+  받는 쪽은 AI 추천(ai-service, TRSS-243)과 market 검색 색인(groupId `market-search-index`, 메시지 키로 DB를 다시 읽어 색인)이다.
+  AI 추천은 같은 상품의 더 오래된 이벤트(봉투 `occurredAt`)는 버린다.
   관리자 API `POST /api/v1/admin/products/change-events`가 판매 중인 상품 전체를 다시 발행한다(AI 서비스를 처음 띄울 때).
 
 ## 3.1 review

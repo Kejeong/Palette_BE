@@ -349,6 +349,11 @@ public class ProductSupport {
         }
     }
 
+    /** 소분류의 삭제되지 않은 상품 ID (소분류 이름·사용 여부를 바꿀 때 상품 변경을 알리려고 쓴다) */
+    public List<Long> getNotDeletedProductIdsInCategory(Long categoryId) {
+        return productRepository.findIdsByCategoryIdAndStatusNot(categoryId, ProductSaleStatus.DELETED);
+    }
+
     /** 삭제되지 않은 옵션이 없거나 모두 재고 0이면 품절 */
     public static boolean isSoldOut(List<OptionStock> stocks) {
         return stocks.stream().allMatch(OptionStock::isSoldOut);
