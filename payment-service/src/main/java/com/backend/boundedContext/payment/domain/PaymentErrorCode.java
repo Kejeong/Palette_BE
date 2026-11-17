@@ -34,6 +34,12 @@ public enum PaymentErrorCode implements ErrorCode {
     PAYMENT_NOT_CANCELABLE(409, "취소할 수 없는 결제입니다."),
     PLATFORM_SUBSIDY_INSUFFICIENT(409, "플랫폼 지갑 잔액이 쿠폰 지원금보다 적어 결제할 수 없습니다. 관리자에게 문의해 주세요."),
 
+    // 반품 환불 (이벤트로 처리하므로 응답으로 나가지 않고, 환불 기록의 FAILED_사유로 남는다)
+    REFUND_HOLDING_SETTLED(409, "정산이 시작된 홀딩이라 환불할 수 없습니다."),
+    REFUND_NOT_FOUND(404, "환불 내역을 찾을 수 없습니다."),
+    REFUND_PICKUP_FEE_NOT_REQUIRED(409, "반품 회수 택배비를 결제할 수 있는 환불이 아닙니다."),
+    REFUND_PLATFORM_BALANCE_INSUFFICIENT(409, "플랫폼 지갑 잔액이 모자라 처음 배송비를 돌려줄 수 없습니다."),
+
     // 홀딩·정산 지급
     HOLDING_NOT_FOUND(404, "보관 중인 홀딩 내역을 찾을 수 없습니다."),
     HOLDING_INSUFFICIENT(409, "홀딩의 남은 금액이 지급액보다 적습니다."),

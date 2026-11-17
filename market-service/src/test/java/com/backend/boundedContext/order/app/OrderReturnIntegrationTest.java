@@ -29,7 +29,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.backend.boundedContext.order.domain.Order;
 import com.backend.boundedContext.order.domain.OrderErrorCode;
 import com.backend.boundedContext.order.domain.OrderItemSpec;
-import com.backend.boundedContext.order.domain.ReturnReasonCode;
+import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.boundedContext.order.domain.ShippingAddress;
 import com.backend.boundedContext.order.in.dto.ReturnRequestResponse;
 import com.backend.boundedContext.order.out.OrderRepository;

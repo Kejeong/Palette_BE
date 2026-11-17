@@ -4,7 +4,7 @@ import com.backend.boundedContext.order.domain.Order;
 import com.backend.boundedContext.order.domain.OrderItemSpec;
 import com.backend.boundedContext.order.domain.OrderPolicy;
 import com.backend.boundedContext.order.domain.ReturnItemDecision;
-import com.backend.boundedContext.order.domain.ReturnReasonCode;
+import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.boundedContext.order.domain.ShippingAddress;
 import com.backend.boundedContext.order.in.dto.ReturnResultResponse;
 import com.backend.boundedContext.order.out.OrderRepository;
@@ -99,7 +99,7 @@ class OrderAdminReturnUseCaseTest {
         }
 
         @Test
-        @DisplayName("상품 id 조회 → 상품 잠금 → 주문 잠금 → 복원 고른 항목만 RETURN_RESTORE(수량 전체) → OrderReturnedEvent(결제 금액 전액)")
+        @DisplayName("상품 id 조회 → 상품 잠금 → 주문 잠금 → 복원 고른 항목만 RETURN_RESTORE(수량 전체) → OrderReturnedEvent(결제 금액 전액, 반품 사유)")
         void approve_order() {
             ReturnResultResponse response = useCase.approve(ORDER_ID,
                     List.of(new ReturnItemDecision(ITEM_1, true), new ReturnItemDecision(ITEM_2, false)));
@@ -114,7 +114,8 @@ class OrderAdminReturnUseCaseTest {
             ArgumentCaptor<DomainEvent> event = ArgumentCaptor.forClass(DomainEvent.class);
             inOrder.verify(eventPublisher).publish(event.capture());
 
-            assertThat(event.getValue()).isEqualTo(new OrderReturnedEvent(ORDER_ID, BUYER_ID, 27_500, order.getReturnedAt()));
+            assertThat(event.getValue()).isEqualTo(new OrderReturnedEvent(ORDER_ID, BUYER_ID, 27_500, order.getReturnedAt(),
+                    ReturnReasonCode.DEFECTIVE));
             assertThat(order.getPayAmount()).isEqualTo(27_500);   // 상품 25,000 + 배송비 2,500
         }
 

@@ -2,7 +2,7 @@ package com.backend.boundedContext.order.app;
 
 import com.backend.boundedContext.order.domain.Order;
 import com.backend.boundedContext.order.domain.OrderErrorCode;
-import com.backend.boundedContext.order.domain.ReturnReasonCode;
+import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.boundedContext.order.in.dto.ReturnRequestResponse;
 import com.backend.boundedContext.order.out.OrderRepository;
 import com.backend.global.exception.DomainException;

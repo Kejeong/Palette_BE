@@ -72,9 +72,14 @@ public class WalletHolding extends BaseIdAndTime {
         return holding;
     }
 
-    // 결제 취소로 홀딩 해제. 정산 지급이 시작된 홀딩은 해제할 수 없다
+    // 결제 취소·반품 환불로 해제할 수 있는지: 보관 중이고 정산 지급이 시작되지 않았어야 한다
+    public boolean isReleasable() {
+        return status == WalletHoldingStatus.HELD && settledAmount == 0;
+    }
+
+    // 결제 취소·반품 환불로 홀딩 해제. 정산 지급이 시작된 홀딩은 해제할 수 없다
     public void release(LocalDateTime now) {
-        if (status != WalletHoldingStatus.HELD || settledAmount > 0) {
+        if (!isReleasable()) {
             throw new DomainException(PaymentErrorCode.PAYMENT_NOT_CANCELABLE);
         }
         this.status = WalletHoldingStatus.RELEASED;
