@@ -246,14 +246,31 @@ class ProductSearchIndexTest {
         return LocalDateTime.now().plusDays(1).withNano(0);
     }
 
-    /** 받은 문서와 지운 ID를 기록하는 색인 포트 */
+    /** 받은 문서와 지운 ID, 호출 순서를 기록하는 색인 포트 */
     private static class RecordingIndexPort implements ProductSearchIndexPort {
         final List<ProductSearchDocument> upserted = new ArrayList<>();
         final List<Long> deleted = new ArrayList<>();
+        final List<Long> bulkIndexed = new ArrayList<>();
+        /** create, switch, delete:{id} 순서 */
+        final List<String> events = new ArrayList<>();
+        boolean aliasExists = true;
+        /** triggerId가 든 묶음을 bulkIndex한 직후 한 번 실행한다 (재색인 중 변경 흉내) */
+        private Long triggerId;
+        private Runnable onBulkIndex;
+
+        void afterBulkIndexOf(Long productId, Runnable hook) {
+            this.triggerId = productId;
+            this.onBulkIndex = hook;
+        }
 
         @Override
         public boolean isEnabled() {
             return true;
+        }
+
+        @Override
+        public boolean aliasExists() {
+            return aliasExists;
         }
 
         @Override
@@ -264,16 +281,23 @@ class ProductSearchIndexTest {
         @Override
         public void delete(Collection<Long> productIds) {
             deleted.addAll(productIds);
+            productIds.forEach(id -> events.add("delete:" + id));
         }
 
         @Override
         public String createIndex() {
+            events.add("create");
             return "products_test";
         }
 
         @Override
         public void bulkIndex(String indexName, List<ProductSearchDocument> documents) {
-            upserted.addAll(documents);
+            documents.forEach(doc -> bulkIndexed.add(doc.productId()));
+            if (onBulkIndex != null && documents.stream().anyMatch(doc -> doc.productId() == triggerId)) {
+                Runnable hook = onBulkIndex;
+                onBulkIndex = null;
+                hook.run();
+            }
         }
 
         @Override

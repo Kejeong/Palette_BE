@@ -22,7 +22,11 @@ import java.util.Set;
 /**
  * ES 상품 색인. 검색과 변경 반영은 alias({@code products})로 하고, 실제 인덱스는 {@code products_{만든 시각}}이다.
  * 매핑을 바꿀 때는 전체 재색인으로 새 인덱스를 채운 뒤 alias만 옮긴다.
- * alias가 아직 없을 때 쓰면 ES가 매핑 없이 {@code products} 인덱스를 자동으로 만들어 버리므로, 쓰기 전에 빈 인덱스와 alias를 먼저 만든다.
+ * <p>
+ * alias가 없으면 색인에 쓰지 않고 예외를 던진다. 빈 인덱스를 만들어 붙이면 검색이 실패하지 않고 방금 색인한 몇 개만 돌려줘
+ * DB 검색으로 넘어가지도 않기 때문이다 (실패보다 "틀린 결과로 성공"이 더 위험하다). alias는 전체 재색인이 만들고,
+ * 기동할 때 alias가 없으면 자동으로 전체 재색인한다(ProductSearchIndexInitializer).
+ * 쓰기 요청에는 require_alias를 건다. 앱이 떠 있는 동안 ES 데이터가 지워져도, ES가 매핑 없는 {@code products} 인덱스를 자동으로 만들지 않고 거부한다.
  */
 @Slf4j
 @Component
@@ -47,10 +51,24 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
     }
 
     @Override
+    public boolean aliasExists() {
+        try {
+            return client.indices().existsAlias(e -> e.name(alias)).value();
+        } catch (IOException e) {
+            throw new UncheckedIOException("상품 검색 alias를 확인하지 못했습니다. alias=" + alias, e);
+        }
+    }
+
+    @Override
     public void upsert(List<ProductSearchDocument> documents) {
         if (documents.isEmpty()) return;
         ensureAlias();
-        bulkIndex(alias, documents);
+        BulkRequest.Builder bulk = new BulkRequest.Builder().requireAlias(true);
+        documents.forEach(doc -> bulk.operations(op -> op.index(i -> i
+                .index(alias)
+                .id(String.valueOf(doc.productId()))
+                .document(doc))));
+        execute(bulk.build());
     }
 
     @Override
@@ -58,7 +76,7 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
         if (productIds.isEmpty()) return;
         ensureAlias();
 
-        BulkRequest.Builder bulk = new BulkRequest.Builder();
+        BulkRequest.Builder bulk = new BulkRequest.Builder().requireAlias(true);
         productIds.forEach(id -> bulk.operations(op -> op.delete(d -> d.index(alias).id(String.valueOf(id)))));
         execute(bulk.build());
     }
@@ -105,21 +123,16 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
         }
     }
 
-    /** alias가 없으면 빈 인덱스를 만들어 붙인다. 한 번 확인하면 다시 묻지 않는다 */
+    /**
+     * alias가 없으면 쓰지 않고 예외를 던진다. 있으면 다시 묻지 않는다
+     * (그 뒤에 alias가 사라지면 require_alias가 쓰기를 거부한다).
+     */
     private void ensureAlias() {
         if (aliasReady) return;
-        synchronized (this) {
-            if (aliasReady) return;
-            try {
-                if (!client.indices().existsAlias(e -> e.name(alias)).value()) {
-                    switchAlias(createIndex());
-                    log.info("상품 검색 인덱스가 없어 빈 인덱스를 만들었습니다. 기존 상품은 전체 재색인으로 채웁니다.");
-                }
-                aliasReady = true;
-            } catch (IOException e) {
-                throw new UncheckedIOException("상품 검색 alias를 확인하지 못했습니다. alias=" + alias, e);
-            }
+        if (!aliasExists()) {
+            throw new IllegalStateException("상품 검색 alias가 없어 색인하지 않습니다. 전체 재색인이 alias를 만든 뒤 반영합니다. alias=" + alias);
         }
+        aliasReady = true;
     }
 
     private Set<String> currentIndices() throws IOException {
