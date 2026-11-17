@@ -9,6 +9,7 @@ import com.backend.boundedContext.product.out.ProductOptionRepository;
 import com.backend.boundedContext.product.out.ProductRepository;
 import com.backend.boundedContext.product.out.search.ProductEsIndexAdapter;
 import com.backend.boundedContext.product.out.search.ProductSearchDocument;
+import com.backend.boundedContext.product.out.search.SearchIndexUnavailableException;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,13 +33,15 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 
 /**
- * 검색 색인 컨슈머가 product.events의 상품 변경 이벤트를 받아 색인하는지, 실패하면 DLT 없이 성공할 때까지 다시 처리하는지 확인한다.
+ * 검색 색인 컨슈머가 product.events의 상품 변경 이벤트를 받아 색인하는지 확인한다.
+ * 일시 오류(ES 장애)는 DLT 없이 성공할 때까지 다시 처리하고, 특정 상품의 영구 오류는 그 상품만 건너뛰고 다른 상품은 색인한다.
  * Kafka는 EmbeddedKafka, DB는 로컬 Docker PostgreSQL을 쓴다. 검색 엔진을 es로 켜되 ES 대신 색인 어댑터를 mock으로 바꾼다.
  * 릴레이(OutboxKafkaSender)와 같은 형식(키 productId, eventType 헤더)으로 직접 보낸다. 컨슈머는 payload를 읽지 않는다.
  */
@@ -70,17 +73,19 @@ class ProductSearchIndexKafkaListenerIntegrationTest {
 
     private Long productId;
     private Long optionId;
+    private Long otherProductId;
+    private Long otherOptionId;
 
     @BeforeEach
     void setUp() {
         given(indexAdapter.isEnabled()).willReturn(true);
         transactionTemplate.executeWithoutResult(status -> {
-            Product product = productRepository.save(Product.create(
-                    sellerId, categoryRepository.findByParentNameAndName("뷰티", "스킨케어").orElseThrow(), "색인 컨슈머 테스트 크림", "설명", 10_000L));
-            ProductOption option = productOptionRepository.save(ProductOption.createDefault(product));
-            optionStockRepository.save(OptionStock.init(option, 10));
+            Product product = saveProduct("색인 컨슈머 테스트 크림");
             productId = product.getId();
-            optionId = option.getId();
+            optionId = saveOption(product).getId();
+            Product other = saveProduct("색인 컨슈머 테스트 토너");
+            otherProductId = other.getId();
+            otherOptionId = saveOption(other).getId();
         });
     }
 
@@ -89,13 +94,15 @@ class ProductSearchIndexKafkaListenerIntegrationTest {
         transactionTemplate.executeWithoutResult(status -> {
             productOptionRepository.deleteById(optionId);
             productRepository.deleteById(productId);
+            productOptionRepository.deleteById(otherOptionId);
+            productRepository.deleteById(otherProductId);
         });
     }
 
     @Test
     @DisplayName("색인이 공통 재시도 횟수(4번)보다 많이 실패해도(ES 장애) DLT로 보내지 않고 다시 처리해 결국 DB의 지금 값으로 색인한다")
     void retriesUntilIndexed() {
-        IllegalStateException esDown = new IllegalStateException("ES 응답 없음");
+        SearchIndexUnavailableException esDown = new SearchIndexUnavailableException("ES 응답 없음");
         doThrow(esDown).doThrow(esDown).doThrow(esDown).doThrow(esDown).doThrow(esDown).doThrow(esDown)   // 6번 실패
                 .doNothing()
                 .when(indexAdapter).upsert(anyList());
@@ -121,6 +128,47 @@ class ProductSearchIndexKafkaListenerIntegrationTest {
 
         await().atMost(WAIT).until(() -> upsertCalls() >= 1);
         assertThat(upsertCalls()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("한 상품의 색인이 계속 실패하는 영구 오류면 그 상품만 건너뛰고, 같은 묶음의 다른 상품과 뒤 메시지는 색인한다")
+    void permanentErrorSkipsOnlyThatProduct() {
+        doAnswer(invocation -> {
+            List<ProductSearchDocument> documents = invocation.getArgument(0);
+            if (documents.stream().anyMatch(doc -> doc.productId() == productId)) {
+                throw new IllegalArgumentException("이 상품의 데이터 문제");   // 다시 해도 같은 오류
+            }
+            return null;
+        }).when(indexAdapter).upsert(anyList());
+
+        send(String.valueOf(productId), "ProductChangedEvent");
+        send(String.valueOf(otherProductId), "ProductChangedEvent");
+        await().atMost(WAIT).until(() -> indexedIds().contains(otherProductId));
+
+        send(String.valueOf(otherProductId), "ProductChangedEvent");   // 컨슈머가 멈추지 않고 다음 메시지도 처리한다
+        await().atMost(WAIT).until(() -> indexedIds().stream().filter(otherProductId::equals).count() >= 2);
+        assertThat(indexedIds()).doesNotContain(productId);
+    }
+
+    /** 성공한 upsert에 들어간 상품 ID (예외를 던진 호출은 빼려고 한 상품씩 다시 한 호출만 센다) */
+    private List<Long> indexedIds() {
+        return mockingDetails(indexAdapter).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("upsert"))
+                .map(invocation -> invocation.<List<ProductSearchDocument>>getArgument(0))
+                .filter(documents -> documents.stream().noneMatch(doc -> doc.productId() == productId))
+                .flatMap(documents -> documents.stream().map(ProductSearchDocument::productId))
+                .toList();
+    }
+
+    private Product saveProduct(String name) {
+        return productRepository.save(Product.create(
+                sellerId, categoryRepository.findByParentNameAndName("뷰티", "스킨케어").orElseThrow(), name, "설명", 10_000L));
+    }
+
+    private ProductOption saveOption(Product product) {
+        ProductOption option = productOptionRepository.save(ProductOption.createDefault(product));
+        optionStockRepository.save(OptionStock.init(option, 10));
+        return option;
     }
 
     private long upsertCalls() {

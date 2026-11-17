@@ -108,7 +108,7 @@ custom:
       discountBoundaryOverlapSeconds: 30    # 지난 성공 실행 시각보다 이만큼 앞부터 다시 본다. 실행 지연·커밋 지연·서버 간 시계 차이로 놓치지 않게 겹쳐 읽는다
       discountBoundaryLookbackMinutes: 5    # 앱을 띄운 뒤 첫 실행(지난 실행 시각이 없을 때)만 이만큼 돌아본다. 재시작·배포 동안 지난 경계를 채운다
       aliasCheckIntervalSeconds: 60         # 검색 alias가 있는지 확인하는 간격(초). 없으면 전체 재색인한다(기동 직후 첫 확인). ES 장애·데이터 재구성 뒤 이 시간 안에 복구된다
-      indexConsumer:                        # 검색 색인 컨슈머(product.events, groupId market-search-index). 실패하면 DLT 없이 성공할 때까지 다시 처리한다
+      indexConsumer:                        # 검색 색인 컨슈머(product.events, groupId market-search-index). 일시 오류(ES·DB 연결)는 DLT 없이 성공할 때까지 다시 처리한다
         retryInitialIntervalMillis: 1000    # 첫 재시도 전 대기(밀리초). 이후 두 배씩 늘린다
         retryMaxIntervalMillis: 30000       # 재시도 간격 최대(밀리초). ES가 돌아온 뒤 이 시간 안에 밀린 변경 반영을 다시 시작한다
     popularKeyword:
