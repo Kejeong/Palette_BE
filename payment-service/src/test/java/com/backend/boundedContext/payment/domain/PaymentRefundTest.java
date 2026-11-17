@@ -29,11 +29,11 @@ class PaymentRefundTest {
 
     @Test
     @DisplayName("단순 변심만 구매자가 배송비를 낸다 (기타·불량·사유 없음은 전액 환불)")
-    void isBuyerPaysShipping() {
-        assertThat(PaymentRefund.request(1L, 1, ReturnReasonCode.CHANGE_OF_MIND).isBuyerPaysShipping()).isTrue();
-        assertThat(PaymentRefund.request(1L, 1, ReturnReasonCode.DEFECTIVE).isBuyerPaysShipping()).isFalse();
-        assertThat(PaymentRefund.request(1L, 1, ReturnReasonCode.OTHER).isBuyerPaysShipping()).isFalse();
-        assertThat(PaymentRefund.request(1L, 1, null).isBuyerPaysShipping()).isFalse();
+    void isChangeOfMind() {
+        assertThat(PaymentRefund.request(1L, 1, ReturnReasonCode.CHANGE_OF_MIND).isChangeOfMind()).isTrue();
+        assertThat(PaymentRefund.request(1L, 1, ReturnReasonCode.DEFECTIVE).isChangeOfMind()).isFalse();
+        assertThat(PaymentRefund.request(1L, 1, ReturnReasonCode.OTHER).isChangeOfMind()).isFalse();
+        assertThat(PaymentRefund.request(1L, 1, null).isChangeOfMind()).isFalse();
     }
 
     @Test

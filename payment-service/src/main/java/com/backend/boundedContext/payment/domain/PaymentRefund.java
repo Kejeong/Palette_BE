@@ -79,8 +79,8 @@ public class PaymentRefund extends BaseIdAndTime {
                 || (status == PaymentRefundStatus.FAILED_SYSTEM_ERROR && retryCount < MAX_SYSTEM_ERROR_RETRIES);
     }
 
-    // 단순 변심만 처음 배송비를 돌려주지 않고 반품 배송비를 뺀다. 기타·불량·사유 없음은 전액 환불
-    public boolean isBuyerPaysShipping() {
+    // 단순 변심이면 처음 배송비를 돌려주지 않는다. 그리고 반품 배송비를 뺀다. 기타·불량·사유 없음은 전액 환불한다.
+    public boolean isChangeOfMind() {
         return reason == ReturnReasonCode.CHANGE_OF_MIND;
     }
 
@@ -102,6 +102,23 @@ public class PaymentRefund extends BaseIdAndTime {
         this.status = failStatus;
         this.failReason = truncate(reason);
         if (failStatus == PaymentRefundStatus.FAILED_SYSTEM_ERROR) this.retryCount++;
+    }
+
+    // 환불 원장의 멱등 키. 환불 ID 기준이라 같은 환불은 재시도해도 원장이 한 번만 생긴다
+    public String idempotencyKey() {
+        return "REFUND-" + getId();
+    }
+
+    public String couponSubsidyIdempotencyKey() {
+        return idempotencyKey() + "-COUPON_SUBSIDY";
+    }
+
+    public String shippingFeeIdempotencyKey() {
+        return idempotencyKey() + "-SHIPPING_FEE";
+    }
+
+    public String pickupFeeIdempotencyKey() {
+        return idempotencyKey() + "-RETURN_PICKUP_FEE";
     }
 
     // 처리할 수 없는 상태(완료, 사람이 볼 실패, 재시도 끝)에서 바꾸려 하면 호출한 쪽 버그다

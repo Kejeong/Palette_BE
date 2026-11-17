@@ -182,6 +182,61 @@ public class Payment extends BaseIdAndTime {
         return transactions;
     }
 
+    // 반품 환불: 홀딩 해제하고 반품 사유에 따라 로직이 달라진다.
+    // - 단순 변심인 경우: [구매자에게 결제 금액 − 처음 배송비 − 반품 회수 택배비]를 돌려준다. 반품 회수 택배비는 홀딩에서 플랫폼으로(RETURN_PICKUP_FEE) 이동한다. 처음 배송비는 결제 때 이미 플랫폼에 있으므로 그대로 둔다
+    // - 불량, 기타인 경우: [구매자에게 결제 금액 전부]를 돌려준다. 플랫폼 지갑에서 처음 배송비를 뺀다(SHIPPING_FEE_REFUND)
+    // 쿠폰 지원금은 사유와 상관없이 플랫폼으로 돌아간다(COUPON_SUBSIDY_CANCEL)
+    // 정산이 시작된 홀딩이거나 플랫폼 잔액이 부족하면 DomainException으로 막는다
+    public List<WalletTransaction> refund(
+            Wallet buyerWallet,
+            Wallet platformWallet,
+            WalletHolding holding,
+            PaymentRefund paymentRefund,
+            long pickupFee,
+            LocalDateTime now
+    ) {
+        if (!isPaid()) throw new IllegalStateException("결제 완료 건만 환불할 수 있습니다: " + status);
+        if (holding.getStatus() != WalletHoldingStatus.HELD || holding.getSettledAmount() > 0) {
+            throw new DomainException(PaymentErrorCode.REFUND_HOLDING_SETTLED);
+        }
+
+        boolean changeOfMind = paymentRefund.isChangeOfMind();
+        long chargedPickupFee = changeOfMind ? pickupFee : 0;
+        long buyerAmount = changeOfMind ? amount - shippingFee - chargedPickupFee : amount;
+        if (buyerAmount <= 0) throw new DomainException(PaymentErrorCode.REFUND_PICKUP_FEE_EXCEEDED);
+
+        boolean shouldRefundShippingFee = !changeOfMind && hasShippingFee();
+        // 지원금을 먼저 돌려받으므로, 플랫폼은 (배송비 − 지원금)만 있으면 배송비를 내놓을 수 있다
+        if (shouldRefundShippingFee && !platformWallet.canPay(shippingFee - couponSubsidyAmount)) {
+            throw new DomainException(PaymentErrorCode.REFUND_PLATFORM_BALANCE_INSUFFICIENT);
+        }
+
+        holding.release(now);
+        this.status = PaymentStatus.REFUNDED;
+        this.refundedAt = now;
+        paymentRefund.complete(getId(), buyerAmount, chargedPickupFee, now);
+
+        List<WalletTransaction> transactions = new ArrayList<>();
+        transactions.add(buyerWallet.change(
+                WalletTransactionType.REFUND, buyerAmount, paymentRefund.getId(), paymentRefund.idempotencyKey()));
+        if (hasCouponSubsidy()) {
+            transactions.add(platformWallet.change(
+                    WalletTransactionType.COUPON_SUBSIDY_CANCEL, couponSubsidyAmount, getId(),
+                    paymentRefund.couponSubsidyIdempotencyKey()));
+        }
+        if (shouldRefundShippingFee) {
+            transactions.add(platformWallet.change(
+                    WalletTransactionType.SHIPPING_FEE_REFUND, shippingFee, paymentRefund.getId(),
+                    paymentRefund.shippingFeeIdempotencyKey()));
+        }
+        if (chargedPickupFee > 0) {
+            transactions.add(platformWallet.change(
+                    WalletTransactionType.RETURN_PICKUP_FEE, chargedPickupFee, paymentRefund.getId(),
+                    paymentRefund.pickupFeeIdempotencyKey()));
+        }
+        return transactions;
+    }
+
     private void rejectIfPlatformWalletMissing(Wallet platformWallet) {
         if (needsPlatformWallet() && platformWallet == null) {
             throw new IllegalArgumentException("배송비·쿠폰 지원금이 있는 결제는 플랫폼 지갑이 필요합니다: shippingFee="
