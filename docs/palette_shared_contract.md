@@ -725,6 +725,32 @@ public record TransferResultDto(String idempotencyKey, Long walletTransactionId,
 
 관리자 수동 실행(`POST /api/v1/admin/settlements/runs`)은 실행할 수 있는지만 확인하고 202로 바로 돌아옵니다. 결과는 실행 기록(`GET /api/v1/admin/settlements/runs`)으로 봅니다.
 
+### 관리자 실패 거래 공통 형식 (AdminFailureItem)
+
+관리자 실패 거래 화면(A7)은 서비스마다 `GET /api/v1/admin/{서비스}/failures`를 불러 결과를 한 표로 합칩니다. 그래서 모든 서비스가 `common`의 `com.backend.shared.admin.dto.AdminFailureItem`으로 돌려줍니다.
+
+- 공통 요청: `from`, `to`(yyyy-MM-dd, 포함, 한국 시간), `page`, `size`. 관리자(ADMIN)만
+- 공통 응답: `RsData<PageResponse<AdminFailureItem>>`, `occurredAt` 내림차순(최신순). `totalElements`를 화면 탭 건수로 쓴다
+- 대상 이름: 회원은 `AdminFailureItem.maskEmail(이메일)`, 판매자는 상호명
+
+| 필드 | 뜻 |
+| --- | --- |
+| `type` | `AdminFailureType`: PAYMENT_FAILED, TOPUP_DELAYED, REFUND_FAILED, SETTLEMENT_MANUAL_REQUIRED, DELIVERY_TRACKING_FAILED |
+| `occurredAt` | 실패가 생긴(또는 지금 상태가 된) 시각 |
+| `targetType`, `targetId` | MEMBER(회원 ID) 또는 SELLER(판매자 ID) |
+| `targetLabel` | 표시용 대상 이름. 모르면 null |
+| `amount` | 금액(원). 없는 유형은 null |
+| `reasonCode`, `reasonLabel` | 원인 코드와 표의 "원인" 문구 |
+| `handlingCode`, `handlingLabel` | 처리 방법 코드와 표의 "처리" 문구 |
+| `refId`, `orderId` | 원본 ID(결제, 충전, 환불, 정산서, 배송), 관련 주문 ID(없으면 null) |
+
+| 유형 | 서비스 | 경로 | 상태 |
+| --- | --- | --- | --- |
+| SETTLEMENT_MANUAL_REQUIRED | settlement | `GET /api/v1/admin/settlements/failures` | 구현 |
+| PAYMENT_FAILED, TOPUP_DELAYED | payment | `GET /api/v1/admin/payments/failures` | 요청 |
+| REFUND_FAILED | payment (환불) | `GET /api/v1/admin/refunds/failures` | 요청 |
+| DELIVERY_TRACKING_FAILED | delivery | `GET /api/v1/admin/deliveries/failures` | 요청 |
+
 ### SettlementApi
 
 ```java
