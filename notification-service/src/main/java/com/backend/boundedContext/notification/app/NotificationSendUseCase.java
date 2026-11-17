@@ -21,9 +21,14 @@ public class NotificationSendUseCase {
         sendUnreadCount(memberId);
     }
 
-    // 읽음 처리로 바뀐 안 읽은 개수를 보냄. 같은 회원의 다른 탭 뱃지도 맞춰짐
+    // 안 읽은 개수를 보냄. 연결이 없으면 조회하지 않음
     public void sendUnreadCount(Long memberId) {
         if (notificationEmitters.count(memberId) == 0) return;
         notificationEmitters.send(memberId, NotificationEmitters.UNREAD_COUNT, notificationGetUnreadCountUseCase.getUnreadCount(memberId));
+    }
+
+    // 모든 연결에 heartbeat를 보냄. 끊긴 연결도 이때 정리됨
+    public void sendHeartbeat() {
+        notificationEmitters.sendHeartbeat();
     }
 }

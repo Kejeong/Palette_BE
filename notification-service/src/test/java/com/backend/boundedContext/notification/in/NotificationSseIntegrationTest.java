@@ -36,7 +36,8 @@ import static org.awaitility.Awaitility.await;
  * 실제 서버(임의 포트)에 SSE로 연결해 응답 형식과 연결 저장소를 확인함
  * MockMvc는 비동기 응답을 끝까지 흘려보내지 않아 실제 HTTP 연결로 확인함.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// heartbeat 스케줄러가 테스트 중간에 끼어들면 읽는 이벤트 순서가 바뀌므로 스케줄링을 끔
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "custom.scheduling.enabled=false")
 class NotificationSseIntegrationTest {
 
     @LocalServerPort private int port;
@@ -150,6 +151,18 @@ class NotificationSseIntegrationTest {
             notificationFacade.readAll(memberId);
             // 없는 알림 읽음 처리가 보냈다면 data:1이 먼저 읽혔을 것임
             assertThat(readEvent(reader)).containsExactly("event:unread-count", "data:0");
+        }
+    }
+
+    @Test
+    @DisplayName("heartbeat는 SSE 주석으로 와서 이벤트로 처리되지 않음")
+    void heartbeat_sentAsComment() throws Exception {
+        try (BufferedReader reader = subscribe()) {
+            readEvent(reader);
+
+            notificationFacade.sendHeartbeat();
+
+            assertThat(readEvent(reader)).containsExactly(":heartbeat");
         }
     }
 

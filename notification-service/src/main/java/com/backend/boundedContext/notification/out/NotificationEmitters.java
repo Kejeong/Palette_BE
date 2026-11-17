@@ -37,20 +37,31 @@ public class NotificationEmitters {
         emitter.onError(e -> remove(memberId, emitter));
     }
 
-    // 회원의 모든 연결로 이벤트를 보냄. 보내지 못한 연결은 끊긴 것으로 보고 지움
+    // 회원의 모든 연결로 이벤트를 보냄
     public void send(Long memberId, String name, Object data) {
         for (SseEmitter emitter : emitters.getOrDefault(memberId, Set.of())) {
-            try {
-                emitter.send(SseEmitter.event().name(name).data(data));
-            } catch (IOException | IllegalStateException e) {
-                log.debug("SSE 전송 실패로 연결을 정리함: memberId={}, event={}", memberId, name, e);
-                remove(memberId, emitter);
-            }
+            send(memberId, emitter, SseEmitter.event().name(name).data(data));
         }
+    }
+
+    // 모든 연결로 SSE 주석(:heartbeat)을 보냄. 프론트는 무시하고, 끊긴 연결은 이때 정리됨
+    public void sendHeartbeat() {
+        emitters.forEach((memberId, set) -> set.forEach(emitter ->
+                send(memberId, emitter, SseEmitter.event().comment("heartbeat"))));
     }
 
     public int count(Long memberId) {
         return emitters.getOrDefault(memberId, Set.of()).size();
+    }
+
+    // 보내지 못한 연결은 끊긴 것으로 보고 지움
+    private void send(Long memberId, SseEmitter emitter, SseEmitter.SseEventBuilder event) {
+        try {
+            emitter.send(event);
+        } catch (IOException | IllegalStateException e) {
+            log.debug("SSE 전송 실패로 연결을 정리함: memberId={}", memberId, e);
+            remove(memberId, emitter);
+        }
     }
 
     // 목록이 비면 키까지 지움

@@ -41,4 +41,19 @@ class NotificationEmittersTest {
 
         assertThat(emitters.count(1L)).isZero();
     }
+
+    @Test
+    @DisplayName("heartbeat는 모든 회원의 연결로 보내고, 보내지 못한 연결만 지움")
+    void sendHeartbeat_removesBrokenEmitters() {
+        SseEmitter broken = new SseEmitter();
+        emitters.add(1L, broken);
+        emitters.add(1L, new SseEmitter());
+        emitters.add(2L, new SseEmitter());
+        broken.complete();
+
+        emitters.sendHeartbeat();
+
+        assertThat(emitters.count(1L)).isEqualTo(1);
+        assertThat(emitters.count(2L)).isEqualTo(1);
+    }
 }

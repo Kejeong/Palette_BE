@@ -50,19 +50,24 @@ public class NotificationFacade {
         return notificationGetUnreadCountUseCase.getUnreadCount(memberId);
     }
 
-    // 연결이 이어지는 동안 트랜잭션을 잡지 않도록 트랜잭션 없이 둠. 안 읽은 개수 조회는 리포지토리 기본 트랜잭션으로 처리됨
+    // SSE 연결 등록. 연결 동안 트랜잭션을 잡지 않도록 트랜잭션 없이 둠
     public SseEmitter subscribe(Long memberId) {
         return notificationSubscribeUseCase.subscribe(memberId);
     }
 
-    // 커밋된 뒤(AFTER_COMMIT)에 불리므로 트랜잭션 없이 둠
+    // 새 알림 SSE 전송. 커밋 뒤에 불려 트랜잭션 없이 둠
     public void sendCreated(Long memberId, NotificationDto notification) {
         notificationSendUseCase.sendCreated(memberId, notification);
     }
 
-    // 커밋된 뒤(AFTER_COMMIT)에 불리므로 트랜잭션 없이 둠
+    // 안 읽은 개수 SSE 전송. 커밋 뒤에 불려 트랜잭션 없이 둠
     public void sendUnreadCount(Long memberId) {
         notificationSendUseCase.sendUnreadCount(memberId);
+    }
+
+    // 모든 SSE 연결에 heartbeat 전송
+    public void sendHeartbeat() {
+        notificationSendUseCase.sendHeartbeat();
     }
 
     @Transactional
