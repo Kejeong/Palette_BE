@@ -471,6 +471,24 @@ services:
       - loki-data:/loki
     mem_limit: 512m
 
+  # ── 메트릭: Alloy(앱 actuator·cadvisor·호스트 지표 수집) → Prometheus(저장) → Grafana ──
+  # 스크랩하지 않고 Alloy가 보내는 것(remote write)만 받는다. 외부·호스트에 포트를 열지 않는다
+  prometheus:
+    image: prom/prometheus:v3.5.0   # LTS
+    container_name: palette-prometheus
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=4GB   # 디스크 50GB 안전장치. 먼저 닿는 쪽이 적용된다
+      - --web.enable-remote-write-receiver
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus   # 이미지의 /prometheus가 nobody 소유라 새 볼륨도 그 권한(서버 chown 불필요)
+    mem_limit: 512m
+
   alloy:
     image: grafana/alloy:v1.10.0
     container_name: palette-alloy
@@ -478,13 +496,23 @@ services:
     logging: *default-logging
     # storage.path: 어디까지 보냈는지 기억해, 재시작해도 로그를 중복으로 보내지 않는다
     command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
+    # 컨테이너 지표(cadvisor)는 호스트 cgroup·Docker 저장소를 읽어야 해서 privileged가 필요하다(Alloy 문서).
+    # 이미 docker.sock을 갖고 있어(호스트 root와 같은 권한) 권한 차이는 작다. 마운트는 모두 읽기 전용
+    privileged: true
     volumes:
       - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloy-data:/var/lib/alloy/data
-    mem_limit: 256m
+      # 아래는 메트릭용: cadvisor(컨테이너)·unix(호스트) 지표
+      - /:/rootfs:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+      - /proc:/host/proc:ro
+    mem_limit: 384m   # 로그 + cadvisor + 호스트 지표 + remote write 버퍼
     depends_on:
       - loki
+      - prometheus
 
   grafana:
     # 12.2부터 알림 규칙 파일의 keepFiringFor(해결 판단 유예)를 읽는다(monitoring/grafana/provisioning/alerting/rules.yaml)
@@ -510,11 +538,13 @@ services:
     mem_limit: 256m
     depends_on:
       - loki
+      - prometheus
 
 volumes:
   postgres-data:
   redis-data:
   kafka-data:
   loki-data:
+  prometheus-data:
   alloy-data:
   grafana-data:

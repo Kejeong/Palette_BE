@@ -40,6 +40,12 @@ public class SecurityConfig {
     private static final String[] PUBLIC_API_URLS = {
             "/error"
     };
+    // 메트릭 수집(Alloy)·상태 확인. 노출하는 엔드포인트는 health·prometheus뿐이다(common observability-defaults.properties)
+    // 컨테이너에서는 관리 포트(9091, Dockerfile의 MANAGEMENT_SERVER_PORT)에만 뜬다. nginx는 이 포트를 넘기지 않고 /actuator는 404로 막으며,
+    // 포트를 호스트에 열지 않아 Docker 내부망에서만 닿는다. 앱 포트(808x)에는 actuator가 없다(로컬 bootRun만 앱 포트에 뜬다)
+    private static final String[] ACTUATOR_URLS = {
+            "/actuator/**"
+    };
     private static final String[] PUBLIC_GET_API_URLS = {
             "/api/v1/ai/recommendations",   // 맞춤 상품 추천(비회원은 최신순). 정확히 이 경로만, 크리에이터 추천은 로그인 필요
             "/api/v1/products/**",
@@ -142,6 +148,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(SWAGGER_URLS).permitAll()
                         .requestMatchers(PUBLIC_API_URLS).permitAll()
+                        .requestMatchers(ACTUATOR_URLS).permitAll()
                         // 인플루언서 프로필(/api/v1/influencers/*)은 공개지만 내 신청 정보는 로그인 필요. 공개 규칙보다 먼저 둔다
                         .requestMatchers(HttpMethod.GET, "/api/v1/influencers/me").hasRole("USER")
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_API_URLS).permitAll()

@@ -17,6 +17,11 @@ dependencies {
 	runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
 	runtimeOnly("io.jsonwebtoken:jjwt-gson:0.12.6")
 	api("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1")
+	// 메트릭: /actuator/prometheus (Alloy가 스크랩 → Prometheus). 기본값은 observability-defaults.properties
+	api("org.springframework.boot:spring-boot-starter-actuator")
+	api("io.micrometer:micrometer-registry-prometheus")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
+	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")     // ActuatorAccessTest
+	testImplementation("org.springframework.boot:spring-boot-starter-security-test")
 }
