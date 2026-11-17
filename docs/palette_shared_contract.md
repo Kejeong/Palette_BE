@@ -749,7 +749,16 @@ public record TransferResultDto(String idempotencyKey, Long walletTransactionId,
 | SETTLEMENT_MANUAL_REQUIRED | settlement | `GET /api/v1/admin/settlements/failures` | 구현 |
 | PAYMENT_FAILED, TOPUP_DELAYED | payment | `GET /api/v1/admin/payments/failures` | 요청 |
 | REFUND_FAILED | payment (환불) | `GET /api/v1/admin/refunds/failures` | 요청 |
-| DELIVERY_TRACKING_FAILED | delivery | `GET /api/v1/admin/deliveries/failures` | 요청 |
+| DELIVERY_TRACKING_FAILED | delivery | `GET /api/v1/admin/deliveries/failures` | 구현 (TRSS-291) |
+
+배송 추적 실패(delivery) 항목:
+
+- 대상: 송장 등록 후 `custom.delivery.trackingFailureAfterDays`(기본 15일)가 지나도 배송 완료(DELIVERED)가 안 된 SHIPPED 배송. 정확히 15일째도 포함
+- `occurredAt` = 송장 등록 시각(`shippedAt`), `from`·`to`도 이 날짜로 거른다
+- `targetType` = SELLER, `targetId`·`targetLabel` = 배송 항목의 결제 시점 판매자 스냅샷(sellerId, 상호명). 회원 서비스는 부르지 않는다. 판매자가 여럿이면 첫 항목의 판매자와 "상호명 외 N곳"
+- `amount` = null, `reasonCode` = `STALLED_AFTER_SHIPPED`, `reasonLabel` = "송장 등록 후 15일 지남"(택배사에서 받은 마지막 상태가 있으면 " (택배사 상태: EXCEPTION)"처럼 붙임)
+- `handlingCode` = `LOGISTICS_CHECK`("물류 담당자 확인"), `refId` = 배송 ID, `orderId` = 주문 ID
+- 웹훅·조회 실패 횟수는 저장하지 않아 원인을 따로 나누지 않는다(지금은 `STALLED_AFTER_SHIPPED` 하나)
 
 ### SettlementApi
 
