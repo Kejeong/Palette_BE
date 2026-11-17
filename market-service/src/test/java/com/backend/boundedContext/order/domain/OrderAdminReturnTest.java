@@ -262,4 +262,21 @@ class OrderAdminReturnTest {
         assertThat(order.getRefundedAt()).isNull();
         assertThat(order.isRefundPending()).isFalse();
     }
+
+    @Test
+    @DisplayName("환불 지연 알림 기록: 환불 전이면 처음 한 번만 남기고, 환불 기록 뒤에는 남기지 않는다")
+    void markRefundAlerted() {
+        Order order = returnRequestedOrder();
+        assertThat(order.markRefundAlerted(DECIDED_AT)).isFalse();   // 반품 승인 전
+
+        order.approveReturn(List.of(decision(ITEM_1, true), decision(ITEM_2, false)), DECIDED_AT);
+        assertThat(order.markRefundAlerted(DECIDED_AT.plusHours(1))).isTrue();
+        assertThat(order.markRefundAlerted(DECIDED_AT.plusHours(2))).isFalse();
+        assertThat(order.getRefundAlertedAt()).isEqualTo(DECIDED_AT.plusHours(1));
+
+        Order refunded = returnRequestedOrder();
+        refunded.approveReturn(List.of(decision(ITEM_1, true), decision(ITEM_2, false)), DECIDED_AT);
+        refunded.markRefunded(DECIDED_AT.plusMinutes(1));
+        assertThat(refunded.markRefundAlerted(DECIDED_AT.plusHours(1))).isFalse();
+    }
 }

@@ -79,7 +79,7 @@ class OrderRefundCheckIntegrationTest {
     }
 
     @Test
-    @DisplayName("환불 전이면 그대로 두고, 반품 승인 후 60분이 지났으면 ERROR 로그로 알린다")
+    @DisplayName("환불 전이면 그대로 두고, 반품 승인 후 60분이 지났으면 ERROR 로그로 한 번만 알린다")
     void alertsWhenRefundIsLate(CapturedOutput output) {
         long recent = saveReturnedOrder(now.minusMinutes(5));
         long late = saveReturnedOrder(now.minusMinutes(61));
@@ -93,6 +93,25 @@ class OrderRefundCheckIntegrationTest {
         assertThat(refundedAt(late)).isNull();
         assertThat(output.getOut()).contains("환불되지 않았습니다: orderId=" + late)
                 .doesNotContain("환불되지 않았습니다: orderId=" + recent);
+        assertThat(refundAlertedAt(late)).isEqualTo(now);
+        assertThat(refundAlertedAt(recent)).isNull();
+
+        // 다음 실행(5분 뒤)에도 환불 전이지만 알림은 다시 내지 않는다
+        orderFacade.checkRefund(late, now.plusMinutes(5));
+        assertThat(output.getOut().split("환불되지 않았습니다: orderId=" + late + ",", -1)).hasSize(2);
+        assertThat(refundAlertedAt(late)).isEqualTo(now);
+    }
+
+    @Test
+    @DisplayName("알림을 보낸 뒤에도 환불을 계속 확인해서, 늦게 온 환불도 기록한다")
+    void recordsLateRefundAfterAlert() {
+        long orderId = saveReturnedOrder(now.minusMinutes(61));
+        given(paymentApi.getPaymentAttempts(orderId)).willReturn(List.of(attempt(PaymentAttemptStatus.PAID, null)));
+        orderFacade.checkRefund(orderId, now);
+
+        given(paymentApi.getPaymentAttempts(orderId)).willReturn(List.of(attempt(PaymentAttemptStatus.REFUNDED, now.plusMinutes(1))));
+        assertThat(orderFacade.checkRefund(orderId, now.plusMinutes(5))).isTrue();
+        assertThat(refundedAt(orderId)).isEqualTo(now.plusMinutes(1));
     }
 
     @Test
@@ -153,6 +172,10 @@ class OrderRefundCheckIntegrationTest {
 
     private LocalDateTime refundedAt(long orderId) {
         return jdbcTemplate.queryForObject("select refunded_at from market_order where id = ?", LocalDateTime.class, orderId);
+    }
+
+    private LocalDateTime refundAlertedAt(long orderId) {
+        return jdbcTemplate.queryForObject("select refund_alerted_at from market_order where id = ?", LocalDateTime.class, orderId);
     }
 
     private static PaymentAttemptDto attempt(PaymentAttemptStatus status, LocalDateTime refundedAt) {
