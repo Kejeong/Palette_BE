@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 상품 검색 색인 맞추기. DB가 원본이고 색인은 검색용 사본이다.
@@ -44,6 +45,12 @@ public class ProductSearchIndexSupport {
     private final ProductSearchIndexPort productSearchIndexPort;
     private final ProductPolicy productPolicy;
     private final EntityManager entityManager;
+
+    /**
+     * 전체 재색인이 실행 중인지. 두 재색인이 겹치면 뒤의 alias 전환이 앞 재색인의 인덱스를 지우고,
+     * 앞 재색인의 bulk가 같은 이름으로 매핑 없는 인덱스를 자동 생성한 뒤 alias를 그리로 옮길 수 있어 한 번에 하나만 실행한다 (market 한 대 전제)
+     */
+    private final AtomicBoolean rebuilding = new AtomicBoolean();
 
     /** 커밋 뒤에 이 상품들을 다시 색인해 달라고 요청한다 */
     public void requestIndex(Collection<Long> productIds) {
@@ -92,7 +99,14 @@ public class ProductSearchIndexSupport {
         if (!productSearchIndexPort.isEnabled() || productSearchIndexPort.aliasExists()) {
             return OptionalInt.empty();
         }
-        return OptionalInt.of(rebuildIndex());
+        if (!rebuilding.compareAndSet(false, true)) {
+            return OptionalInt.empty();   // 다른 재색인이 alias를 만드는 중이다
+        }
+        try {
+            return OptionalInt.of(rebuild());
+        } finally {
+            rebuilding.set(false);
+        }
     }
 
     /**
@@ -108,7 +122,17 @@ public class ProductSearchIndexSupport {
         if (!productSearchIndexPort.isEnabled()) {
             throw new DomainException(ProductErrorCode.SEARCH_INDEX_DISABLED);
         }
+        if (!rebuilding.compareAndSet(false, true)) {
+            throw new DomainException(ProductErrorCode.SEARCH_INDEX_REBUILDING);
+        }
+        try {
+            return rebuild();
+        } finally {
+            rebuilding.set(false);
+        }
+    }
 
+    private int rebuild() {
         LocalDateTime startedAt = LocalDateTime.now();
         String indexName = productSearchIndexPort.createIndex();
         int batchSize = productPolicy.getSearchIndexBatchSize();

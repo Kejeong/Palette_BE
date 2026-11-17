@@ -57,7 +57,8 @@ public enum ProductErrorCode implements ErrorCode {
     SELF_WISH_NOT_ALLOWED(400, "본인이 판매하는 상품은 찜할 수 없습니다."),
 
     // 검색 색인
-    SEARCH_INDEX_DISABLED(409, "검색 색인을 쓰지 않는 설정입니다 (DB 검색).");
+    SEARCH_INDEX_DISABLED(409, "검색 색인을 쓰지 않는 설정입니다 (DB 검색)."),
+    SEARCH_INDEX_REBUILDING(409, "검색 전체 재색인이 이미 실행 중입니다. 끝난 뒤 다시 시도해 주세요.");
 
     private final int status;
     private final String msg;

@@ -34,6 +34,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.Set;
 
 import static com.backend.boundedContext.product.ProductImageFixtures.THUMBNAIL;
@@ -235,6 +236,32 @@ class ProductSearchIndexTest {
         assertThat(indexPort.events.subList(switched, indexPort.events.size()))
                 .contains("delete:" + deletedDuringRebuild);   // alias를 옮긴 뒤 보정에서 지운다
         assertThat(indexPort.upserted).extracting(ProductSearchDocument::productId).contains(kept);
+    }
+
+    @Test
+    @DisplayName("전체 재색인은 한 번에 하나만: 실행 중에 관리자 재색인은 409-SEARCH_INDEX_REBUILDING, 복구 재색인은 건너뛴다")
+    void rebuildRunsOneAtATime() {
+        Long productId = create();
+        indexPort.aliasExists = false;
+        List<Object> duringRebuild = new ArrayList<>();
+        indexPort.afterBulkIndexOf(productId, () -> {
+            try {
+                indexSupport.rebuildIndex();
+                duringRebuild.add("rebuilt");
+            } catch (DomainException e) {
+                duringRebuild.add(e.getResultCode());
+            }
+            duringRebuild.add(indexSupport.rebuildIndexIfMissing());
+        });
+
+        indexSupport.rebuildIndex();
+
+        assertThat(duringRebuild).containsExactly("409-SEARCH_INDEX_REBUILDING", OptionalInt.empty());
+        assertThat(indexPort.events).filteredOn("create"::equals).hasSize(1);
+
+        // 끝나면 다시 실행할 수 있다
+        indexSupport.rebuildIndex();
+        assertThat(indexPort.events).filteredOn("create"::equals).hasSize(2);
     }
 
     @Test
