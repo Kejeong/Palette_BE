@@ -8,10 +8,11 @@ package com.backend.boundedContext.settlement.app;
 public final class SettlementJobNames {
 
     public static final String JOB_NAME = "settlementMonthlyJob";
-    /** 1단계 판별: 지급 직전 자격 판정 */
-    public static final String JUDGE_STEP = "settlementJudgeStep";
-    /** 2단계 확정: 정산서 집계 (Step 이름은 실행 기록 조회 호환을 위해 그대로 둔다) */
+    /** 확정 Step (Job의 유일한 Step). 판별도 이 안에서 한다. Step 이름은 실행 기록 조회 호환을 위해 그대로 둔다 */
     public static final String AGGREGATE_STEP = "settlementAggregateStep";
+    /** 예전 3단계 Job의 판별 Step 이름. 지금 Job에는 없고, 이전 실행 기록을 읽을 때만 쓴다 */
+    public static final String JUDGE_STEP = "settlementJudgeStep";
+    /** 예전 3단계 Job의 지급 Step 이름. 지금은 지급 스케줄러가 지급하고, 이전 실행 기록을 읽을 때만 쓴다 */
     public static final String PAYOUT_STEP = "settlementPayoutStep";
 
     /** 대상 정산월(yyyy-MM)
@@ -39,19 +40,11 @@ public final class SettlementJobNames {
     public static final String PAYOUT_TOTAL = "payoutTotal";
     public static final String FEE_TOTAL = "feeTotal";
 
-    /** 판별 Step 건수와 판정 (판정은 Job 실행 컨텍스트로 올려 확정 Step이 읽는다) */
+    /** 확정 Step 안 판별 건수 */
     public static final String JUDGED_SELLER_COUNT = "judgedSellerCount";
     public static final String JUDGE_HOLD_COUNT = "judgeHoldCount";
     public static final String JUDGE_BLOCK_COUNT = "judgeBlockCount";
     public static final String JUDGE_FAILED_COUNT = "judgeFailedCount";
-    /** 판매자 ID → SettlementJudgement.encode(). HashMap이라 Job 실행 컨텍스트에 직렬화된다 */
-    public static final String JUDGEMENTS = "judgements";
-    /**
-     * 판정을 만든 JobExecution ID. 판정과 함께 Job 실행 컨텍스트로 올린다.
-     * 재시작하면 Spring Batch가 직전 실행의 Job 실행 컨텍스트를 새 실행에 넘기므로, 확정 Step은 이 값이 지금 실행과 같을 때만 판정을 쓴다
-     */
-    public static final String JUDGED_EXECUTION_ID = "judgedExecutionId";
-
     private SettlementJobNames() {
     }
 }

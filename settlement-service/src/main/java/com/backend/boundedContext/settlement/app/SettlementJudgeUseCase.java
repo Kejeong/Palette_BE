@@ -20,10 +20,15 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Collection;
 import java.util.Set;
 
 /**
- * 월 정산 Job 1단계(판별): 지급 직전에 "시간이 지나면 바뀔 수 있는 조건"을 판매자 1명 단위로 다시 본다
+ * 사전 판별: 매월 1~9일 새벽 스케줄러가 다음 월 정산 대상 판매자를 미리 판별해 처리 이력에만 남긴다(상태는 바꾸지 않음)
+ * 관리자가 10일 전에 보류, 막힘이 될 판매자를 미리 보고 처리할 수 있게 하기 위해서다.
+ * 실제 확정 때는 SettlementAggregateUseCase가 잠근 후보로 같은 규칙 체인을 다시 실행한다(미리 한 판정을 쓰지 않는다)
  *
  * 규칙은 SettlementJudgeChain(책임 연쇄)에 있고, 여기서는 규칙이 볼 상황(후보·판매자 상태·원장 불일치)을 모아 넘긴 뒤
  * 결과를 처리 이력에 남긴다. 상태는 바꾸지 않는다(확정 단계가 판정대로 정산서를 만든다).
@@ -42,7 +47,7 @@ public class SettlementJudgeUseCase {
     private final SettlementMemberPort settlementMemberPort;
     private final SettlementJudgeChain settlementJudgeChain;
 
-    /** 원장 재대조 불일치가 풀리지 않은 판매자 ID (판별 Step이 한 번 읽어 두고 판매자마다 넘긴다) */
+    /** 원장 재대조 불일치가 풀리지 않은 판매자 ID (확정 Step 묶음마다, 사전 판별 시작 때 한 번 읽어 두고 판매자마다 넘긴다) */
     public Set<Long> findLedgerMismatchSellerIds() {
         List<Long> settlementIds = settlementProcessHistoryRepository.findUnresolvedLedgerMismatchSettlementIds();
         if (settlementIds.isEmpty()) return Set.of();
@@ -72,6 +77,19 @@ public class SettlementJudgeUseCase {
                     judgement.reason());
         }
         return judgement;
+    }
+
+    /**
+     * 판매자 여러 명의 상태를 한 번에 조회한다(회원 HTTP 1번). 확정 Step이 묶음마다 트랜잭션 밖에서 부른다
+     * 판매자 행이 없는 판매자는 결과에 없다(확정에서 null로 다뤄 지급 단계의 SELLER_NOT_FOUND에 맡긴다)
+     */
+    public Map<Long, SellerStatus> sellerStatusesOf(Collection<Long> sellerIds) {
+        if (sellerIds.isEmpty()) return Map.of();
+        Map<Long, SellerStatus> statuses = new HashMap<>();
+        for (SellerDto seller : settlementMemberPort.getSellers(sellerIds)) {
+            statuses.put(seller.sellerId(), seller.status());
+        }
+        return statuses;
     }
 
     /** 판매자 행이 없으면 null (지급 단계의 SELLER_NOT_FOUND에 맡긴다) */

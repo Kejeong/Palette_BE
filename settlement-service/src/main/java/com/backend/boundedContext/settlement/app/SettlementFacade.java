@@ -23,17 +23,23 @@ import com.backend.boundedContext.settlement.in.dto.SettlementPayoutResult;
 import com.backend.boundedContext.settlement.in.dto.SettlementPreviewResponse;
 import com.backend.boundedContext.settlement.in.dto.SettlementResponse;
 import com.backend.boundedContext.settlement.in.dto.SettlementRunResponse;
+import com.backend.boundedContext.settlement.in.dto.SettlementRunStartResponse;
 import com.backend.global.page.PageResponse;
 import com.backend.shared.order.dto.ConfirmedOrderItemDto;
+import com.backend.shared.member.dto.SellerStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * 정산 컨텍스트의 유일한 입구
@@ -78,6 +84,13 @@ public class SettlementFacade {
     @Transactional
     public int createCandidates(Long orderId, LocalDateTime confirmedAt, List<ConfirmedOrderItemDto> items) {
         return settlementCreateCandidatesUseCase.createCandidates(orderId, confirmedAt, items);
+    }
+
+    /** 구매 확정 이벤트 ID(sourceEventId)를 후보에 함께 남긴다 */
+    @Transactional
+    public int createCandidates(Long orderId, LocalDateTime confirmedAt, List<ConfirmedOrderItemDto> items,
+                                UUID sourceEventId) {
+        return settlementCreateCandidatesUseCase.createCandidates(orderId, confirmedAt, items, sourceEventId);
     }
 
     @Transactional(readOnly = true)
@@ -128,14 +141,19 @@ public class SettlementFacade {
         return settlementLedgerRecheckUseCase.recheck(settlementId, trigger, batchExecutionId);
     }
 
-    // ================= 월 정산 Job: 판별 Step =================
+    // ================= 사전 판별 스케줄러 (매월 1~9일), 월 정산 확정 Step 공통 =================
 
     @Transactional(readOnly = true)
     public Set<Long> findLedgerMismatchSellerIds() {
         return settlementJudgeUseCase.findLedgerMismatchSellerIds();
     }
 
-    /** 판매자 1명 = 트랜잭션 1개. 판정 이력을 남긴다 */
+    /** 판매자 여러 명의 상태를 한 번에 조회한다. 회원 HTTP라 트랜잭션을 열지 않는다(확정 Step이 묶음마다 부른다) */
+    public Map<Long, SellerStatus> findSellerStatuses(Collection<Long> sellerIds) {
+        return settlementJudgeUseCase.sellerStatusesOf(sellerIds);
+    }
+
+    /** 사전 판별: 판매자 1명 = 트랜잭션 1개. 판정 이력만 남긴다 */
     @Transactional
     public SettlementJudgement judgeSeller(Long sellerId, YearMonth targetMonth, Set<Long> ledgerMismatchSellerIds,
                                            SettlementTrigger trigger, Long batchExecutionId) {
@@ -143,18 +161,29 @@ public class SettlementFacade {
                 batchExecutionId);
     }
 
-    // ================= 월 정산 Job: 확정(집계) Step =================
+    // ================= 월 정산 Job: 확정 Step =================
 
     @Transactional(readOnly = true)
     public List<Long> findAggregatableSellerIds(YearMonth targetMonth, Long afterSellerId, int limit) {
         return settlementSupport.findAggregatableSellerIds(targetMonth, afterSellerId, limit);
     }
 
-    /** 판매자 1명 = 트랜잭션 1개. judgement가 null이면 판정 없이(제재 여부만 보고) 확정 */
+    /** 판매자 1명 = 트랜잭션 1개. 잠근 후보로 판별한 뒤 정산서를 만든다(지급 예정일 포함) */
     @Transactional
-    public int aggregateSeller(Long sellerId, YearMonth targetMonth, Long batchExecutionId, SettlementTrigger trigger,
-                               SettlementJudgement judgement) {
-        return settlementAggregateUseCase.aggregateSeller(sellerId, targetMonth, batchExecutionId, trigger, judgement);
+    public SettlementConfirmResult confirmSeller(Long sellerId, YearMonth targetMonth, Long batchExecutionId,
+                                                 SettlementTrigger trigger, SellerStatus sellerStatus,
+                                                 boolean ledgerMismatch, LocalDate payableOn) {
+        return settlementAggregateUseCase.confirmSeller(sellerId, targetMonth, batchExecutionId, trigger,
+                sellerStatus, ledgerMismatch, payableOn);
+    }
+
+    /** 묶음 전체를 확정하지 못하고 Step을 멈출 때(판매자 상태 조회 실패) 실패 이력 1건만 남긴다 */
+    @Transactional
+    public void recordAggregateChunkFailure(Long fromSellerId, Long toSellerId, YearMonth targetMonth,
+                                            Long batchExecutionId, SettlementTrigger trigger, String errorCode,
+                                            String reason) {
+        settlementAggregateUseCase.recordChunkFailure(fromSellerId, toSellerId, targetMonth, batchExecutionId,
+                trigger, errorCode, reason);
     }
 
     /** 집계가 롤백된 뒤 새 트랜잭션에서 실패 이력만 남긴다 */
@@ -164,12 +193,7 @@ public class SettlementFacade {
         settlementAggregateUseCase.recordFailure(sellerId, targetMonth, batchExecutionId, trigger, errorCode, reason);
     }
 
-    // ================= 지급 (월 정산 Job 지급 Step·재시도 스케줄러·관리자 재처리) =================
-
-    @Transactional(readOnly = true)
-    public List<Long> findMonthlyPayoutTargetIds(YearMonth targetMonth, Long afterSettlementId, int limit) {
-        return settlementSupport.findMonthlyPayoutTargetIds(targetMonth, afterSettlementId, limit);
-    }
+    // ================= 지급 (지급 스케줄러, 관리자 재처리) =================
 
     @Transactional(readOnly = true)
     public List<Long> findRetryTargetIds(int limit) {
@@ -198,6 +222,11 @@ public class SettlementFacade {
     }
 
     // ================= 월 정산 Job 실행·조회 =================
+
+    /** 관리자 수동 실행(비동기). 실행할 수 있는지만 확인하고 Job은 별도 스레드에서 시작한다 */
+    public SettlementRunStartResponse startMonthlyJob(YearMonth targetMonth, SettlementTrigger trigger) {
+        return settlementRunMonthlyJobUseCase.start(targetMonth, trigger);
+    }
 
     /** Job이 Step마다 트랜잭션을 관리하므로 여기서는 트랜잭션을 열지 않는다 */
     public SettlementRunResponse runMonthlyJob(YearMonth targetMonth, SettlementTrigger trigger) {

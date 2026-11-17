@@ -8,11 +8,13 @@
 | 시점 | 확인 | 어긋나면 | 위치 |
 | --- | --- | --- | --- |
 | 받을 때 (구매 확정 이벤트) | 필수 값, 금액(단가 × 수량, 0원 초과, 오버플로), 상품 쿠폰 할인액(0 이상, 항목 금액 미만), 중복(주문 항목 유니크). 판매가 = 항목 금액 - 상품 쿠폰 할인액 | DLT, 거절 이력, 건너뜀 | `SettlementCreateCandidatesUseCase` |
-| 판별 | 후보 금액 스냅샷 일관성 | BLOCK (확정하지 않음) | `CandidateAmountIntegrityRule` |
-| 판별 | 후보 수수료율 = 후보를 만든 시점의 정책 수수료율 | BLOCK | `CandidateAmountIntegrityRule` |
-| 판별 | 풀리지 않은 원장 재대조 불일치 | HOLD | `LedgerMismatchRule` |
-| 판별 | 판매자 제재 | HOLD | `SellerStatusRule` |
-| 확정 직전 | 잠근 후보로 금액 스냅샷, 수수료율 다시 확인 (판정 유무와 상관없이) | 확정하지 않음 | `SettlementAggregateUseCase` |
+| 사전 판별 (매월 1~9일 02:30) | 아래 판별 규칙을 미리 실행 | 이력만 남김 (관리자가 10일 전에 확인) | `SettlementJudgeUseCase` |
+| 확정 (판매자마다 잠근 후보로) | 후보 금액 스냅샷 일관성 | BLOCK (확정하지 않음) | `CandidateAmountIntegrityRule` |
+| 확정 | 후보 수수료율 = 후보를 만든 시점의 정책 수수료율 | BLOCK | `CandidateAmountIntegrityRule` |
+| 확정 | 풀리지 않은 원장 재대조 불일치 | HOLD | `LedgerMismatchRule` |
+| 확정 | 판매자 제재 (상태는 묶음마다 트랜잭션 밖에서 한 번에 조회) | HOLD | `SellerStatusRule` |
+| 확정 | 지급 예정일 = 확정한 날, 주말이면 다음 월요일 (공휴일은 아직 보지 않음) | - | `SettlementAggregateUseCase` |
+| 지급 시점 | 지급 스케줄러(10분마다)가 지급 예정일이 된 READY를 지급 (월 정산 Job은 지급하지 않음) | - | `SettlementScheduler.retryPayouts` |
 | 지급 직전 (이전에 지급을 시도한 정산서) | 결제 원장에 이 정산서 멱등 키(`SETTLEMENT-{id}`)의 지급 기록이 있는지 (제재·원장 불일치 확인보다 먼저, 잠금 밖) | 있으면 다시 요청하지 않고 PAID, 금액이 다르면 MANUAL_REQUIRED (조회 실패면 그대로 진행) | `SettlementPayoutUseCase` |
 | 지급 직전 | 지급 가능 상태, 판매자 제재, 원장 불일치, 정산서 합계 = 후보 합계 | HOLD, MANUAL_REQUIRED | `SettlementPayoutUseCase` |
 | 지급 | 멱등 키 `SETTLEMENT-{id}`, 결제의 홀딩 잔액과 주문별 금액 검사, 응답 금액 = 정산서 금액 | FAILED, MANUAL_REQUIRED, 결과 모름이면 재확인 | `SettlementPayoutUseCase`, 결제 |

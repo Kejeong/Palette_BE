@@ -173,13 +173,8 @@ public class SettlementSupport {
                 PageRequest.of(0, limit));
     }
 
-    public List<Long> findMonthlyPayoutTargetIds(YearMonth targetMonth, Long afterSettlementId, int limit) {
-        return settlementRepository.findMonthlyPayoutTargetIds(targetMonth.toString(), afterSettlementId,
-                PageRequest.of(0, limit));
-    }
-
     public List<Long> findRetryTargetIds(LocalDateTime now, int limit) {
-        return settlementRepository.findRetryTargetIds(now, PageRequest.of(0, limit));
+        return settlementRepository.findRetryTargetIds(now, now.toLocalDate(), PageRequest.of(0, limit));
     }
 
     /** 지급 결과 재확인 대상: PROCESSING이 된 지 오래된(processingStartedAt <= before) 정산서 */
