@@ -11,6 +11,8 @@ package com.backend.boundedContext.product.out.search;
  * @param status         판매 상태. 판매 중인 상품만 색인하므로 항상 ON_SALE이다
  * @param soldOut        삭제되지 않은 옵션의 재고가 모두 0인지
  * @param effectivePrice 색인한 시각의 기본가. 할인 중이면 할인가, 아니면 정가 (옵션 추가금 제외). 가격순 정렬에 쓴다
+ * @param discountRate   색인한 시각에 진행 중인 할인의 할인율 (%, 소수점 내림). 할인 중이 아니면 0.
+ *                       할인은 1% 이상만 등록되므로 0보다 크면 할인 중이다. 특가 필터와 할인율순 정렬에 쓴다
  * @param createdAt      등록 시각 (epoch 밀리초). 최신순 정렬에 쓴다
  */
 public record ProductSearchDocument(
@@ -20,6 +22,7 @@ public record ProductSearchDocument(
         String status,
         boolean soldOut,
         long effectivePrice,
+        int discountRate,
         long createdAt
 ) {
 }

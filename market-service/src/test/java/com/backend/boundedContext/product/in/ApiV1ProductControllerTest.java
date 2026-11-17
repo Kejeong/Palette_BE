@@ -1,6 +1,7 @@
 package com.backend.boundedContext.product.in;
 
 import com.backend.boundedContext.product.app.ProductFacade;
+import com.backend.boundedContext.product.domain.ProductSort;
 import com.backend.global.page.PageResponse;
 import com.backend.global.security.JwtAccessDeniedHandler;
 import com.backend.global.security.JwtAuthenticationEntryPoint;
@@ -47,15 +48,26 @@ class ApiV1ProductControllerTest {
     private ProductFacade productFacade;
 
     @Test
-    @DisplayName("상품 검색: 로그인 없이 호출할 수 있고, 정렬을 보내지 않으면 null(검색어에 따라 정함)·품절 제외가 기본값이다")
+    @DisplayName("상품 검색: 로그인 없이 호출할 수 있고, 정렬을 보내지 않으면 null(검색어에 따라 정함)·품절 제외·특가 아님이 기본값이다")
     void search_defaults() throws Exception {
-        given(productFacade.searchProducts(isNull(), isNull(), isNull(), eq(true), any(Pageable.class)))
+        given(productFacade.searchProducts(isNull(), isNull(), isNull(), eq(true), eq(false), any(Pageable.class)))
                 .willReturn(new PageResponse<>(List.of(), 0, 20, 0, 0));
 
         mockMvc.perform(get("/api/v1/products"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.resultCode").value("200-1"))
                 .andExpect(jsonPath("$.data.size").value(20));
+    }
+
+    @Test
+    @DisplayName("상품 검색: 특가 필터와 할인율순 정렬을 그대로 넘긴다")
+    void search_discounted() throws Exception {
+        given(productFacade.searchProducts(isNull(), isNull(), eq(ProductSort.DISCOUNT_RATE), eq(true), eq(true), any(Pageable.class)))
+                .willReturn(new PageResponse<>(List.of(), 0, 20, 0, 0));
+
+        mockMvc.perform(get("/api/v1/products").param("discounted", "true").param("sort", "DISCOUNT_RATE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultCode").value("200-1"));
     }
 
     @Test
@@ -73,7 +85,7 @@ class ApiV1ProductControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.resultCode").value("400-VALIDATION_FAILED"));
 
-        verify(productFacade, never()).searchProducts(anyString(), anyLong(), any(), anyBoolean(), any());
+        verify(productFacade, never()).searchProducts(anyString(), anyLong(), any(), anyBoolean(), anyBoolean(), any());
     }
 
     @Test

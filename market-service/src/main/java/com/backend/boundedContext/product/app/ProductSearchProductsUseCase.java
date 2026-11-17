@@ -45,7 +45,7 @@ public class ProductSearchProductsUseCase {
      * DB의 현재 상태로 다시 걸러 결과에서 빼므로, 그 페이지는 size보다 적을 수 있다 (totalElements는 검색 구현의 값 그대로).
      */
     public PageResponse<ProductSummaryDto> searchProducts(String keyword, Long categoryId, ProductSort sort,
-                                                          boolean excludeSoldOut, Pageable pageable) {
+                                                          boolean excludeSoldOut, boolean discountedOnly, Pageable pageable) {
         Pageable page = PageRequest.of(pageable.getPageNumber(), Math.min(pageable.getPageSize(), MAX_PAGE_SIZE));
 
         List<Long> categoryIds = productSupport.getDisplayableCategoryIds(categoryId);   // 없는 카테고리면 404
@@ -54,7 +54,7 @@ public class ProductSearchProductsUseCase {
         }
 
         String normalizedKeyword = normalize(keyword);
-        ProductSearchQuery query = new ProductSearchQuery(normalizedKeyword, categoryIds, excludeSoldOut,
+        ProductSearchQuery query = new ProductSearchQuery(normalizedKeyword, categoryIds, excludeSoldOut, discountedOnly,
                 ProductSort.resolve(sort, normalizedKeyword != null));
         Page<Long> productIds = productSearchPort.searchProductIds(query, page);
 

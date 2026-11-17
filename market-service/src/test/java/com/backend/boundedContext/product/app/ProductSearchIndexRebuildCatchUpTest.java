@@ -135,7 +135,7 @@ class ProductSearchIndexRebuildCatchUpTest {
         }
 
         @Override
-        public boolean aliasExists() {
+        public boolean isCurrent() {
             return true;
         }
 

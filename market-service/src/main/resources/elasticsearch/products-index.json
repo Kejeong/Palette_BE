@@ -19,6 +19,7 @@
     }
   },
   "mappings": {
+    "_meta": { "version": 2 },
     "dynamic": "strict",
     "properties": {
       "productId": { "type": "long" },
@@ -33,6 +34,7 @@
       "status": { "type": "keyword" },
       "soldOut": { "type": "boolean" },
       "effectivePrice": { "type": "long" },
+      "discountRate": { "type": "integer" },
       "createdAt": { "type": "date", "format": "epoch_millis" }
     }
   }

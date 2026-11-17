@@ -133,7 +133,7 @@ class ProductFacadeDiscountTest {
         assertThat(snapshots).extracting(OptionSnapshotDto::price, OptionSnapshotDto::listPrice, OptionSnapshotDto::discountRate)
                 .containsExactlyInAnyOrder(tuple(15_000L, 20_000L, 25), tuple(18_000L, 23_000L, 25));
 
-        ProductSummaryDto summary = productFacade.searchProducts(NAME, null, ProductSort.LATEST, false, PageRequest.of(0, 20))
+        ProductSummaryDto summary = productFacade.searchProducts(NAME, null, ProductSort.LATEST, false, false, PageRequest.of(0, 20))
                 .items().stream().filter(item -> item.productId().equals(productId)).findFirst().orElseThrow();
         assertThat(summary.price()).isEqualTo(PRICE);
         assertThat(summary.salePrice()).isEqualTo(15_000);

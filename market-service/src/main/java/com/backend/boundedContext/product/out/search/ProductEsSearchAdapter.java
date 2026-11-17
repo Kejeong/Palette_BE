@@ -37,17 +37,24 @@ public class ProductEsSearchAdapter implements ProductSearchPort {
 
     private final ElasticsearchClient client;
     private final ProductJpaSearchAdapter fallback;
+    private final ProductEsIndexAdapter indexAdapter;
     private final String alias;
 
-    public ProductEsSearchAdapter(ElasticsearchClient client, ProductJpaSearchAdapter fallback,
+    public ProductEsSearchAdapter(ElasticsearchClient client, ProductJpaSearchAdapter fallback, ProductEsIndexAdapter indexAdapter,
                                   @Value("${custom.product.search.indexAlias}") String alias) {
         this.client = client;
         this.fallback = fallback;
+        this.indexAdapter = indexAdapter;
         this.alias = alias;
     }
 
     @Override
     public Page<Long> searchProductIds(ProductSearchQuery query, Pageable pageable) {
+        // 인덱스가 없거나 매핑 버전이 낮으면(매핑을 바꾼 배포 뒤 재색인 전) DB로 대신한다.
+        // 이전 인덱스에는 새 필드가 없어, 그 필드로 거르면 오류 없이 빈 결과가 나와 DB로 넘어가지도 않기 때문이다
+        if (!indexAdapter.isKnownCurrent()) {
+            return fallback.searchProductIds(query, pageable);
+        }
         try {
             return search(query, pageable);
         } catch (Exception e) {
@@ -82,6 +89,9 @@ public class ProductEsSearchAdapter implements ProductSearchPort {
         if (query.excludeSoldOut()) {
             b.filter(f -> f.term(t -> t.field("soldOut").value(false)));
         }
+        if (query.discountedOnly()) {   // 할인은 1% 이상만 등록되므로 할인율이 0보다 크면 할인 중이다
+            b.filter(f -> f.range(r -> r.number(n -> n.field("discountRate").gt(0.0))));
+        }
         if (query.keyword() != null) {
             b.must(m -> m.match(mt -> mt.field("name").query(query.keyword())));
         }
@@ -97,6 +107,7 @@ public class ProductEsSearchAdapter implements ProductSearchPort {
             case LATEST -> List.of(latest, byId);
             case PRICE_ASC -> List.of(field("effectivePrice", SortOrder.Asc), byId);
             case PRICE_DESC -> List.of(field("effectivePrice", SortOrder.Desc), byId);
+            case DISCOUNT_RATE -> List.of(field("discountRate", SortOrder.Desc), latest, byId);
         };
     }
 
