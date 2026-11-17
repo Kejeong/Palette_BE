@@ -1,7 +1,10 @@
 package com.backend.boundedContext.delivery.in;
 
+import java.time.LocalDate;
+
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,9 +18,11 @@ import com.backend.boundedContext.delivery.in.dto.DeliveryCompleteRequest;
 import com.backend.boundedContext.delivery.in.dto.LogisticsDeliveryResponse;
 import com.backend.global.page.PageResponse;
 import com.backend.global.rsData.RsData;
+import com.backend.shared.admin.dto.AdminFailureItem;
 import com.backend.shared.delivery.dto.DeliveryStatus;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +30,7 @@ import lombok.RequiredArgsConstructor;
 /**
  * 관리자 배송 API. 권한(ADMIN만)은 common SecurityConfig가 /api/v1/admin/**에 건다.
  */
-@Tag(name = "관리자 배송", description = "배송 목록, 배송 수동 완료 (관리자 전용)")
+@Tag(name = "관리자 배송", description = "배송 목록, 배송 수동 완료, 실패 거래(배송 추적 실패) (관리자 전용)")
 @RestController
 @RequestMapping("/api/v1/admin/deliveries")
 @RequiredArgsConstructor
@@ -40,6 +45,21 @@ public class ApiV1AdminDeliveryController {
             @ParameterObject Pageable pageable
     ) {
         return RsData.of("200-1", "배송 목록을 조회했습니다.", deliveryFacade.getDeliveries(status, pageable));
+    }
+
+    @Operation(summary = "실패 거래: 배송 추적 실패",
+            description = "관리자 실패 거래 화면의 배송 행. 공통 형식(AdminFailureItem)으로, 송장 등록 후 15일(custom.delivery.trackingFailureAfterDays)이 "
+                    + "지나도 배송 완료가 안 된 배송을 송장 등록 시각 최신순으로. from, to(yyyy-MM-dd, 포함, 한국 시간)는 송장 등록 날짜로 거른다. "
+                    + "처리는 물류 담당자 확인(송장·택배사 상태 확인 뒤 필요하면 수동 완료)")
+    @GetMapping("/failures")
+    public RsData<PageResponse<AdminFailureItem>> getTrackingFailures(
+            @Parameter(description = "시작 날짜 yyyy-MM-dd (포함)")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @Parameter(description = "끝 날짜 yyyy-MM-dd (포함)")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @ParameterObject Pageable pageable
+    ) {
+        return RsData.of("200-1", "실패 거래(배송)를 조회했습니다.", deliveryFacade.getTrackingFailures(from, to, pageable));
     }
 
     @Operation(summary = "배송 수동 완료",

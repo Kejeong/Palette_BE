@@ -1,5 +1,6 @@
 package com.backend.boundedContext.delivery.app;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -14,6 +15,7 @@ import com.backend.boundedContext.delivery.in.dto.LogisticsDeliveryResponse;
 import com.backend.boundedContext.delivery.out.DeliveryRepository;
 import com.backend.global.page.PageResponse;
 import com.backend.shared.delivery.dto.DeliveryDto;
+import com.backend.shared.admin.dto.AdminFailureItem;
 import com.backend.shared.delivery.dto.DeliveryStatus;
 import com.backend.shared.order.event.OrderPaidEvent;
 
@@ -37,6 +39,7 @@ public class DeliveryFacade {
     private final DeliveryRegisterWebhookUseCase deliveryRegisterWebhookUseCase;
     private final DeliveryCompleteManuallyUseCase deliveryCompleteManuallyUseCase;
     private final DeliveryRequestSafetyCheckUseCase deliveryRequestSafetyCheckUseCase;
+    private final DeliveryGetTrackingFailuresUseCase deliveryGetTrackingFailuresUseCase;
     private final DeliveryRepository deliveryRepository;
 
     // 결제 완료 이벤트로 배송 생성 (컨슈머 트랜잭션에 참여)
@@ -49,6 +52,12 @@ public class DeliveryFacade {
     @Transactional(readOnly = true)
     public PageResponse<LogisticsDeliveryResponse> getDeliveries(DeliveryStatus status, Pageable pageable) {
         return deliveryGetDeliveriesUseCase.getDeliveries(status, pageable);
+    }
+
+    // 관리자 실패 거래의 배송 행: 송장 등록 후 오래 배송 완료가 안 된 배송을 공통 형식으로
+    @Transactional(readOnly = true)
+    public PageResponse<AdminFailureItem> getTrackingFailures(LocalDate from, LocalDate to, Pageable pageable) {
+        return deliveryGetTrackingFailuresUseCase.getTrackingFailures(from, to, pageable, LocalDateTime.now());
     }
 
     // 물류 배송 상세
