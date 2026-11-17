@@ -372,9 +372,10 @@ public class ProductFacade {
 
     @Transactional
     public CategoryDto modifyCategory(Long categoryId, String name, Boolean active) {
+        CategoryDto before = CategoryDto.from(productSupport.getCategory(categoryId));   // 수정하면 같은 엔티티가 바뀌므로 값을 먼저 담는다
         CategoryDto category = CategoryDto.from(productModifyCategoryUseCase.modifyCategory(categoryId, name, active));
-        if (name != null || active != null) {
-            // 상품 변경 이벤트의 소분류 이름·판매 여부(onSale = 판매 중이고 카테고리 사용 중)가 바뀌므로 그 소분류의 상품을 다시 알린다
+        if (!before.name().equals(category.name()) || before.active() != category.active()) {
+            // 상품 변경 이벤트의 소분류 이름·판매 여부(onSale = 판매 중이고 카테고리 사용 중)가 바뀌었을 때만 그 소분류의 상품을 다시 알린다
             productChanged(productSupport.getNotDeletedProductIdsInCategory(categoryId));
         }
         return category;

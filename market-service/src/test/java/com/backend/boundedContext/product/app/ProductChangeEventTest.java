@@ -190,6 +190,17 @@ class ProductChangeEventTest {
     }
 
     @Test
+    @DisplayName("소분류 수정 요청이 지금 값과 같으면(이름·사용 여부 그대로) 발행하지 않는다")
+    void noPublishWhenCategoryUnchanged() {
+        Long productId = createBeauty("수분 크림", "정제수");
+        Long skincare = categoryId("뷰티", "스킨케어");
+
+        productFacade.modifyCategory(skincare, "스킨케어", true);   // 관리자 화면이 지금 값을 그대로 보낸 경우
+
+        assertThat(events(productId)).hasSize(1);   // 등록 때 한 번뿐
+    }
+
+    @Test
     @DisplayName("전체 재발행: 판매 중인 상품만 한 번씩 발행하고 그 수를 돌려준다")
     void publishAll() {
         Long onSale = createBeauty("수분 크림", "정제수");

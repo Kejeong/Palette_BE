@@ -22,7 +22,8 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 public class ProductChangeEventSupport {
-    private static final int PUBLISH_ALL_BATCH_SIZE = 500;
+    /** 한 번에 읽어 이벤트로 만드는 상품 수 (상품·대표 이미지·재고를 IN으로 읽는다) */
+    private static final int BATCH_SIZE = 500;
 
     private final ProductRepository productRepository;
     private final ProductImageSupport productImageSupport;
@@ -30,7 +31,13 @@ public class ProductChangeEventSupport {
     private final EventPublisher eventPublisher;
 
     public void publishChanged(Collection<Long> productIds) {
-        if (productIds.isEmpty()) return;
+        List<Long> ids = List.copyOf(productIds);
+        for (int from = 0; from < ids.size(); from += BATCH_SIZE) {
+            publishBatch(ids.subList(from, Math.min(from + BATCH_SIZE, ids.size())));
+        }
+    }
+
+    private void publishBatch(List<Long> productIds) {
 
         List<Product> products = productRepository.findAllById(productIds).stream()
                 .sorted(Comparator.comparing(Product::getId))
@@ -50,12 +57,12 @@ public class ProductChangeEventSupport {
         long afterId = 0L;
         int published = 0;
         while (true) {
-            List<Long> ids = productRepository.findIdsByStatusAfter(ProductSaleStatus.ON_SALE, afterId, Limit.of(PUBLISH_ALL_BATCH_SIZE));
+            List<Long> ids = productRepository.findIdsByStatusAfter(ProductSaleStatus.ON_SALE, afterId, Limit.of(BATCH_SIZE));
             if (ids.isEmpty()) break;
             publishChanged(ids);
             published += ids.size();
             afterId = ids.getLast();
-            if (ids.size() < PUBLISH_ALL_BATCH_SIZE) break;
+            if (ids.size() < BATCH_SIZE) break;
         }
         return published;
     }
