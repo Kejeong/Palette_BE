@@ -92,11 +92,12 @@ public class ProductSearchIndexSupport {
     }
 
     /**
-     * 검색 alias가 없으면 전체 재색인하고 색인한 상품 수를, 있거나 다른 재색인이 실행 중이면 빈 값을 돌려준다 (복구 스케줄러가 주기마다 부른다).
-     * 첫 배포·ES 장애·데이터 재구성 뒤 사람이 재색인을 부르지 않아도 검색이 채워지게 한다.
+     * 검색 인덱스가 최신이 아니면(alias가 없거나 매핑 버전이 코드보다 낮으면) 전체 재색인하고 색인한 상품 수를,
+     * 최신이거나 다른 재색인이 실행 중이면 빈 값을 돌려준다 (복구 스케줄러가 주기마다 부른다).
+     * 첫 배포·ES 장애·데이터 재구성·매핑 변경 배포 뒤 사람이 재색인을 부르지 않아도 검색이 채워지게 한다.
      */
-    public OptionalInt rebuildIndexIfMissing() {
-        if (!productSearchIndexPort.isEnabled() || productSearchIndexPort.aliasExists()) {
+    public OptionalInt rebuildIndexIfOutdated() {
+        if (!productSearchIndexPort.isEnabled() || productSearchIndexPort.isCurrent()) {
             return OptionalInt.empty();
         }
         if (!rebuilding.compareAndSet(false, true)) {

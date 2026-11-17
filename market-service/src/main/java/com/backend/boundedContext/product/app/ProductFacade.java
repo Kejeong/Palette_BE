@@ -437,9 +437,9 @@ public class ProductFacade {
         return productSearchIndexSupport.rebuildIndex();
     }
 
-    /** 검색 alias가 없으면 전체 재색인하고 색인한 상품 수를, 있거나 다른 재색인이 실행 중이면 빈 값을 돌려준다 (복구 스케줄러) */
+    /** 검색 인덱스가 최신이 아니면(alias 없음·매핑 버전 낮음) 전체 재색인하고 색인한 상품 수를, 아니면 빈 값을 돌려준다 (복구 스케줄러) */
     @Transactional(readOnly = true)
-    public OptionalInt rebuildSearchIndexIfMissing() {
-        return productSearchIndexSupport.rebuildIndexIfMissing();
+    public OptionalInt rebuildSearchIndexIfOutdated() {
+        return productSearchIndexSupport.rebuildIndexIfOutdated();
     }
 }

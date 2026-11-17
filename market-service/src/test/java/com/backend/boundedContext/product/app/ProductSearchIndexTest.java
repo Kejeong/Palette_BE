@@ -143,7 +143,7 @@ class ProductSearchIndexTest {
     }
 
     @Test
-    @DisplayName("색인: 진행 중인 할인이 있으면 effectivePrice는 할인가(옵션 추가금 제외)이고, 품절 여부를 함께 담는다")
+    @DisplayName("색인: 진행 중인 할인이 있으면 effectivePrice는 할인가(옵션 추가금 제외), discountRate는 할인율이고, 품절 여부를 함께 담는다")
     void documentUsesSalePrice() {
         Long productId = create();
         createActive(productId, 15_000);
@@ -208,15 +208,15 @@ class ProductSearchIndexTest {
     }
 
     @Test
-    @DisplayName("기동 재색인: alias가 있으면 하지 않고, 없으면 판매 중 상품 전체를 새 인덱스에 색인한 뒤 alias를 옮긴다")
+    @DisplayName("복구 재색인: 인덱스가 최신이면 하지 않고, 아니면(alias 없음·매핑 버전 낮음) 판매 중 상품 전체를 새 인덱스에 색인한 뒤 alias를 옮긴다")
     void rebuildOnlyWhenAliasMissing() {
         Long onSale = create();
 
-        assertThat(indexSupport.rebuildIndexIfMissing()).isEmpty();
+        assertThat(indexSupport.rebuildIndexIfOutdated()).isEmpty();
         assertThat(indexPort.events).isEmpty();
 
-        indexPort.aliasExists = false;
-        assertThat(indexSupport.rebuildIndexIfMissing()).isPresent();
+        indexPort.current = false;
+        assertThat(indexSupport.rebuildIndexIfOutdated()).isPresent();
         assertThat(indexPort.bulkIndexed).contains(onSale);
         assertThat(indexPort.events).first().isEqualTo("create");
         assertThat(indexPort.events).contains("switch");
@@ -226,7 +226,7 @@ class ProductSearchIndexTest {
     @DisplayName("전체 재색인은 한 번에 하나만: 실행 중에 관리자 재색인은 409-SEARCH_INDEX_REBUILDING, 복구 재색인은 건너뛴다")
     void rebuildRunsOneAtATime() {
         Long productId = create();
-        indexPort.aliasExists = false;
+        indexPort.current = false;
         List<Object> duringRebuild = new ArrayList<>();
         indexPort.afterBulkIndexOf(productId, () -> {
             try {
@@ -235,7 +235,7 @@ class ProductSearchIndexTest {
             } catch (DomainException e) {
                 duringRebuild.add(e.getResultCode());
             }
-            duringRebuild.add(indexSupport.rebuildIndexIfMissing());
+            duringRebuild.add(indexSupport.rebuildIndexIfOutdated());
         });
 
         indexSupport.rebuildIndex();
@@ -249,9 +249,9 @@ class ProductSearchIndexTest {
     }
 
     @Test
-    @DisplayName("기동 재색인: DB 검색 설정이면 아무것도 하지 않는다")
-    void rebuildIfMissingDisabledWithJpa() {
-        assertThat(productFacade.rebuildSearchIndexIfMissing()).isEmpty();
+    @DisplayName("복구 재색인: DB 검색 설정이면 아무것도 하지 않는다")
+    void rebuildIfOutdatedDisabledWithJpa() {
+        assertThat(productFacade.rebuildSearchIndexIfOutdated()).isEmpty();
     }
 
     @Test
@@ -303,7 +303,7 @@ class ProductSearchIndexTest {
         final List<Long> bulkIndexed = new ArrayList<>();
         /** create, switch, delete:{id} 순서 */
         final List<String> events = new ArrayList<>();
-        boolean aliasExists = true;
+        boolean current = true;
         /** triggerId가 든 묶음을 bulkIndex한 직후 한 번 실행한다 (재색인 중 변경 흉내) */
         private Long triggerId;
         private Runnable onBulkIndex;
@@ -319,8 +319,8 @@ class ProductSearchIndexTest {
         }
 
         @Override
-        public boolean aliasExists() {
-            return aliasExists;
+        public boolean isCurrent() {
+            return current;
         }
 
         @Override

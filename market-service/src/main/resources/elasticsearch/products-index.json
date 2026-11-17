@@ -19,6 +19,7 @@
     }
   },
   "mappings": {
+    "_meta": { "version": 2 },
     "dynamic": "strict",
     "properties": {
       "productId": { "type": "long" },

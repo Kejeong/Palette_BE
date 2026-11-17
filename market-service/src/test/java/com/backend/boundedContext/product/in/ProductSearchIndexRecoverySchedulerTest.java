@@ -30,15 +30,15 @@ class ProductSearchIndexRecoverySchedulerTest {
     @Test
     @DisplayName("기동 때 ES가 응답하지 않아 실패해도, 다음 주기에 다시 확인해 재색인한다")
     void retriesNextCycleAfterFailure() {
-        given(productFacade.rebuildSearchIndexIfMissing())
+        given(productFacade.rebuildSearchIndexIfOutdated())
                 .willThrow(new UncheckedIOException("ES 접속 실패", new IOException()))
                 .willReturn(OptionalInt.of(33))
                 .willReturn(OptionalInt.empty());
 
-        assertThatCode(scheduler::rebuildIfMissing).doesNotThrowAnyException();   // 실패: ERROR 로그만
-        scheduler.rebuildIfMissing();   // ES가 돌아옴: 재색인
-        scheduler.rebuildIfMissing();   // alias가 있음: 아무것도 안 함
+        assertThatCode(scheduler::rebuildIfOutdated).doesNotThrowAnyException();   // 실패: ERROR 로그만
+        scheduler.rebuildIfOutdated();   // ES가 돌아옴: 재색인
+        scheduler.rebuildIfOutdated();   // 최신: 아무것도 안 함
 
-        verify(productFacade, times(3)).rebuildSearchIndexIfMissing();
+        verify(productFacade, times(3)).rebuildSearchIndexIfOutdated();
     }
 }
