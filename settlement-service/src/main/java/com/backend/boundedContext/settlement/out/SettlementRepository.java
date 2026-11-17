@@ -4,6 +4,7 @@ import com.backend.boundedContext.settlement.domain.Settlement;
 import com.backend.boundedContext.settlement.domain.SettlementHoldType;
 import com.backend.boundedContext.settlement.domain.SettlementStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
@@ -43,6 +44,20 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long>, J
              order by s.processingStartedAt, s.id
             """)
     List<Long> findProcessingOverdueIds(@Param("before") LocalDateTime before, Pageable pageable);
+
+    /**
+     * 관리자 실패 거래: 이 상태가 [from, to) 사이에 마지막으로 바뀐(updatedAt) 정산서, 최신순
+     * from, to가 없으면 호출하는 쪽에서 아주 이른, 아주 늦은 시각을 넘긴다(null 파라미터 타입 문제를 피함)
+     */
+    @Query("""
+            select s from Settlement s
+             where s.status = :status
+               and s.updatedAt >= :from
+               and s.updatedAt < :to
+            """)
+    Page<Settlement> findByStatusUpdatedBetween(@Param("status") SettlementStatus status,
+                                               @Param("from") LocalDateTime from, @Param("to") LocalDateTime to,
+                                               Pageable pageable);
 
     /**
      * 지급 스케줄러 대상: 지급 예정일이 된 READY(월 정산 확정, 보류 해제) + 다음 재시도 일시가 지난 FAILED

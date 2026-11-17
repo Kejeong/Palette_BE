@@ -26,6 +26,7 @@ import com.backend.boundedContext.settlement.in.dto.SettlementRunResponse;
 import com.backend.boundedContext.settlement.in.dto.SettlementRunStartResponse;
 import com.backend.global.page.PageResponse;
 import com.backend.shared.order.dto.ConfirmedOrderItemDto;
+import com.backend.shared.admin.dto.AdminFailureItem;
 import com.backend.shared.member.dto.SellerStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -60,6 +61,7 @@ public class SettlementFacade {
     private final SettlementRunMonthlyJobUseCase settlementRunMonthlyJobUseCase;
     private final SettlementGetRunsUseCase settlementGetRunsUseCase;
     private final SettlementGetSettlementListUseCase settlementGetSettlementListUseCase;
+    private final SettlementGetFailuresUseCase settlementGetFailuresUseCase;
     private final SettlementGetSettlementDetailUseCase settlementGetSettlementDetailUseCase;
     private final SettlementGetSellerSettlementsUseCase settlementGetSellerSettlementsUseCase;
     private final SettlementGetSellerSettlementUseCase settlementGetSellerSettlementUseCase;
@@ -248,6 +250,12 @@ public class SettlementFacade {
     }
 
     // ================= 관리자 조회 =================
+
+    /** 관리자 실패 거래(A7)의 정산 행: 수동 처리 필요 정산서를 공통 형식으로. 상호명은 회원 HTTP라 트랜잭션은 읽기 전용 */
+    @Transactional(readOnly = true)
+    public PageResponse<AdminFailureItem> getFailures(LocalDate from, LocalDate to, Pageable pageable) {
+        return settlementGetFailuresUseCase.getFailures(from, to, pageable);
+    }
 
     @Transactional(readOnly = true)
     public PageResponse<SettlementResponse> getSettlements(String month, YearMonth from, YearMonth to,
