@@ -235,4 +235,31 @@ class OrderAdminReturnTest {
                 .extracting(e -> ((DomainException) e).getResultCode())
                 .isEqualTo(resultCode);
     }
+
+    // ---------- 환불 기록 ----------
+
+    @Test
+    @DisplayName("환불 기록: RETURNED이고 기록 전이면 환불 시각을 남기고, 두 번째부터는 그대로 둔다")
+    void markRefunded() {
+        Order order = returnRequestedOrder();
+        order.approveReturn(List.of(decision(ITEM_1, true), decision(ITEM_2, false)), DECIDED_AT);
+        assertThat(order.isRefundPending()).isTrue();
+
+        assertThat(order.markRefunded(DECIDED_AT.plusMinutes(1))).isTrue();
+        assertThat(order.getRefundedAt()).isEqualTo(DECIDED_AT.plusMinutes(1));
+        assertThat(order.isRefundPending()).isFalse();
+
+        assertThat(order.markRefunded(DECIDED_AT.plusMinutes(5))).isFalse();
+        assertThat(order.getRefundedAt()).isEqualTo(DECIDED_AT.plusMinutes(1));
+    }
+
+    @Test
+    @DisplayName("환불 기록: 반품 승인 전(RETURN_REQUESTED) 주문에는 남기지 않는다")
+    void markRefunded_notReturned() {
+        Order order = returnRequestedOrder();
+
+        assertThat(order.markRefunded(DECIDED_AT)).isFalse();
+        assertThat(order.getRefundedAt()).isNull();
+        assertThat(order.isRefundPending()).isFalse();
+    }
 }
