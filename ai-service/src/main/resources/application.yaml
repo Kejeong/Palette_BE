@@ -114,6 +114,9 @@ custom:
     embeddingBatchSize: 20          # 한 번에 임베딩하는 FAQ 수
     searchTopK: 3                   # 검색에서 가져오는 FAQ 최대 수(유사도 높은 순)
     similarityThreshold: 0.4        # 이 코사인 유사도보다 낮은 FAQ는 관련 없다고 보고 버림. 임시 값, FAQ 데이터로 측정해서 정함
+  chat:
+    historyMessages: 6              # 프롬프트에 넣는 같은 대화의 최근 메시지 수(질문·답변 합산, 6 = 최근 3번 주고받은 것)
+    searchHistoryQuestions: 1       # FAQ 검색어 앞에 붙이는 같은 대화의 최근 질문 수(이어지는 질문도 맞는 FAQ를 찾게)
   scheduling:
     enabled: true        # false면 모든 스케줄러가 멈춘다(통합 테스트용)
   kafka:

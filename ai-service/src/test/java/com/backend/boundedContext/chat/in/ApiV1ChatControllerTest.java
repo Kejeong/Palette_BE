@@ -22,6 +22,7 @@ import java.util.List;
 
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -41,16 +42,25 @@ class ApiV1ChatControllerTest {
     private ChatFacade chatFacade;
 
     @Test
-    @DisplayName("로그인하면 앞뒤 공백을 지운 질문으로 답함")
+    @DisplayName("로그인하면 회원 ID·대화 ID와 앞뒤 공백을 지운 질문으로 답함")
     void chat() throws Exception {
-        given(chatFacade.answer("충전 취소")).willReturn(new ChatAnswerDto("답변", ChatAnswerType.AI, List.of()));
+        given(chatFacade.answer(3L, 11L, "충전 취소")).willReturn(new ChatAnswerDto(11L, "답변", ChatAnswerType.AI, List.of()));
 
         mockMvc.perform(post("/api/v1/ai/chat").header("Authorization", bearer())
                         .contentType(MediaType.APPLICATION_JSON).content("""
-                                {"message":"  충전 취소 "}"""))
+                                {"conversationId":11,"message":"  충전 취소 "}"""))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.resultCode").value("200-1"))
-                .andExpect(jsonPath("$.data.answerType").value("AI"));
+                .andExpect(jsonPath("$.data.answerType").value("AI"))
+                .andExpect(jsonPath("$.data.conversationId").value(11));
+    }
+
+    @Test
+    @DisplayName("대화 목록·메시지 조회도 로그인 필요(401)")
+    void historyUnauthorized() throws Exception {
+        mockMvc.perform(get("/api/v1/ai/chat/conversations")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/ai/chat/conversations/11/messages")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(chatFacade);
     }
 
     @Test
