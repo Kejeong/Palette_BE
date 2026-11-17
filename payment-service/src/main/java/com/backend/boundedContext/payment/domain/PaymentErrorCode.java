@@ -36,6 +36,8 @@ public enum PaymentErrorCode implements ErrorCode {
 
     // 반품 환불 (이벤트로 처리하므로 응답으로 나가지 않고, 환불 기록의 FAILED_사유로 남는다)
     REFUND_HOLDING_SETTLED(409, "정산이 시작된 홀딩이라 환불할 수 없습니다."),
+    REFUND_NOT_FOUND(404, "환불 내역을 찾을 수 없습니다."),
+    REFUND_PICKUP_FEE_NOT_REQUIRED(409, "반품 회수 택배비를 결제할 수 있는 환불이 아닙니다."),
     REFUND_PLATFORM_BALANCE_INSUFFICIENT(409, "플랫폼 지갑 잔액이 모자라 처음 배송비를 돌려줄 수 없습니다."),
 
     // 홀딩·정산 지급

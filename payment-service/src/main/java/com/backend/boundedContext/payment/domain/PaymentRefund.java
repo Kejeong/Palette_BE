@@ -1,7 +1,9 @@
 package com.backend.boundedContext.payment.domain;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
+import com.backend.global.exception.DomainException;
 import com.backend.global.jpa.entity.BaseIdAndTime;
 import com.backend.shared.order.dto.ReturnReasonCode;
 
@@ -106,7 +108,19 @@ public class PaymentRefund extends BaseIdAndTime {
         this.refundedAt = now;
     }
 
-    // 결제 대기 중에 회수 택배비가 결제됐는지 (6단계 결제 API가 returnPickupFee를 채운다)
+    // 단순 변심 반품 회수 택배비 결제: 구매자 예치금 → 플랫폼 지갑. 결제 대기일 때 한 번만 한다(이어서 환불을 완료할 수 있게 됨)
+    // 구매자 잔액이 모자라면 Wallet이 402 INSUFFICIENT_BALANCE를 던진다(호출한 쪽이 먼저 확인해 충전 권장액을 함께 알린다)
+    public List<WalletTransaction> payPickupFee(Wallet buyerWallet, Wallet platformWallet, long pickupFee) {
+        if (status != PaymentRefundStatus.PICKUP_FEE_REQUIRED || returnPickupFee > 0) {
+            throw new DomainException(PaymentErrorCode.REFUND_PICKUP_FEE_NOT_REQUIRED);
+        }
+        this.returnPickupFee = pickupFee;
+        return List.of(
+                buyerWallet.change(WalletTransactionType.RETURN_PICKUP_FEE_PAYMENT, pickupFee, getId(), pickupFeePaymentIdempotencyKey()),
+                platformWallet.change(WalletTransactionType.RETURN_PICKUP_FEE, pickupFee, getId(), pickupFeeIdempotencyKey()));
+    }
+
+    // 결제 대기 중에 회수 택배비가 결제됐는지
     private boolean isPickupFeePaid() {
         return status == PaymentRefundStatus.PICKUP_FEE_REQUIRED && returnPickupFee > 0;
     }

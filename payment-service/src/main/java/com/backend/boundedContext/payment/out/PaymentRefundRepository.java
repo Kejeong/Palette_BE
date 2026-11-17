@@ -19,4 +19,9 @@ public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, Lo
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from PaymentRefund r where r.id = :id")
     Optional<PaymentRefund> findByIdForUpdate(@Param("id") Long id);
+
+    // 구매자가 회수 택배비를 결제할 때: 두 번 눌러도 뒤 요청이 앞 요청의 결과(COMPLETED)를 보도록 처음부터 잠가서 읽는다
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from PaymentRefund r where r.orderId = :orderId")
+    Optional<PaymentRefund> findByOrderIdForUpdate(@Param("orderId") Long orderId);
 }

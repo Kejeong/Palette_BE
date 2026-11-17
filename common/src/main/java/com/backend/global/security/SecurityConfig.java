@@ -82,6 +82,7 @@ public class SecurityConfig {
             "/api/v1/users/me/coupon-usages",
             "/api/v1/topups/**",
             "/api/v1/wallet/**",
+            "/api/v1/payments/**",   // 반품 환불 조회·회수 택배비 결제 (관리자 결제 조회는 /api/v1/admin/payments)
             "/api/v1/sellers/**",
             "/api/v1/influencers/**"   // 인플루언서 신청 (프로필 GET은 위에서 공개)
     };

@@ -21,6 +21,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.backend.boundedContext.payment.app.dto.InsufficientBalanceDto;
+import com.backend.boundedContext.payment.app.dto.RefundDto;
 import com.backend.boundedContext.payment.domain.Payment;
 import com.backend.boundedContext.payment.domain.PaymentRefund;
 import com.backend.boundedContext.payment.domain.PaymentRefundStatus;
@@ -36,6 +38,7 @@ import com.backend.boundedContext.payment.out.WalletHoldingRepository;
 import com.backend.boundedContext.payment.out.WalletRepository;
 import com.backend.boundedContext.payment.out.WalletTransactionRepository;
 import com.backend.boundedContext.payment.support.TestWalletCharger;
+import com.backend.global.exception.DomainException;
 import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.shared.order.event.OrderReturnedEvent;
 import com.backend.shared.payment.dto.PayCommand;
@@ -95,7 +98,7 @@ class PaymentRefundIntegrationTest {
     void cleanUp() {
         paymentRefundRepository.findByOrderId(orderId).ifPresent(refund -> {
             for (String key : List.of(refund.idempotencyKey(), refund.couponSubsidyIdempotencyKey(),
-                    refund.shippingFeeIdempotencyKey(), refund.pickupFeeIdempotencyKey())) {
+                    refund.shippingFeeIdempotencyKey(), refund.pickupFeeIdempotencyKey(), refund.pickupFeePaymentIdempotencyKey())) {
                 walletTransactionRepository.findByIdempotencyKey(key).ifPresent(walletTransactionRepository::delete);
             }
             paymentRefundRepository.delete(refund);
@@ -269,6 +272,105 @@ class PaymentRefundIntegrationTest {
         assertThat(balance(buyerMemberId)).isEqualTo(500);
     }
 
+    // ── 단순 변심: 회수 택배비 결제 + 환불 ──
+
+    @Test
+    @DisplayName("단순 변심 결제 대기 조회: 받을 상품값 27,000원과 낼 회수 택배비 2,500원을 보여 준다")
+    void getRefund_pickupFeeRequired() {
+        pay();
+        paymentFacade.refundReturnedOrder(event(29_500, ReturnReasonCode.CHANGE_OF_MIND));
+
+        RefundDto refund = paymentFacade.getRefund(buyerMemberId, orderId);
+
+        assertThat(refund.status()).isEqualTo(PaymentRefundStatus.PICKUP_FEE_REQUIRED);
+        assertThat(refund.refundAmount()).isEqualTo(27_000);
+        assertThat(refund.pickupFee()).isEqualTo(2_500);
+        assertThat(refund.refundedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("회수 택배비 결제: 예치금이 2,500원보다 적으면 402와 충전 권장액, 아무것도 바뀌지 않는다. 충전하면 결제하고 상품값을 환불한다")
+    void payPickupFee_insufficientThenPaid() {
+        pay();   // 구매자 30,000 → 500
+        paymentFacade.refundReturnedOrder(event(29_500, ReturnReasonCode.CHANGE_OF_MIND));
+
+        assertThatThrownBy(() -> paymentFacade.payReturnPickupFee(buyerMemberId, orderId))
+                .isInstanceOf(DomainException.class)
+                .satisfies(e -> {
+                    DomainException domainException = (DomainException) e;
+                    assertThat(domainException.getResultCode()).isEqualTo("402-INSUFFICIENT_BALANCE");
+                    assertThat(domainException.getData()).isEqualTo(new InsufficientBalanceDto(2_000, 10_000));
+                });
+        assertThat(refund().getStatus()).isEqualTo(PaymentRefundStatus.PICKUP_FEE_REQUIRED);
+        assertThat(balance(buyerMemberId)).isEqualTo(500);
+
+        chargeBuyer(10_000);   // 구매자 10,500
+        RefundDto result = paymentFacade.payReturnPickupFee(buyerMemberId, orderId);
+
+        assertThat(result.status()).isEqualTo(PaymentRefundStatus.COMPLETED);
+        assertThat(result.refundAmount()).isEqualTo(27_000);
+        assertThat(result.pickupFee()).isEqualTo(2_500);
+        assertThat(balance(buyerMemberId)).isEqualTo(35_000);        // 10,500 − 2,500 + 27,000
+        assertThat(balance(PLATFORM_MEMBER_ID)).isEqualTo(15_000);   // 9,500 + 2,500 + 3,000
+        assertThat(payment().getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(holding().getStatus()).isEqualTo(WalletHoldingStatus.RELEASED);
+        assertThat(refund().getReturnPickupFee()).isEqualTo(2_500);
+        assertThat(refundLedger(refund())).extracting(WalletTransaction::getType, WalletTransaction::getAmount)
+                .containsExactlyInAnyOrder(
+                        tuple(WalletTransactionType.RETURN_PICKUP_FEE_PAYMENT, -2_500L),
+                        tuple(WalletTransactionType.RETURN_PICKUP_FEE, 2_500L),
+                        tuple(WalletTransactionType.REFUND, 27_000L),
+                        tuple(WalletTransactionType.COUPON_SUBSIDY_CANCEL, 3_000L));
+    }
+
+    @Test
+    @DisplayName("회수 택배비 결제를 두 번 눌러도 돈은 한 번만 움직이고, 두 번째는 같은 결과를 돌려준다")
+    void payPickupFee_twice() {
+        pay();
+        chargeBuyer(10_000);
+        paymentFacade.refundReturnedOrder(event(29_500, ReturnReasonCode.CHANGE_OF_MIND));
+        paymentFacade.payReturnPickupFee(buyerMemberId, orderId);
+
+        RefundDto second = paymentFacade.payReturnPickupFee(buyerMemberId, orderId);
+
+        assertThat(second.status()).isEqualTo(PaymentRefundStatus.COMPLETED);
+        assertThat(second.refundAmount()).isEqualTo(27_000);
+        assertThat(balance(buyerMemberId)).isEqualTo(35_000);
+        assertThat(refundLedger(refund())).hasSize(4);
+    }
+
+    @Test
+    @DisplayName("남의 주문이면 조회·결제 모두 404 REFUND_NOT_FOUND")
+    void payPickupFee_otherBuyer() {
+        pay();
+        paymentFacade.refundReturnedOrder(event(29_500, ReturnReasonCode.CHANGE_OF_MIND));
+        long otherBuyer = randomId();
+
+        assertThatThrownBy(() -> paymentFacade.getRefund(otherBuyer, orderId))
+                .isInstanceOf(DomainException.class).extracting("resultCode").isEqualTo("404-REFUND_NOT_FOUND");
+        assertThatThrownBy(() -> paymentFacade.payReturnPickupFee(otherBuyer, orderId))
+                .isInstanceOf(DomainException.class).extracting("resultCode").isEqualTo("404-REFUND_NOT_FOUND");
+        assertThat(refund().getStatus()).isEqualTo(PaymentRefundStatus.PICKUP_FEE_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("단순 변심이 아닌 환불(불량, 이미 전액 환불됨)은 회수 택배비를 결제할 수 없다 (409)")
+    void payPickupFee_notChangeOfMind() {
+        pay();
+        paymentFacade.refundReturnedOrder(event(29_500, ReturnReasonCode.DEFECTIVE));
+
+        assertThatThrownBy(() -> paymentFacade.payReturnPickupFee(buyerMemberId, orderId))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("409-REFUND_PICKUP_FEE_NOT_REQUIRED");
+        assertThat(balance(buyerMemberId)).isEqualTo(30_000);
+    }
+
+    // 로컬 확인처럼 구매자 예치금을 채운다 (충전 원장은 남기지 않음)
+    private void chargeBuyer(long amount) {
+        transactionTemplate.executeWithoutResult(status ->
+                TestWalletCharger.charge(walletRepository.findByMemberIdForUpdate(buyerMemberId).orElseThrow(), amount));
+    }
+
     private void pay() {
         paymentId = paymentFacade.pay(new PayCommand(orderId, "ORD-TEST-" + orderId, buyerMemberId, 29_500, 2_500, 3_000,
                 LocalDateTime.now().plusMinutes(15), "TEST-" + UUID.randomUUID())).paymentId();
@@ -294,7 +396,7 @@ class PaymentRefundIntegrationTest {
 
     private List<WalletTransaction> refundLedger(PaymentRefund refund) {
         return List.of(refund.idempotencyKey(), refund.couponSubsidyIdempotencyKey(), refund.shippingFeeIdempotencyKey(),
-                        refund.pickupFeeIdempotencyKey()).stream()
+                        refund.pickupFeeIdempotencyKey(), refund.pickupFeePaymentIdempotencyKey()).stream()
                 .flatMap(key -> walletTransactionRepository.findByIdempotencyKey(key).stream())
                 .toList();
     }

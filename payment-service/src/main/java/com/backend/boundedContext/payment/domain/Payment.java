@@ -199,8 +199,7 @@ public class Payment extends BaseIdAndTime {
         if (!holding.isReleasable()) throw new DomainException(PaymentErrorCode.REFUND_HOLDING_SETTLED);
 
         boolean changeOfMind = paymentRefund.isChangeOfMind();
-        // 결제 때 배송비 < 결제 금액을 검증하므로 상품값은 늘 0보다 크다
-        long buyerAmount = changeOfMind ? amount - shippingFee : amount;
+        long buyerAmount = refundAmount(changeOfMind);
 
         boolean shouldRefundShippingFee = !changeOfMind && hasShippingFee();
         // 지원금을 먼저 돌려받으므로, 플랫폼은 (배송비 − 지원금)만 있으면 배송비를 내놓을 수 있다
@@ -227,6 +226,12 @@ public class Payment extends BaseIdAndTime {
                     paymentRefund.shippingFeeIdempotencyKey()));
         }
         return transactions;
+    }
+
+    // 구매자가 돌려받는 금액: 단순 변심이면 상품값만(결제 금액 − 처음 배송비), 그 밖에는 결제 금액 전부
+    // 결제 때 배송비 < 결제 금액을 검증하므로 늘 0보다 크다
+    public long refundAmount(boolean changeOfMind) {
+        return changeOfMind ? amount - shippingFee : amount;
     }
 
     private void rejectIfPlatformWalletMissing(Wallet platformWallet) {

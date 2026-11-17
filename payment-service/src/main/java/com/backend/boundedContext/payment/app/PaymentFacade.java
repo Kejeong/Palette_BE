@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.backend.boundedContext.payment.app.dto.AdminPaymentDto;
 import com.backend.boundedContext.payment.app.dto.AdminTopupDto;
+import com.backend.boundedContext.payment.app.dto.RefundDto;
 import com.backend.boundedContext.payment.app.dto.TopupCancelDto;
 import com.backend.boundedContext.payment.app.dto.TopupConfirmDto;
 import com.backend.boundedContext.payment.app.dto.TopupDto;
@@ -62,6 +63,8 @@ public class PaymentFacade {
     private final PaymentRequestRefundUseCase paymentRequestRefundUseCase;
     private final PaymentRefundUseCase paymentRefundUseCase;
     private final PaymentRefundFailureRecorder paymentRefundFailureRecorder;
+    private final PaymentGetRefundUseCase paymentGetRefundUseCase;
+    private final PaymentPayReturnPickupFeeUseCase paymentPayReturnPickupFeeUseCase;
 
     // 지갑 생성 (진행 중인 트랜잭션이 있으면 참여, 없으면 새로 시작)
     @Transactional
@@ -197,6 +200,18 @@ public class PaymentFacade {
 //     반품 환불 (반품 승인 이벤트를 받아 부른다).
 //     요청 기록 → 환불 → (실패하면) 실패 기록 / 커넥션은 늘 하나만 쓴다
 //     일시 오류면 ③ 기록 뒤 예외를 다시 던져 Kafka가 같은 메시지를 다시 주게 만든다(재시도 처리)
+    // 구매자 반품 환불 조회
+    @Transactional(readOnly = true)
+    public RefundDto getRefund(Long buyerId, Long orderId) {
+        return paymentGetRefundUseCase.getRefund(buyerId, orderId);
+    }
+
+    // 단순 변심 반품: 회수 택배비 결제 + 상품값 환불 (한 트랜잭션)
+    @Transactional
+    public RefundDto payReturnPickupFee(Long buyerId, Long orderId) {
+        return paymentPayReturnPickupFeeUseCase.payPickupFee(buyerId, orderId);
+    }
+
     public void refundReturnedOrder(OrderReturnedEvent event) {
         Long refundId = paymentRequestRefundUseCase.request(event);
         try {
