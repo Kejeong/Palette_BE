@@ -95,6 +95,11 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
     @Override
     public void bulkIndex(String indexName, List<ProductSearchDocument> documents) {
         if (documents.isEmpty()) return;
+        // 재색인 중 인덱스가 지워졌으면 쓰지 않는다. 그대로 쓰면 ES가 같은 이름으로 매핑 없는(nori 없는) 인덱스를 자동으로 만들고,
+        // 이어지는 alias 전환이 그 인덱스로 검색을 옮긴다. 이름이 있는 인덱스라 require_alias를 쓸 수 없어 묶음마다 확인한다
+        if (!indexExists(indexName)) {
+            throw new IllegalStateException("재색인 중인 상품 검색 인덱스가 없어 색인하지 않습니다. index=" + indexName);
+        }
 
         BulkRequest.Builder bulk = new BulkRequest.Builder();
         documents.forEach(doc -> bulk.operations(op -> op.index(i -> i
@@ -138,6 +143,14 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
             throw new IllegalStateException("상품 검색 alias가 없어 색인하지 않습니다. 전체 재색인이 alias를 만든 뒤 반영합니다. alias=" + alias);
         }
         aliasReady = true;
+    }
+
+    private boolean indexExists(String indexName) {
+        try {
+            return client.indices().exists(e -> e.index(indexName)).value();
+        } catch (IOException e) {
+            throw new UncheckedIOException("상품 검색 인덱스를 확인하지 못했습니다. index=" + indexName, e);
+        }
     }
 
     private Set<String> currentIndices() throws IOException {

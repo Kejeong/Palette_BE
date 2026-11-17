@@ -157,6 +157,18 @@ class ProductEsSearchAdapterEsTest {
     }
 
     @Test
+    @DisplayName("전체 재색인 중 새 인덱스가 지워지면 bulkIndex는 예외이고, 같은 이름으로 매핑 없는 인덱스를 자동으로 만들지 않는다")
+    void bulkIndexRefusesDeletedIndex() throws Exception {
+        String newIndex = indexAdapter.createIndex();
+        client.indices().delete(d -> d.index(newIndex));
+
+        assertThatThrownBy(() -> indexAdapter.bulkIndex(newIndex, List.of(doc(1, "크림 A", SKINCARE, false, 10_000, 1))))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(client.indices().exists(e -> e.index(newIndex)).value()).isFalse();
+    }
+
+    @Test
     @DisplayName("ES 검색이 실패하면(인덱스 없음) DB 검색으로 대신한다")
     void fallbackToJpa() {
         Page<Long> fromDb = new PageImpl<>(List.of(7L));
