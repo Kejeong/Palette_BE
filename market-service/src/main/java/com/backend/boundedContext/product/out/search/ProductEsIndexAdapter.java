@@ -25,7 +25,7 @@ import java.util.Set;
  * <p>
  * alias가 없으면 색인에 쓰지 않고 예외를 던진다. 빈 인덱스를 만들어 붙이면 검색이 실패하지 않고 방금 색인한 몇 개만 돌려줘
  * DB 검색으로 넘어가지도 않기 때문이다 (실패보다 "틀린 결과로 성공"이 더 위험하다). alias는 전체 재색인이 만들고,
- * 기동할 때 alias가 없으면 자동으로 전체 재색인한다(ProductSearchIndexInitializer).
+ * alias가 없으면 기동 직후와 그 뒤 주기마다 자동으로 전체 재색인한다(ProductSearchIndexRecoveryScheduler).
  * 쓰기 요청에는 require_alias를 건다. 앱이 떠 있는 동안 ES 데이터가 지워져도, ES가 매핑 없는 {@code products} 인덱스를 자동으로 만들지 않고 거부한다.
  */
 @Slf4j

@@ -437,7 +437,7 @@ public class ProductFacade {
         return productSearchIndexSupport.rebuildIndex();
     }
 
-    /** 검색 alias가 없으면 전체 재색인하고 색인한 상품 수를, 있으면 빈 값을 돌려준다 (기동할 때) */
+    /** 검색 alias가 없으면 전체 재색인하고 색인한 상품 수를, 있거나 다른 재색인이 실행 중이면 빈 값을 돌려준다 (복구 스케줄러) */
     @Transactional(readOnly = true)
     public OptionalInt rebuildSearchIndexIfMissing() {
         return productSearchIndexSupport.rebuildIndexIfMissing();
