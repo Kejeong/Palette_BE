@@ -1,5 +1,6 @@
 package com.backend.boundedContext.notification.app;
 
+import com.backend.boundedContext.notification.app.dto.NotificationDto;
 import com.backend.boundedContext.notification.app.dto.NotificationListDto;
 import com.backend.boundedContext.notification.domain.NotificationType;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ public class NotificationFacade {
     private final NotificationGetUnreadCountUseCase notificationGetUnreadCountUseCase;
     private final NotificationReadUseCase notificationReadUseCase;
     private final NotificationSubscribeUseCase notificationSubscribeUseCase;
+    private final NotificationSendUseCase notificationSendUseCase;
 
     @Transactional
     public void createOrderPaid(Long memberId, Long orderId, String productName, Integer itemCount) {
@@ -51,6 +53,11 @@ public class NotificationFacade {
     // 연결이 이어지는 동안 트랜잭션을 잡지 않도록 트랜잭션 없이 둠. 안 읽은 개수 조회는 리포지토리 기본 트랜잭션으로 처리됨
     public SseEmitter subscribe(Long memberId) {
         return notificationSubscribeUseCase.subscribe(memberId);
+    }
+
+    // 커밋된 뒤(AFTER_COMMIT)에 불리므로 트랜잭션 없이 둠
+    public void sendCreated(Long memberId, NotificationDto notification) {
+        notificationSendUseCase.sendCreated(memberId, notification);
     }
 
     @Transactional

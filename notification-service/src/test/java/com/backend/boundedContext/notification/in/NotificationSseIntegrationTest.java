@@ -1,5 +1,6 @@
 package com.backend.boundedContext.notification.in;
 
+import com.backend.boundedContext.notification.app.NotificationFacade;
 import com.backend.boundedContext.notification.domain.Notification;
 import com.backend.boundedContext.notification.out.NotificationEmitters;
 import com.backend.boundedContext.notification.out.NotificationRepository;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -39,16 +41,19 @@ class NotificationSseIntegrationTest {
     @Autowired private JwtTokenProvider jwtTokenProvider;
     @Autowired private NotificationRepository notificationRepository;
     @Autowired private NotificationEmitters notificationEmitters;
+    @Autowired private NotificationFacade notificationFacade;
+    @Autowired private TransactionTemplate transactionTemplate;
 
     // 다른 테스트와 겹치지 않는 회원 ID
     private final long memberId = ThreadLocalRandom.current().nextLong(8_000_000_000L, 9_000_000_000L);
+    private final long otherMemberId = memberId + 1;
 
     private final HttpClient client = HttpClient.newHttpClient();
 
     @AfterEach
     void cleanUp() {
         notificationRepository.deleteAll(notificationRepository.findAll().stream()
-                .filter(n -> n.getMemberId().equals(memberId)).toList());
+                .filter(n -> n.getMemberId().equals(memberId) || n.getMemberId().equals(otherMemberId)).toList());
     }
 
     @Test
@@ -92,6 +97,44 @@ class NotificationSseIntegrationTest {
             notificationEmitters.send(memberId, NotificationEmitters.UNREAD_COUNT, 0L);
             return notificationEmitters.count(memberId) == 0;
         });
+    }
+
+    @Test
+    @DisplayName("알림이 저장되면 새 알림과 바뀐 안 읽은 개수를 차례로 받음")
+    void created_sendsNotificationAndUnreadCount() throws Exception {
+        try (BufferedReader reader = subscribe()) {
+            readEvent(reader);   // 연결 직후 안 읽은 개수
+
+            notificationFacade.createOrderPaid(memberId, 10L, "립스틱", 2);
+
+            List<String> notification = readEvent(reader);
+            assertThat(notification.getFirst()).isEqualTo("event:notification");
+            assertThat(notification.get(1)).contains("\"type\":\"ORDER_PAID\"", "\"productName\":\"립스틱\"", "\"itemCount\":2", "\"read\":false");
+            assertThat(readEvent(reader)).containsExactly("event:unread-count", "data:1");
+        }
+    }
+
+    @Test
+    @DisplayName("다른 회원의 알림과 롤백된 알림은 받지 않음")
+    void created_onlyMineAndCommitted() throws Exception {
+        try (BufferedReader reader = subscribe()) {
+            readEvent(reader);
+
+            notificationFacade.createOrderPaid(otherMemberId, 20L, "틴트", 1);
+            transactionTemplate.executeWithoutResult(status -> {
+                notificationFacade.createOrderPaid(memberId, 30L, "쿠션", 1);
+                status.setRollbackOnly();
+            });
+            notificationFacade.createOrderPaid(memberId, 10L, "립스틱", 1);
+
+            // 앞의 두 알림이 왔다면 이 알림보다 먼저 읽혔을 것임
+            assertThat(readEvent(reader).get(1)).contains("\"productName\":\"립스틱\"");
+        }
+    }
+
+    private BufferedReader subscribe() throws Exception {
+        HttpResponse<InputStream> response = client.send(subscribeRequest(), HttpResponse.BodyHandlers.ofInputStream());
+        return new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8));
     }
 
     private HttpRequest subscribeRequest() {

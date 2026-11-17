@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class NotificationEmitters {
 
+    public static final String NOTIFICATION = "notification";
     public static final String UNREAD_COUNT = "unread-count";
 
     private final Map<Long, Set<SseEmitter>> emitters = new ConcurrentHashMap<>();
