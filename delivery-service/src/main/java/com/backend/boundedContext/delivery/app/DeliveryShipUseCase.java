@@ -1,6 +1,7 @@
 package com.backend.boundedContext.delivery.app;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import org.springframework.stereotype.Component;
 
@@ -25,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 public class DeliveryShipUseCase {
 
     private final DeliverySupport deliverySupport;
+    private final DeliveryProductImageSupport deliveryProductImageSupport;
     private final EventPublisher eventPublisher;
 
     public LogisticsDeliveryResponse ship(Long deliveryId, Courier courier, String trackingNumber, LocalDateTime now) {
@@ -36,6 +38,6 @@ public class DeliveryShipUseCase {
         eventPublisher.publish(new DeliveryShippedEvent(delivery.getId(), delivery.getOrderId(), delivery.getBuyerId(),
                 delivery.carrierName(), delivery.getTrackingNumber(), delivery.getShippedAt()));
         log.info("송장 등록: deliveryId={}, courier={}, trackingNumber={}", deliveryId, courier, normalized);
-        return LogisticsDeliveryResponse.from(delivery);
+        return LogisticsDeliveryResponse.from(delivery, deliveryProductImageSupport.getThumbnailUrls(List.of(delivery)));
     }
 }

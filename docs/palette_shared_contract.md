@@ -284,6 +284,19 @@ public interface ProductApi {
 }
 ```
 
+### 내부 API (HTTP)
+
+다른 서비스는 `ProductApi` 대신 아래 내부 API를 HTTP로 부릅니다(TRSS-261).
+
+| ProductApi | 요청 | 없을 때·실패 |
+| --- | --- | --- |
+| `getOptions` | `GET /internal/v1/products/options?optionIds=1,2,3` | 없는 ID는 빠짐, `optionIds`가 없으면 빈 목록. 중복 제외 200개를 넘으면 400 `400-VALIDATION_FAILED` |
+
+- 응답은 `RsData`이고 성공은 `200-1`, `data`에 `OptionSnapshotDto` 목록을 담습니다. 삭제된 상품·옵션도 포함합니다(`saleable = false`, 대표 이미지가 있으면 `thumbnailUrl`도 옴).
+- 부르는 쪽: delivery-service `delivery.client.MarketProductApiClient`(`ProductImagePort`, `custom.market.baseUrl` = `MARKET_SERVICE_URL`, 기본 `http://localhost:8082`, 접속 1초·응답 2초). 물류 목록·상세·송장 등록·수정 응답의 상품 대표 이미지에 쓰고, 200개 단위로 나눠 부릅니다.
+- 부르는 쪽(물류 응답)은 실패해도 200으로 응답하고 항목의 `thumbnailUrl`을 null로 둡니다.
+- Swagger에는 나오지 않습니다(`@Hidden`). 호출할 때는 `X-Internal-Key` 헤더가 필요합니다 → [내부 API 공통 규칙](#내부-api-공통-규칙)
+
 ### DTO
 
 ```java
