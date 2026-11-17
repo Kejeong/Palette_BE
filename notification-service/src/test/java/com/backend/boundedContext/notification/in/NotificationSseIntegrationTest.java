@@ -4,6 +4,7 @@ import com.backend.boundedContext.notification.app.NotificationFacade;
 import com.backend.boundedContext.notification.domain.Notification;
 import com.backend.boundedContext.notification.out.NotificationEmitters;
 import com.backend.boundedContext.notification.out.NotificationRepository;
+import com.backend.global.exception.DomainException;
 import com.backend.global.security.JwtTokenProvider;
 import com.backend.shared.member.dto.MemberRole;
 import org.junit.jupiter.api.AfterEach;
@@ -28,6 +29,7 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /**
@@ -129,6 +131,25 @@ class NotificationSseIntegrationTest {
 
             // 앞의 두 알림이 왔다면 이 알림보다 먼저 읽혔을 것임
             assertThat(readEvent(reader).get(1)).contains("\"productName\":\"립스틱\"");
+        }
+    }
+
+    @Test
+    @DisplayName("하나 읽음·모두 읽음이 커밋되면 바뀐 안 읽은 개수를 받고, 실패한 읽음 처리는 보내지 않음")
+    void read_sendsUnreadCount() throws Exception {
+        Notification first = notificationRepository.save(Notification.orderPaid(memberId, 10L, "립스틱", 1));
+        notificationRepository.save(Notification.orderPaid(memberId, 11L, "틴트", 1));
+
+        try (BufferedReader reader = subscribe()) {
+            assertThat(readEvent(reader)).containsExactly("event:unread-count", "data:2");
+
+            notificationFacade.read(memberId, first.getId());
+            assertThat(readEvent(reader)).containsExactly("event:unread-count", "data:1");
+
+            assertThatThrownBy(() -> notificationFacade.read(memberId, Long.MAX_VALUE)).isInstanceOf(DomainException.class);
+            notificationFacade.readAll(memberId);
+            // 없는 알림 읽음 처리가 보냈다면 data:1이 먼저 읽혔을 것임
+            assertThat(readEvent(reader)).containsExactly("event:unread-count", "data:0");
         }
     }
 

@@ -60,6 +60,11 @@ public class NotificationFacade {
         notificationSendUseCase.sendCreated(memberId, notification);
     }
 
+    // 커밋된 뒤(AFTER_COMMIT)에 불리므로 트랜잭션 없이 둠
+    public void sendUnreadCount(Long memberId) {
+        notificationSendUseCase.sendUnreadCount(memberId);
+    }
+
     @Transactional
     public void read(Long memberId, Long notificationId) {
         notificationReadUseCase.read(memberId, notificationId);

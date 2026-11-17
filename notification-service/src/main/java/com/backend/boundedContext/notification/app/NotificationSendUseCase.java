@@ -18,6 +18,12 @@ public class NotificationSendUseCase {
         if (notificationEmitters.count(memberId) == 0) return;
 
         notificationEmitters.send(memberId, NotificationEmitters.NOTIFICATION, notification);
+        sendUnreadCount(memberId);
+    }
+
+    // 읽음 처리로 바뀐 안 읽은 개수를 보냄. 같은 회원의 다른 탭 뱃지도 맞춰짐
+    public void sendUnreadCount(Long memberId) {
+        if (notificationEmitters.count(memberId) == 0) return;
         notificationEmitters.send(memberId, NotificationEmitters.UNREAD_COUNT, notificationGetUnreadCountUseCase.getUnreadCount(memberId));
     }
 }
