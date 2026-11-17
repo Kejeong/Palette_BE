@@ -9,6 +9,7 @@ import com.backend.boundedContext.chat.app.dto.ChatMessageDto;
 import com.backend.boundedContext.chat.domain.ChatAnswerType;
 import com.backend.boundedContext.chat.domain.ChatPrompt;
 import com.backend.boundedContext.chat.domain.ChatRole;
+import com.backend.boundedContext.chat.out.ChatRateLimitStore;
 import com.backend.boundedContext.faq.app.dto.FaqSummaryDto;
 import com.backend.boundedContext.faq.domain.Faq;
 import com.backend.boundedContext.faq.domain.FaqCategory;
@@ -22,6 +23,7 @@ import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
@@ -56,6 +58,9 @@ class ChatAnswerIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
     private final List<Long> createdIds = new ArrayList<>();
 
     @AfterEach
@@ -66,6 +71,7 @@ class ChatAnswerIntegrationTest {
         jdbcTemplate.update("delete from chat_conversation");
         faqRepository.deleteAllById(createdIds);
         jdbcTemplate.update("update faq set embedding = null");
+        redisTemplate.delete(List.of(ChatRateLimitStore.REQUEST_COUNT_KEY + MEMBER_ID, ChatRateLimitStore.REQUEST_COUNT_KEY + 8));   // 요청 제한(1분 10번)에 걸리지 않게
     }
 
     @Test

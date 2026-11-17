@@ -40,6 +40,7 @@ public class ApiV1ChatController {
                     + "answerType: AI(FAQ 근거로 AI가 답함), FAQ(AI가 실패해 가장 비슷한 FAQ 답변을 그대로 줌), "
                     + "NO_MATCH(관련 FAQ가 없어 고객센터 안내, sources는 빈 목록).")
     @ApiResponse(responseCode = "404", description = "404-CONVERSATION_NOT_FOUND 대화가 없거나 내 대화가 아님")
+    @ApiResponse(responseCode = "429", description = "429-TOO_MANY_REQUESTS 회원별 질문 수 제한(1분에 10번)을 넘음. 첫 질문부터 1분이 지나면 다시 물을 수 있음")
     @ApiResponse(responseCode = "502", description = "502-EXTERNAL_SERVICE_ERROR 질문 임베딩(OpenAI) 실패로 FAQ를 찾지 못함")
     @PostMapping
     public RsData<ChatAnswerDto> chat(

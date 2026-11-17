@@ -10,10 +10,12 @@ import com.backend.boundedContext.chat.domain.ChatPrompt;
 import com.backend.boundedContext.chat.domain.ChatRole;
 import com.backend.boundedContext.chat.out.ChatConversationRepository;
 import com.backend.boundedContext.chat.out.ChatMessageRepository;
+import com.backend.boundedContext.chat.out.ChatRateLimitStore;
 import com.backend.boundedContext.faq.app.FaqFacade;
 import com.backend.boundedContext.faq.app.dto.FaqSearchDto;
 import com.backend.boundedContext.faq.app.dto.FaqSummaryDto;
 import com.backend.global.exception.DomainException;
+import com.backend.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -37,6 +39,7 @@ import java.util.List;
  * - 근거 FAQ가 없으면 LLM을 부르지 않고 고객센터 안내 문구로 답함
  * - LLM이 실패하거나 시간을 넘기면(spring.ai.openai.chat.timeout) 가장 비슷한 FAQ 답변을 그대로 줌
  * OpenAI 호출 동안 DB 연결을 잡지 않게, 대화 읽기와 저장만 짧은 트랜잭션으로 나눔
+ * 회원별 요청 횟수를 넘으면 OpenAI를 부르기 전에 429로 막음(custom.chat.rateLimit*)
  */
 @Slf4j
 @Service
@@ -49,9 +52,12 @@ public class ChatAnswerUseCase {
     private final ChatConversationRepository chatConversationRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final TransactionTemplate transactionTemplate;
+    private final ChatRateLimitStore chatRateLimitStore;
 
     // conversationId가 null이면 새 대화를 시작함. 다른 회원의 대화면 404
     public ChatAnswerDto answer(Long memberId, Long conversationId, String question) {
+        checkRateLimit(memberId);
+
         // 1. 짧은 읽기: 내 대화인지 확인하고 최근 메시지를 가져옴(오래된 순)
         List<ChatMessage> history = conversationId == null ? List.of() : readHistory(memberId, conversationId);
 
@@ -78,6 +84,19 @@ public class ChatAnswerUseCase {
                 .toList();
 
         return new ChatAnswerDto(savedConversationId, answer, answerType, sources);
+    }
+
+    // 요청 횟수를 올리고, 넘었으면 429. Redis 장애 때는 챗봇을 막지 않고 통과시킴(비용 보호보다 상담 가능을 우선)
+    private void checkRateLimit(Long memberId) {
+        long count;
+        try {
+            count = chatRateLimitStore.increase(memberId, chatPolicy.getRateLimitWindow());
+        } catch (RuntimeException e) {
+            log.warn("chat rate limit check failed memberId={} reason={}", memberId, e.toString());
+            return;
+        }
+
+        if (count > chatPolicy.getRateLimitCount()) throw new DomainException(GlobalErrorCode.TOO_MANY_REQUESTS);
     }
 
     private List<ChatMessage> readHistory(Long memberId, Long conversationId) {
