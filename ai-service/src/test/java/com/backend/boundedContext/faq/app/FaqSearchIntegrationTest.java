@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.within;
 /**
  * FAQ 의미 기반 검색을 실제 DB(pgvector)로 확인함.
  * 가짜 EmbeddingModel은 질문마다 한 칸만 1인 벡터를 주므로, FAQ 임베딩을 SQL로 직접 넣어 유사도를 원하는 값으로 맞춤.
- * 정책 값은 application.yaml 그대로(상위 3건, 기준값 0.4).
+ * 정책 값은 application.yaml 그대로(상위 3건, 기준값 0.35).
  */
 @SpringBootTest
 class FaqSearchIntegrationTest {

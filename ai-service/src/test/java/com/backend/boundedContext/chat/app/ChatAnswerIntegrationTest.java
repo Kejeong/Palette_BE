@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * FAQ 근거 답변 생성과 대화 기록을 실제 DB(pgvector)로 확인함. 임베딩·채팅은 가짜 모델이 대신함(OpenAI 호출 없음).
- * 가짜 임베딩은 검색어마다 한 칸만 1인 벡터라, FAQ 임베딩을 SQL로 직접 넣어 검색어와의 유사도를 원하는 값으로 맞춤(기준값 0.4)
+ * 가짜 임베딩은 검색어마다 한 칸만 1인 벡터라, FAQ 임베딩을 SQL로 직접 넣어 검색어와의 유사도를 원하는 값으로 맞춤(기준값 0.35)
  */
 @SpringBootTest
 class ChatAnswerIntegrationTest {
@@ -140,26 +140,72 @@ class ChatAnswerIntegrationTest {
     }
 
     @Test
-    @DisplayName("이어지는 질문: 앞 질문을 검색어 앞에 붙여 FAQ를 찾고, 앞 질문·답변을 프롬프트에 순서대로 넣음")
+    @DisplayName("이어지는 질문: 이전 대화와 함께 검색어를 다시 써서 FAQ를 찾고, 앞 질문·답변을 답변 프롬프트에 순서대로 넣음")
     void followUp() {
         saveWithSimilarity(QUESTION, "충전한 예치금을 환불할 수 있나요?", REFUND_ANSWER, 0.9);
         Long first = chatFacade.answer(MEMBER_ID, null, QUESTION).conversationId();
 
         String followUp = "그럼 며칠 걸려요?";
-        Long refundDays = saveWithSimilarity(QUESTION + "\n" + followUp, "충전 취소는 며칠 걸리나요?", "카드사에 따라 3~7영업일 걸려요.", 0.8);
+        String rewritten = "충전 취소 환불은 며칠 걸리나요?";
+        Long refundDays = saveWithSimilarity(rewritten, "충전 취소는 며칠 걸리나요?", "카드사에 따라 3~7영업일 걸려요.", 0.8);
+        fakeChatModel.rewriteReply = rewritten;
         fakeChatModel.reply = "3~7영업일 걸려요.";
 
         ChatAnswerDto result = chatFacade.answer(MEMBER_ID, first, followUp);
 
         assertThat(result.conversationId()).isEqualTo(first);
         assertThat(result.sources()).extracting(FaqSummaryDto::faqId).containsExactly(refundDays);
+        assertThat(fakeChatModel.lastRewritePrompt.getUserMessage().getText())
+                .isEqualTo("[이전 대화]\n질문: " + QUESTION + "\n답변: " + FakeChatModel.DEFAULT_REPLY + "\n\n[이번 질문]\n" + followUp);
         List<Message> prompt = fakeChatModel.lastPrompt.getInstructions();
         assertThat(prompt).extracting(Message::getMessageType)
                 .containsExactly(MessageType.SYSTEM, MessageType.USER, MessageType.ASSISTANT, MessageType.USER);
         assertThat(prompt).extracting(Message::getText).endsWith(QUESTION, FakeChatModel.DEFAULT_REPLY, followUp);
+    }
+
+    @Test
+    @DisplayName("검색어 다시 쓰기에는 노출 중인 FAQ 질문 목록을 함께 주고, 숨긴 FAQ 질문은 넣지 않음")
+    void rewriteWithFaqQuestions() {
+        saveWithSimilarity(QUESTION, "충전한 예치금을 환불할 수 있나요?", REFUND_ANSWER, 0.9);
+        Long hidden = faqRepository.save(Faq.create(FaqCategory.TOPUP, "숨긴 FAQ 질문", "답변", false)).getId();
+        createdIds.add(hidden);
+
+        chatFacade.answer(MEMBER_ID, null, QUESTION);
+
+        String system = fakeChatModel.lastRewritePrompt.getSystemMessage().getText();
+        assertThat(system).startsWith(ChatPrompt.REWRITE_RULES).contains("[FAQ 질문 목록]", "- 충전한 예치금을 환불할 수 있나요?", "- 회원가입은 어떻게 하나요?");
+        assertThat(system).doesNotContain("숨긴 FAQ 질문");
+        assertThat(fakeChatModel.lastRewritePrompt.getUserMessage().getText()).isEqualTo("[이번 질문]\n" + QUESTION);
+    }
+
+    @Test
+    @DisplayName("검색어 다시 쓰기가 실패하면 같은 대화의 최근 질문 + 이번 질문으로 검색함")
+    void rewriteFailureFallsBack() {
+        saveWithSimilarity(QUESTION, "충전한 예치금을 환불할 수 있나요?", REFUND_ANSWER, 0.9);
+        Long first = chatFacade.answer(MEMBER_ID, null, QUESTION).conversationId();
+
+        String followUp = "그럼 며칠 걸려요?";
+        Long refundDays = saveWithSimilarity(QUESTION + "\n" + followUp, "충전 취소는 며칠 걸리나요?", "카드사에 따라 3~7영업일 걸려요.", 0.8);
+        fakeChatModel.rewriteFailing = true;
+
+        ChatAnswerDto result = chatFacade.answer(MEMBER_ID, first, followUp);
+
+        assertThat(result.answerType()).isEqualTo(ChatAnswerType.AI);
+        assertThat(result.sources()).extracting(FaqSummaryDto::faqId).containsExactly(refundDays);
 
         // 대화 없이 같은 질문만 하면 앞 질문이 없어 그 FAQ를 찾지 못함
         assertThat(chatFacade.answer(MEMBER_ID, null, followUp).answerType()).isEqualTo(ChatAnswerType.NO_MATCH);
+    }
+
+    @Test
+    @DisplayName("다시 쓴 검색어가 비었거나 200자를 넘으면 원래 질문으로 검색함")
+    void unusableRewrite() {
+        Long best = saveWithSimilarity(QUESTION, "충전한 예치금을 환불할 수 있나요?", REFUND_ANSWER, 0.9);
+
+        for (String reply : List.of("  ", "가".repeat(201))) {
+            fakeChatModel.rewriteReply = reply;
+            assertThat(chatFacade.answer(MEMBER_ID, null, QUESTION).sources()).extracting(FaqSummaryDto::faqId).containsExactly(best);
+        }
     }
 
     @Test
@@ -167,12 +213,10 @@ class ChatAnswerIntegrationTest {
     void historyLimit() {
         saveWithSimilarity(QUESTION, "충전한 예치금을 환불할 수 있나요?", REFUND_ANSWER, 0.9);
         Long conversationId = chatFacade.answer(MEMBER_ID, null, QUESTION).conversationId();
-        String previous = QUESTION;
         for (int i = 0; i < 4; i++) {
             String question = "질문 " + i;
-            saveWithSimilarity(previous + "\n" + question, "FAQ " + i, "답변 " + i, 0.9);   // 검색어(앞 질문 + 이번 질문)에 맞는 FAQ가 있어야 LLM을 부름
+            saveWithSimilarity(question, "FAQ " + i, "답변 " + i, 0.9);   // 검색어(가짜 다시 쓰기는 질문 그대로)에 맞는 FAQ가 있어야 LLM을 부름
             chatFacade.answer(MEMBER_ID, conversationId, question);
-            previous = question;
         }
 
         // 시스템 1 + 최근 6 + 이번 질문 1

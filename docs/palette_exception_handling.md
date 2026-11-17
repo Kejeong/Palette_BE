@@ -223,6 +223,7 @@ if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
   - 토스 `Idempotency-Key`는 취소 회차마다 다르게(`TOPUP-{id}-CANCEL-{회차}`) 보내 재시도해도 같은 취소가 두 번 처리되지 않게 한다
 - 대사 스케줄러의 토스 조회는 결제키(`GET /v1/payments/{paymentKey}`)로 한다. 주문번호 조회(`/v1/payments/orders/{orderId}`)는 결제위젯 시크릿 키로 호출할 수 없다
 - 챗봇(ai-service)의 OpenAI 오류 처리. 챗봇은 답을 못 주는 것보다 FAQ 원문이라도 주는 쪽을 택한다:
+  - 검색어 다시 쓰기(채팅) 실패·시간 초과·빈 답 → 예외로 응답하지 않고 원래 질문(같은 대화의 최근 질문 + 이번 질문)으로 FAQ를 찾는다. WARN 로그만 남긴다
   - 질문 임베딩 실패 → FAQ를 찾을 수 없으므로 `502-EXTERNAL_SERVICE_ERROR`(질문·답변을 대화에 남기지 않음)
   - 답변 생성(채팅) 실패·시간 초과(10초, `spring.ai.openai.chat.timeout`)·빈 답변 → 예외로 응답하지 않고 가장 비슷한 FAQ 답변을 그대로 `200-1` + `data.answerType: "FAQ"`로 준다. WARN 로그만 남긴다
   - OpenAI SDK 재시도는 끈다(`max-retries: 0`). 재시도로 응답이 몇십 초씩 늦어지지 않고 바로 FAQ 답변으로 넘어가게 하기 위함이다

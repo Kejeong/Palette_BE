@@ -23,6 +23,7 @@ public class FaqFacade {
     private final FaqModifyUseCase faqModifyUseCase;
     private final FaqGetAdminListUseCase faqGetAdminListUseCase;
     private final FaqGetSummariesUseCase faqGetSummariesUseCase;
+    private final FaqGetVisibleQuestionsUseCase faqGetVisibleQuestionsUseCase;
 
     // 비어 있는 FAQ 임베딩을 채움. OpenAI를 부르므로 트랜잭션을 걸지 않음
     public void embedPending() {
@@ -32,6 +33,12 @@ public class FaqFacade {
     // 질문과 의미가 가까운 FAQ. 질문 임베딩에 OpenAI를 부르므로 트랜잭션을 걸지 않음
     public FaqSearchDto search(String query) {
         return faqSearchUseCase.search(query);
+    }
+
+    // 노출 중인 FAQ 질문(등록 순)
+    @Transactional(readOnly = true)
+    public List<String> getVisibleQuestions() {
+        return faqGetVisibleQuestionsUseCase.getVisibleQuestions();
     }
 
     // ID로 FAQ 요약. 없는 ID는 빠짐

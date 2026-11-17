@@ -14,7 +14,7 @@ public class ChatPolicy {
     // 프롬프트에 넣는 같은 대화의 최근 메시지 수(질문·답변 합산)
     private final int historyMessages;
 
-    // FAQ 검색어 앞에 붙이는 같은 대화의 최근 질문 수. "그럼 며칠 걸려요?"처럼 주어가 빠진 질문도 맞는 FAQ를 찾게
+    // 검색어 다시 쓰기가 실패했을 때 FAQ 검색어 앞에 붙이는 같은 대화의 최근 질문 수. "그럼 며칠 걸려요?"처럼 주어가 빠진 질문도 맞는 FAQ를 찾게
     private final int searchHistoryQuestions;
 
     // 회원별로 rateLimitWindow 동안 보낼 수 있는 챗봇 질문 수. 질문마다 OpenAI를 부르므로 비용을 막으려고 둠

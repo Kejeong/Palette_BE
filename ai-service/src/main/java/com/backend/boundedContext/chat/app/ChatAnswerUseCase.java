@@ -35,7 +35,8 @@ import java.util.List;
 
 /**
  * 질문과 의미가 가까운 FAQ를 찾아, 그 FAQ만 근거로 LLM이 답변을 만듦(RAG). 질문·답변은 대화 기록에 저장함
- * - 같은 대화의 최근 질문을 FAQ 검색어 앞에 붙이고, 최근 메시지를 프롬프트에 넣어 이어지는 질문에 답함
+ * - 검색 전에 질문을 FAQ 질문 같은 문장으로 다시 씀(이전 대화로 생략된 대상도 채움). 실패하면 같은 대화의 최근 질문 + 이번 질문으로 검색함
+ * - 최근 메시지를 답변 프롬프트에 넣어 이어지는 질문에 답함
  * - 근거 FAQ가 없으면 LLM을 부르지 않고 고객센터 안내 문구로 답함
  * - LLM이 실패하거나 시간을 넘기면(spring.ai.openai.chat.timeout) 가장 비슷한 FAQ 답변을 그대로 줌
  * OpenAI 호출 동안 DB 연결을 잡지 않게, 대화 읽기와 저장만 짧은 트랜잭션으로 나눔
@@ -53,6 +54,7 @@ public class ChatAnswerUseCase {
     private final ChatMessageRepository chatMessageRepository;
     private final TransactionTemplate transactionTemplate;
     private final ChatRateLimitStore chatRateLimitStore;
+    private final ChatQueryRewriter chatQueryRewriter;
 
     // conversationId가 null이면 새 대화를 시작함. 다른 회원의 대화면 404
     public ChatAnswerDto answer(Long memberId, Long conversationId, String question) {
@@ -61,8 +63,9 @@ public class ChatAnswerUseCase {
         // 1. 짧은 읽기: 내 대화인지 확인하고 최근 메시지를 가져옴(오래된 순)
         List<ChatMessage> history = conversationId == null ? List.of() : readHistory(memberId, conversationId);
 
-        // 2. 트랜잭션 밖에서 FAQ 검색·답변 생성
-        List<FaqSearchDto.Item> faqs = faqFacade.search(searchText(history, question)).faqs();
+        // 2. 트랜잭션 밖에서 검색어 다시 쓰기·FAQ 검색·답변 생성
+        String rewritten = chatQueryRewriter.rewrite(history, question);
+        List<FaqSearchDto.Item> faqs = faqFacade.search(rewritten != null ? rewritten : searchText(history, question)).faqs();
         ChatAnswerType answerType;
         String answer;
 
@@ -107,7 +110,7 @@ public class ChatAnswerUseCase {
         });
     }
 
-    // FAQ 검색어 = 같은 대화의 최근 질문 + 이번 질문. "그럼 며칠 걸려요?"만으로는 맞는 FAQ가 안 나와서 앞 질문을 붙임
+    // 다시 쓰기가 실패했을 때의 FAQ 검색어 = 같은 대화의 최근 질문 + 이번 질문. "그럼 며칠 걸려요?"만으로는 맞는 FAQ가 안 나와서 앞 질문을 붙임
     private String searchText(List<ChatMessage> history, String question) {
         List<String> previous = history.stream().filter(m -> m.getRole() == ChatRole.USER).map(ChatMessage::getContent).toList();
         List<String> parts = new ArrayList<>(previous.subList(Math.max(0, previous.size() - chatPolicy.getSearchHistoryQuestions()), previous.size()));
