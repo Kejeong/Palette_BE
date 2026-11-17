@@ -2,6 +2,7 @@ package com.backend.boundedContext.product.out;
 
 import com.backend.boundedContext.product.domain.OptionStock;
 import com.backend.boundedContext.product.domain.Product;
+import com.backend.boundedContext.product.domain.ProductDiscount;
 import com.backend.boundedContext.product.domain.ProductOption;
 import com.backend.boundedContext.product.domain.ProductSaleStatus;
 import jakarta.persistence.criteria.Join;
@@ -9,6 +10,7 @@ import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 import org.springframework.data.jpa.domain.Specification;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Locale;
 
@@ -57,6 +59,20 @@ public final class ProductSpecifications {
     }
 
     /** 품절 상품 (삭제되지 않은 옵션의 재고가 모두 0) */
+    /** 그 시각에 진행 중인 할인(삭제 안 됨, 시작 ≤ 시각 < 종료)이 있는 상품 */
+    public static Specification<Product> discountedAt(LocalDateTime now) {
+        return (root, q, cb) -> {
+            Subquery<Long> sub = q.subquery(Long.class);
+            Root<ProductDiscount> discount = sub.from(ProductDiscount.class);
+            sub.select(discount.get("id")).where(
+                    cb.equal(discount.get("product"), root),
+                    cb.isNull(discount.get("deletedAt")),
+                    cb.lessThanOrEqualTo(discount.get("startsAt"), now),
+                    cb.greaterThan(discount.get("endsAt"), now));
+            return cb.exists(sub);
+        };
+    }
+
     public static Specification<Product> soldOut() {
         return Specification.not(inStock());
     }

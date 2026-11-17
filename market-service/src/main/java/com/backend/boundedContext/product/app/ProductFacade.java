@@ -126,8 +126,8 @@ public class ProductFacade {
 
     @Transactional(readOnly = true)
     public PageResponse<ProductSummaryDto> searchProducts(String keyword, Long categoryId, ProductSort sort,
-                                                          boolean excludeSoldOut, Pageable pageable) {
-        return productSearchProductsUseCase.searchProducts(keyword, categoryId, sort, excludeSoldOut, pageable);
+                                                          boolean excludeSoldOut, boolean discountedOnly, Pageable pageable) {
+        return productSearchProductsUseCase.searchProducts(keyword, categoryId, sort, excludeSoldOut, discountedOnly, pageable);
     }
 
     /** 최근 24시간 인기 검색어와 한 시간 전 대비 순위 변동 (DB를 읽지 않는다) */

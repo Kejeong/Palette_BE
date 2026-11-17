@@ -101,7 +101,7 @@ public class ProductSearchIndexSupport {
             return OptionalInt.empty();
         }
         if (!rebuilding.compareAndSet(false, true)) {
-            return OptionalInt.empty();   // 다른 재색인이 alias를 만드는 중이다
+            return OptionalInt.empty();   // 다른 재색인이 새 인덱스를 만드는 중이다
         }
         try {
             return OptionalInt.of(rebuild());

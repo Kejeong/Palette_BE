@@ -82,6 +82,9 @@ public class ProductEsSearchAdapter implements ProductSearchPort {
         if (query.excludeSoldOut()) {
             b.filter(f -> f.term(t -> t.field("soldOut").value(false)));
         }
+        if (query.discountedOnly()) {   // 할인은 1% 이상만 등록되므로 할인율이 0보다 크면 할인 중이다
+            b.filter(f -> f.range(r -> r.number(n -> n.field("discountRate").gt(0.0))));
+        }
         if (query.keyword() != null) {
             b.must(m -> m.match(mt -> mt.field("name").query(query.keyword())));
         }
@@ -97,6 +100,7 @@ public class ProductEsSearchAdapter implements ProductSearchPort {
             case LATEST -> List.of(latest, byId);
             case PRICE_ASC -> List.of(field("effectivePrice", SortOrder.Asc), byId);
             case PRICE_DESC -> List.of(field("effectivePrice", SortOrder.Desc), byId);
+            case DISCOUNT_RATE -> List.of(field("discountRate", SortOrder.Desc), latest, byId);
         };
     }
 

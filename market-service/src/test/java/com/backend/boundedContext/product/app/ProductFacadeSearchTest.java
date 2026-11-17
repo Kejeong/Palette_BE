@@ -7,12 +7,14 @@ import com.backend.boundedContext.product.app.dto.ProductSummaryDto;
 import com.backend.boundedContext.product.domain.Category;
 import com.backend.boundedContext.product.domain.OptionStock;
 import com.backend.boundedContext.product.domain.Product;
+import com.backend.boundedContext.product.domain.ProductDiscount;
 import com.backend.boundedContext.product.domain.ProductOption;
 import com.backend.boundedContext.product.domain.ProductPolicy;
 import com.backend.boundedContext.product.domain.ProductSaleStatus;
 import com.backend.boundedContext.product.domain.ProductSort;
 import com.backend.boundedContext.product.out.CategoryRepository;
 import com.backend.boundedContext.product.out.OptionStockRepository;
+import com.backend.boundedContext.product.out.ProductDiscountRepository;
 import com.backend.boundedContext.product.out.ProductOptionRepository;
 import com.backend.boundedContext.product.out.ProductRepository;
 import com.backend.boundedContext.product.out.ProductSearchPort;
@@ -69,6 +71,9 @@ class ProductFacadeSearchTest {
 
     @Autowired
     private OptionStockRepository optionStockRepository;
+
+    @Autowired
+    private ProductDiscountRepository productDiscountRepository;
 
     @Autowired
     private ProductSupport productSupport;
@@ -146,6 +151,25 @@ class ProductFacadeSearchTest {
         assertThat(ids(search(KEY, skincare.getParent().getId(), ProductSort.LATEST, true)))
                 .containsExactlyInAnyOrder(cream.getId(), tint.getId());
         assertThat(ids(search(KEY, makeup.getId(), ProductSort.LATEST, true))).containsExactly(tint.getId());
+    }
+
+    @Test
+    @DisplayName("특가(DB 검색): discounted=true면 지금 진행 중인 할인이 있는 상품만 나오고, 할인율순은 최신순으로 대신한다")
+    void searchDiscounted() {
+        Product active = create(skincare, KEY + " 진행 중 할인", 10_000, 10);
+        Product scheduled = create(skincare, KEY + " 예약 할인", 10_000, 10);
+        Product ended = create(skincare, KEY + " 끝난 할인", 10_000, 10);
+        Product deleted = create(skincare, KEY + " 지운 할인", 10_000, 10);
+        Product none = create(skincare, KEY + " 할인 없음", 10_000, 10);
+        LocalDateTime now = LocalDateTime.now();
+        discount(active, 8_000, now.minusDays(1), now.plusDays(1), false);
+        discount(scheduled, 5_000, now.plusDays(1), now.plusDays(2), false);
+        discount(ended, 5_000, now.minusDays(2), now.minusDays(1), false);
+        discount(deleted, 5_000, now.minusDays(1), now.plusDays(1), true);
+
+        assertThat(ids(searchDiscounted(KEY, ProductSort.LATEST))).containsExactly(active.getId());
+        assertThat(ids(search(KEY, null, ProductSort.DISCOUNT_RATE, true)))
+                .containsExactly(none.getId(), deleted.getId(), ended.getId(), scheduled.getId(), active.getId());
     }
 
     @Test
@@ -227,7 +251,7 @@ class ProductFacadeSearchTest {
     @DisplayName("한 페이지 크기는 최대 50이다")
     void searchMaxPageSize() {
         PageResponse<ProductSummaryDto> result = productFacade.searchProducts(
-                KEY, null, ProductSort.LATEST, true, PageRequest.of(0, 100));
+                KEY, null, ProductSort.LATEST, true, false, PageRequest.of(0, 100));
 
         assertThat(result.size()).isEqualTo(50);
     }
@@ -299,7 +323,7 @@ class ProductFacadeSearchTest {
                 productSupport, productImageSupport, productDiscountSupport, staleIndex, productRepository,
                 productPopularKeywordSupport);
 
-        PageResponse<ProductSummaryDto> result = useCase.searchProducts(KEY, null, ProductSort.LATEST, true, PageRequest.of(0, 20));
+        PageResponse<ProductSummaryDto> result = useCase.searchProducts(KEY, null, ProductSort.LATEST, true, false, PageRequest.of(0, 20));
 
         assertThat(ids(result)).containsExactly(onSale.getId());
         assertThat(result.totalElements()).isEqualTo(staleIds.size());   // 개수는 검색 구현의 값 그대로
@@ -325,12 +349,12 @@ class ProductFacadeSearchTest {
                 productSupport, productImageSupport, productDiscountSupport, productSearchPort, productRepository,
                 new ProductPopularKeywordSupport(recordingPort, productPolicy));
 
-        useCase.searchProducts("  " + KEY.toUpperCase() + " 크림 ", null, null, true, PageRequest.of(0, 20));   // 앞뒤 공백, 대문자
-        useCase.searchProducts(KEY, null, null, true, PageRequest.of(1, 20));          // 다음 페이지
-        useCase.searchProducts(KEY + " 없는말", null, null, true, PageRequest.of(0, 20));   // 0건
-        useCase.searchProducts(null, skincare.getId(), null, true, PageRequest.of(0, 20));   // 카테고리만
+        useCase.searchProducts("  " + KEY.toUpperCase() + " 크림 ", null, null, true, false, PageRequest.of(0, 20));   // 앞뒤 공백, 대문자
+        useCase.searchProducts(KEY, null, null, true, false, PageRequest.of(1, 20));          // 다음 페이지
+        useCase.searchProducts(KEY + " 없는말", null, null, true, false, PageRequest.of(0, 20));   // 0건
+        useCase.searchProducts(null, skincare.getId(), null, true, false, PageRequest.of(0, 20));   // 카테고리만
         given(memberApi.getSellers(anyCollection())).willThrow(new IllegalStateException("member down"));
-        assertThatThrownBy(() -> useCase.searchProducts(KEY, null, null, true, PageRequest.of(0, 20)));   // 응답 실패
+        assertThatThrownBy(() -> useCase.searchProducts(KEY, null, null, true, false, PageRequest.of(0, 20)));   // 응답 실패
 
         assertThat(recorded).containsExactly(KEY + " 크림");
     }
@@ -370,11 +394,26 @@ class ProductFacadeSearchTest {
     }
 
     private PageResponse<ProductSummaryDto> search(String keyword, Long categoryId, ProductSort sort, boolean excludeSoldOut) {
-        return productFacade.searchProducts(keyword, categoryId, sort, excludeSoldOut, PageRequest.of(0, 20));
+        return productFacade.searchProducts(keyword, categoryId, sort, excludeSoldOut, false, PageRequest.of(0, 20));
     }
 
     private List<Long> ids(PageResponse<ProductSummaryDto> result) {
         return result.items().stream().map(ProductSummaryDto::productId).toList();
+    }
+
+    private PageResponse<ProductSummaryDto> searchDiscounted(String keyword, ProductSort sort) {
+        return productFacade.searchProducts(keyword, null, sort, true, true, PageRequest.of(0, 20));
+    }
+
+    /** 할인을 등록한 뒤 기간·삭제 여부를 원하는 상태로 옮긴다 (등록은 시작 전 기간만 받으므로) */
+    private void discount(Product product, long salePrice, LocalDateTime startsAt, LocalDateTime endsAt, boolean deleted) {
+        LocalDateTime now = LocalDateTime.now();
+        ProductDiscount discount = productDiscountRepository.save(
+                ProductDiscount.create(product, salePrice, now.plusDays(1), now.plusDays(2), now));
+        ReflectionTestUtils.setField(discount, "startsAt", startsAt);
+        ReflectionTestUtils.setField(discount, "endsAt", endsAt);
+        if (deleted) ReflectionTestUtils.setField(discount, "deletedAt", now);
+        productDiscountRepository.flush();
     }
 
     private Product create(Category category, String name, long price, int stock) {

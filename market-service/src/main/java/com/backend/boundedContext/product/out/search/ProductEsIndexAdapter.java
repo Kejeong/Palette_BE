@@ -3,7 +3,10 @@ package com.backend.boundedContext.product.out.search;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
+import co.elastic.clients.elasticsearch._types.mapping.TypeMapping;
 import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
+import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
+import co.elastic.clients.json.JsonData;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -37,12 +40,15 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
 
     private final ElasticsearchClient client;
     private final String alias;
+    /** 코드의 매핑 버전 (products-index.json의 mappings._meta.version). 매핑을 바꿀 때 올린다 */
+    private final int mappingVersion;
     private volatile boolean aliasReady;
 
     public ProductEsIndexAdapter(ElasticsearchClient client,
                                  @Value("${custom.product.search.indexAlias}") String alias) {
         this.client = client;
         this.alias = alias;
+        this.mappingVersion = readMappingVersion();
     }
 
     @Override
@@ -50,12 +56,44 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
         return true;
     }
 
+    /**
+     * alias가 있고 그 인덱스의 매핑 버전이 코드 이상이면 true.
+     * 매핑이 dynamic: strict라서, 필드를 더한 코드가 배포되면 재색인 전까지 이전 인덱스가 새 문서를 거부한다.
+     * 버전이 낮으면 복구 스케줄러가 재색인한다. 롤백한 예전 코드가 새 인덱스를 다시 만들지 않게 "낮을 때"만 재색인한다.
+     */
     @Override
+    public boolean isCurrent() {
+        if (!aliasExists()) return false;
+        try {
+            int current = client.indices().getMapping(g -> g.index(alias)).mappings().values().stream()
+                    .mapToInt(index -> versionOf(index.mappings()))
+                    .min().orElse(0);
+            return current >= mappingVersion;
+        } catch (IOException e) {
+            throw new UncheckedIOException("상품 검색 인덱스 매핑을 확인하지 못했습니다. alias=" + alias, e);
+        }
+    }
+
     public boolean aliasExists() {
         try {
             return client.indices().existsAlias(e -> e.name(alias)).value();
         } catch (IOException e) {
             throw new UncheckedIOException("상품 검색 alias를 확인하지 못했습니다. alias=" + alias, e);
+        }
+    }
+
+    /** 매핑의 _meta.version. 버전을 두기 전에 만든 인덱스는 1이다 */
+    private static int versionOf(TypeMapping mappings) {
+        JsonData version = mappings == null ? null : mappings.meta().get("version");
+        return version == null ? 1 : version.to(Integer.class);
+    }
+
+    private static int readMappingVersion() {
+        try (InputStream settings = new ClassPathResource(INDEX_SETTINGS).getInputStream()) {
+            CreateIndexRequest request = CreateIndexRequest.of(c -> c.index(INDEX_SETTINGS).withJson(settings));
+            return versionOf(request.mappings());
+        } catch (IOException e) {
+            throw new UncheckedIOException("상품 검색 인덱스 설정을 읽지 못했습니다. file=" + INDEX_SETTINGS, e);
         }
     }
 

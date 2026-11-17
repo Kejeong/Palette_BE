@@ -218,7 +218,7 @@ class ProductFacadeImageTest {
         String thumbnailUrl = url(images(productId, ProductImageType.THUMBNAIL).getFirst());
         List<String> detailUrls = images(productId, ProductImageType.DETAIL).stream().map(this::url).toList();
 
-        assertThat(productFacade.searchProducts(name, null, ProductSort.LATEST, true, PageRequest.of(0, 20)).items())
+        assertThat(productFacade.searchProducts(name, null, ProductSort.LATEST, true, false, PageRequest.of(0, 20)).items())
                 .singleElement().satisfies(item -> assertThat(item.thumbnailUrl()).isEqualTo(thumbnailUrl));
         assertThat(productFacade.getProductDetail(productId)).satisfies(detail -> {
             assertThat(detail.thumbnailUrl()).isEqualTo(thumbnailUrl);

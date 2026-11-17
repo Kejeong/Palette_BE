@@ -11,7 +11,10 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
+
 import static com.backend.boundedContext.product.out.ProductSpecifications.categoryIn;
+import static com.backend.boundedContext.product.out.ProductSpecifications.discountedAt;
 import static com.backend.boundedContext.product.out.ProductSpecifications.inStock;
 import static com.backend.boundedContext.product.out.ProductSpecifications.nameContains;
 import static com.backend.boundedContext.product.out.ProductSpecifications.statusEquals;
@@ -32,7 +35,8 @@ public class ProductJpaSearchAdapter implements ProductSearchPort {
                 statusEquals(ProductSaleStatus.ON_SALE),
                 categoryIn(query.categoryIds()),
                 nameContains(query.keyword()),
-                query.excludeSoldOut() ? inStock() : Specification.unrestricted()
+                query.excludeSoldOut() ? inStock() : Specification.unrestricted(),
+                query.discountedOnly() ? discountedAt(LocalDateTime.now()) : Specification.unrestricted()
         );
         Pageable sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), toSort(query.sort()));
 
@@ -42,7 +46,8 @@ public class ProductJpaSearchAdapter implements ProductSearchPort {
     private static Sort toSort(ProductSort sort) {
         Sort.Order byId = Sort.Order.desc("id");
         return switch (sort) {
-            case RELEVANCE, LATEST -> Sort.by(Sort.Order.desc("createdAt"), byId);
+            // 관련도는 DB 검색에 없고, 할인율은 정가·할인가로 계산하는 값이라 정렬 조건으로 쓰기 어려워 최신순으로 대신한다
+            case RELEVANCE, LATEST, DISCOUNT_RATE -> Sort.by(Sort.Order.desc("createdAt"), byId);
             case PRICE_ASC -> Sort.by(Sort.Order.asc("price"), byId);
             case PRICE_DESC -> Sort.by(Sort.Order.desc("price"), byId);
         };
