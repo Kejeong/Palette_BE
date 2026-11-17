@@ -57,10 +57,9 @@ spring:
       pool:
         size: 1
 
-  # 임베딩(OpenAI text-embedding-3-small)만 쓴다. 채팅·이미지·음성·모더레이션 자동 설정은 끈다
+  # 임베딩(OpenAI text-embedding-3-small)과 챗봇 답변용 채팅 모델만 쓴다. 이미지·음성·모더레이션 자동 설정은 끈다
   ai:
     model:
-      chat: none
       image: none
       audio:
         speech: none
@@ -72,6 +71,13 @@ spring:
         options:
           model: text-embedding-3-small
           dimensions: 1536         # V3의 vector(1536)과 같아야 한다
+      chat:
+        timeout: 10s               # 챗봇 답변 대기 제한. 넘기면 가장 비슷한 FAQ 답변으로 대신한다
+        max-retries: 0             # OpenAI SDK 재시도(기본 3번)를 끈다. 실패하면 기다리지 않고 FAQ 답변으로 대신한다
+        options:
+          model: gpt-4o-mini
+          temperature: 0.2         # FAQ 내용을 벗어나지 않게 낮게 둔다
+          max-completion-tokens: 500   # 답변 길이 상한(한국어 몇 문단)
 
 
 # 정책 값. 코드에 숫자를 직접 쓰지 않고 각 컨텍스트의 <Ctx>Policy에서 읽는다.
