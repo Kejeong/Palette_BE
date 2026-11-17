@@ -17,7 +17,7 @@ public interface OrderApi {
     // 상품이 들어 있는 결제 대기 주문을 모두 취소하고 재고를 복원한다.
     int cancelPendingOrders(Collection<Long> productIds, OrderCancelType cancelType);
 
-    // 진행 중인 주문이 있는지 확인
+    // 진행 중인 주문이 있는지 확인 (회원 탈퇴 검사). 반품 승인됐는데 환불 전인 주문도 포함한다
     boolean hasActiveOrders(Long buyerId);
 
     // 판매자 상품이 들어간 진행중인 주문이 있는지 확인

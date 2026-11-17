@@ -54,6 +54,31 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
     // 구매자에게 해당 상태의 주문이 있는지
     boolean existsByBuyerIdAndStatusIn(Long buyerId, Collection<OrderStatus> statuses);
 
+    // 구매자에게 진행 중인 주문이 있거나, 반품 승인됐는데 아직 환불 전인 주문이 있는지 (회원 탈퇴 검사)
+    @Query("""
+            select count(o) > 0
+            from Order o
+            where o.buyerId = :buyerId
+              and (o.status in :statuses
+                   or (o.status = com.backend.shared.order.dto.OrderStatus.RETURNED and o.refundedAt is null))
+            """)
+    boolean existsActiveOrRefundPendingByBuyerId(@Param("buyerId") Long buyerId,
+                                                 @Param("statuses") Collection<OrderStatus> statuses);
+
+    // 환불 확인 대상 주문 id 조회: 반품 승인 뒤 일정 시간이 지났는데 아직 환불 기록이 없는 주문 (idx_market_order_refund_pending)
+    @Query("""
+            select o.id
+            from Order o
+            where o.status = com.backend.shared.order.dto.OrderStatus.RETURNED
+              and o.refundedAt is null
+              and o.returnedAt <= :returnedBefore
+              and o.id > :afterId
+            order by o.id
+            """)
+    List<Long> findRefundCheckTargetIds(@Param("returnedBefore") LocalDateTime returnedBefore,
+                                        @Param("afterId") Long afterId,
+                                        Pageable pageable);
+
     // 판매자 상품이 들어간 주문이 있는지
     @Query("""
             select count(i) > 0
