@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -48,8 +49,8 @@ class PaymentGetAdminTopupsUseCaseTest {
     @SuppressWarnings("unchecked")
     void getTopups() {
         given(searchResolver.resolve("buyer@palette.test", FROM, TO)).willReturn(AdminTopupSearch.ofMember(3L, FROM, TO));
-        Topup first = Topup.create(3L, Wallet.create(3L), 20_000, PgProvider.TOSS);
-        Topup second = Topup.create(3L, Wallet.create(3L), 10_000, PgProvider.TOSS);
+        Topup first = Topup.create(3L, Wallet.create(3L), 20_000, PgProvider.TOSS, LocalDateTime.now());
+        Topup second = Topup.create(3L, Wallet.create(3L), 10_000, PgProvider.TOSS, LocalDateTime.now());
         given(topupRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .willAnswer(invocation -> new PageImpl<>(List.of(first, second), invocation.getArgument(1), 2));
         given(memberPort.getMembers(List.of(3L))).willReturn(List.of(

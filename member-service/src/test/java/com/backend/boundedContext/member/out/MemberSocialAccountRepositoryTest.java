@@ -44,7 +44,7 @@ class MemberSocialAccountRepositoryTest {
     void find() {
         Member member = saveMember();
         String kakaoId = kakaoId();
-        memberSocialAccountRepository.save(MemberSocialAccount.link(member, SocialProvider.KAKAO, kakaoId));
+        memberSocialAccountRepository.save(MemberSocialAccount.link(member, SocialProvider.KAKAO, kakaoId, null));
 
         assertThat(memberSocialAccountRepository.findByProviderAndProviderUserId(SocialProvider.KAKAO, kakaoId))
                 .get().extracting(account -> account.getMember().getId()).isEqualTo(member.getId());
@@ -58,10 +58,10 @@ class MemberSocialAccountRepositoryTest {
     @DisplayName("같은 소셜 계정은 두 회원에게 연결할 수 없다 (DB UNIQUE)")
     void sameAccountToTwoMembers() {
         String kakaoId = kakaoId();
-        memberSocialAccountRepository.save(MemberSocialAccount.link(saveMember(), SocialProvider.KAKAO, kakaoId));
+        memberSocialAccountRepository.save(MemberSocialAccount.link(saveMember(), SocialProvider.KAKAO, kakaoId, null));
 
         assertThatThrownBy(() -> memberSocialAccountRepository.saveAndFlush(
-                MemberSocialAccount.link(saveMember(), SocialProvider.KAKAO, kakaoId)))
+                MemberSocialAccount.link(saveMember(), SocialProvider.KAKAO, kakaoId, null)))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -69,10 +69,10 @@ class MemberSocialAccountRepositoryTest {
     @DisplayName("한 회원은 같은 제공자 계정을 두 개 연결할 수 없다 (DB UNIQUE)")
     void twoAccountsOfSameProvider() {
         Member member = saveMember();
-        memberSocialAccountRepository.save(MemberSocialAccount.link(member, SocialProvider.KAKAO, kakaoId()));
+        memberSocialAccountRepository.save(MemberSocialAccount.link(member, SocialProvider.KAKAO, kakaoId(), null));
 
         assertThatThrownBy(() -> memberSocialAccountRepository.saveAndFlush(
-                MemberSocialAccount.link(member, SocialProvider.KAKAO, kakaoId())))
+                MemberSocialAccount.link(member, SocialProvider.KAKAO, kakaoId(), null)))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 

@@ -3,6 +3,7 @@ package com.backend.boundedContext.payment.app;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.stereotype.Component;
 
+import com.backend.boundedContext.payment.out.pg.PgCancelRequest;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
 import com.backend.boundedContext.payment.out.pg.TopupGateways;
 
@@ -59,7 +60,7 @@ public class PaymentTopupMethodCanceller {
     }
 
     private void cancelAndComplete(TopupMethodCancelStart start, PgPaymentMethod method) {
-        topupGateways.get(start.pgProvider()).cancel(start.paymentKey(), start.amount(), CANCEL_REASON, start.idempotencyKey());
+        topupGateways.get(start.pgProvider()).cancel(new PgCancelRequest(start.payment(), start.amount(), CANCEL_REASON, start.attempt(), start.idempotencyKey()));
         paymentTopupConfirmProcessor.completeMethodCancel(start.topupId(), start.attempt(), completedReason(method));
     }
 

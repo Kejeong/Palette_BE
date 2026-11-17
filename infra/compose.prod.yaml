@@ -140,6 +140,9 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # 인기 검색어(시간 단위 ZSET)를 Redis에 둔다. 키는 product:popular-keyword:로 시작해 회원 키와 섞이지 않는다
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       MARKET_DB_USERNAME: ${MARKET_DB_USERNAME:?MARKET_DB_USERNAME이 .env에 없습니다}
       # 회원 내부 API(/internal/v1/members·sellers)를 부르는 member-service 주소
@@ -163,6 +166,7 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      # redis는 기다리지 않는다. 인기 검색어(부가 기능)만 쓰고 Redis가 없어도 검색이 실패하지 않으므로, Redis 상태 때문에 market 배포가 막히지 않게 한다
 
   # 예치금·충전·결제·정산 지급(payment-service). 같은 Dockerfile에서 MODULE만 바꿔 빌드한다.
   # 루트 모놀리스(app)가 하던 마지막 기능이라, 결제가 분리되면서 app 컨테이너를 이 서비스로 바꿨다.
@@ -212,7 +216,7 @@ services:
   # DB는 settlement 스키마에 settlement_user로 접속한다(DB_USERNAME과 다른 계정).
   # 처음 띄우기 전에 운영 DB의 정산 테이블을 public에서 settlement로 옮겨야 한다(settlement-service V1 파일 주석 참고).
   #   옮기기 전에 뜨면 빈 settlement 스키마에 V1으로 빈 테이블을 만들어 버린다.
-  # 결제·회원 서비스 연결 전이라 스케줄러(월 정산·지급 재시도)는 끈 채로 둔다(SETTLEMENT_SCHEDULING_ENABLED 기본 false).
+  # 회원, 결제와 HTTP로 연결돼 정산 스케줄러는 기본으로 켜져 있다. 문제가 생기면 .env에 SETTLEMENT_SCHEDULING_ENABLED=false로 끈다.
   settlement:
     build:
       context: ..
@@ -232,12 +236,12 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       SETTLEMENT_DB_USERNAME: ${SETTLEMENT_DB_USERNAME:?SETTLEMENT_DB_USERNAME이 .env에 없습니다}
-      # 회원 내부 API(/internal/v1/members·sellers)를 부르는 member-service 주소 (판매자 조회, 제재 여부 확인)
-      # 지금은 회원 클라이언트가 임시 구현이라 읽지 않는다. HTTP로 바꿀 때 이 이름으로 읽는다
+      # 회원 내부 API(/internal/v1/sellers)를 부르는 member-service 주소 (판매자 조회, 제재 여부 확인)
       MEMBER_SERVICE_URL: http://member:8081
-      # 결제 내부 API(/internal/v1/payments)를 부르는 payment-service 주소 (정산금 지급, 지급 결과 조회)
-      # 지금은 결제 클라이언트가 임시 구현이라 읽지 않는다. HTTP로 바꿀 때 이 이름으로 읽는다
+      # 결제 내부 API(/internal/v1/payments/transfers)를 부르는 payment-service 주소 (정산금 지급, 지급 내역 조회)
       PAYMENT_SERVICE_URL: http://payment:8083
+      # 지급 재시도 간격(분). 로컬, 테스트는 10, 개발 서버는 운영처럼 2시간
+      SETTLEMENT_RETRY_INTERVAL_MINUTES: "120"
       SERVER_FORWARD_HEADERS_STRATEGY: native
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
     # market과 같은 1g(힙 768MB). 월 1회 배치와 관리자 조회뿐이라 평소 사용량은 market(약 430MB)과 비슷하다

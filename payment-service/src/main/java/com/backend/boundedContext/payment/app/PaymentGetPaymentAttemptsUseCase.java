@@ -39,6 +39,7 @@ public class PaymentGetPaymentAttemptsUseCase {
     // PaymentStatus에 값이 추가되면 컴파일 오류로 알 수 있게 switch로 하나씩 대응
     private static PaymentAttemptStatus toAttemptStatus(PaymentStatus status) {
         return switch (status) {
+            case READY -> throw new IllegalStateException("커밋되지 않는 결제 준비 상태입니다");
             case PAID -> PaymentAttemptStatus.PAID;
             case REFUNDED -> PaymentAttemptStatus.REFUNDED;
             case CANCELED -> PaymentAttemptStatus.CANCELED;

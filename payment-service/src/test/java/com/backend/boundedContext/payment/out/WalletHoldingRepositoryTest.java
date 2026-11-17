@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import com.backend.boundedContext.payment.support.TestPayments;
 import com.backend.boundedContext.payment.domain.Payment;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.domain.WalletHolding;
@@ -83,8 +84,8 @@ class WalletHoldingRepositoryTest {
     // 결제 완료 건과 홀딩을 만들고, settled만큼 정산된 상태로 저장한다
     private void hold(Wallet wallet, long amount, long settled) {
         long orderId = ThreadLocalRandom.current().nextLong(1_000_000_000L, 2_000_000_000L);
-        Payment payment = paymentRepository.save(Payment.paid(orderId, "ORD-TEST-" + orderId, wallet, amount, "TEST-" + UUID.randomUUID(), NOW));
-        WalletHolding holding = WalletHolding.hold(payment, NOW);
+        WalletHolding holding = TestPayments.paid(wallet, orderId, "ORD-TEST-" + orderId, amount, "TEST-" + UUID.randomUUID(), NOW).holding();
+        paymentRepository.save(holding.getPayment());
         if (settled > 0) holding.settle(settled, NOW);
         holdings.add(walletHoldingRepository.save(holding));
     }

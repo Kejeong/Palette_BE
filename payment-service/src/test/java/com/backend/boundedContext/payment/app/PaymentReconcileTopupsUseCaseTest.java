@@ -23,6 +23,7 @@ import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
 import com.backend.boundedContext.payment.out.pg.PgPaymentNotFoundException;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.PgPaymentStatus;
 import com.backend.boundedContext.payment.out.pg.PgResultUnknownException;
@@ -33,7 +34,7 @@ class PaymentReconcileTopupsUseCaseTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 14, 10, 0);
     private static final LocalDateTime UPDATED_AT = LocalDateTime.of(2026, 10, 14, 9, 50);
-    private static final TopupReconcileTarget TARGET = new TopupReconcileTarget(7L, "pk_7", PgProvider.TOSS, UPDATED_AT);
+    private static final TopupReconcileTarget TARGET = new TopupReconcileTarget(7L, ref("pk_7"), PgProvider.TOSS, UPDATED_AT);
 
     private final PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 60, 1L);
     private final PaymentTopupConfirmProcessor processor = mock(PaymentTopupConfirmProcessor.class);
@@ -64,7 +65,7 @@ class PaymentReconcileTopupsUseCaseTest {
     void approved() {
         targets(TARGET);
         PgPaymentResult approved = pg(PgPaymentStatus.APPROVED);
-        given(gateway.getPayment("pk_7")).willReturn(approved);
+        given(gateway.getPayment(ref("pk_7"))).willReturn(approved);
 
         TopupReconcileResult result = useCase.reconcileProcessingTopups(NOW);
 
@@ -76,9 +77,9 @@ class PaymentReconcileTopupsUseCaseTest {
     @Test
     @DisplayName("PG에서 승인되지 않음(NOT_APPROVED)이 확정되면 FAILED_PG_DECLINED로 기록하고, 실패 사유에 PG 원래 상태값을 남긴다")
     void notApproved() {
-        targets(TARGET, new TopupReconcileTarget(8L, "pk_8", PgProvider.TOSS, UPDATED_AT));
-        given(gateway.getPayment("pk_7")).willReturn(pg(PgPaymentStatus.NOT_APPROVED, "ABORTED", "TOPUP-7"));
-        given(gateway.getPayment("pk_8")).willReturn(pg(PgPaymentStatus.NOT_APPROVED, "EXPIRED", "TOPUP-8"));
+        targets(TARGET, new TopupReconcileTarget(8L, ref("pk_8"), PgProvider.TOSS, UPDATED_AT));
+        given(gateway.getPayment(ref("pk_7"))).willReturn(pg(PgPaymentStatus.NOT_APPROVED, "ABORTED", "TOPUP-7"));
+        given(gateway.getPayment(ref("pk_8"))).willReturn(pg(PgPaymentStatus.NOT_APPROVED, "EXPIRED", "TOPUP-8"));
 
         TopupReconcileResult result = useCase.reconcileProcessingTopups(NOW);
 
@@ -91,7 +92,7 @@ class PaymentReconcileTopupsUseCaseTest {
     @DisplayName("PG에서 취소(CANCELED)된 결제면 반영하지 않고 FAILED_SYSTEM_ERROR로 기록한다")
     void canceled() {
         targets(TARGET);
-        given(gateway.getPayment("pk_7")).willReturn(pg(PgPaymentStatus.CANCELED));
+        given(gateway.getPayment(ref("pk_7"))).willReturn(pg(PgPaymentStatus.CANCELED));
 
         TopupReconcileResult result = useCase.reconcileProcessingTopups(NOW);
 
@@ -104,7 +105,7 @@ class PaymentReconcileTopupsUseCaseTest {
     @DisplayName("PG에 결제가 없으면 FAILED_SYSTEM_ERROR로 기록한다")
     void notFoundPayment() {
         targets(TARGET);
-        given(gateway.getPayment("pk_7")).willThrow(new PgPaymentNotFoundException(new RuntimeException()));
+        given(gateway.getPayment(ref("pk_7"))).willThrow(new PgPaymentNotFoundException(new RuntimeException()));
 
         TopupReconcileResult result = useCase.reconcileProcessingTopups(NOW);
 
@@ -115,10 +116,10 @@ class PaymentReconcileTopupsUseCaseTest {
     @Test
     @DisplayName("PG 결과를 알 수 없거나 아직 확정되지 않았으면(PENDING) PROCESSING으로 두고 다음 회차에 다시 확인한다")
     void pending() {
-        targets(TARGET, new TopupReconcileTarget(8L, "pk_8", PgProvider.TOSS, UPDATED_AT));
-        given(gateway.getPayment("pk_7"))
+        targets(TARGET, new TopupReconcileTarget(8L, ref("pk_8"), PgProvider.TOSS, UPDATED_AT));
+        given(gateway.getPayment(ref("pk_7")))
                 .willThrow(new PgResultUnknownException(new RuntimeException("Read timed out")));
-        given(gateway.getPayment("pk_8")).willReturn(pg(PgPaymentStatus.PENDING));
+        given(gateway.getPayment(ref("pk_8"))).willReturn(pg(PgPaymentStatus.PENDING));
 
         TopupReconcileResult result = useCase.reconcileProcessingTopups(NOW);
 
@@ -130,11 +131,11 @@ class PaymentReconcileTopupsUseCaseTest {
     @Test
     @DisplayName("한 건에서 오류가 나도 나머지 건은 계속 처리한다")
     void errorDoesNotStopOthers() {
-        targets(TARGET, new TopupReconcileTarget(8L, "pk_8", PgProvider.TOSS, UPDATED_AT));
+        targets(TARGET, new TopupReconcileTarget(8L, ref("pk_8"), PgProvider.TOSS, UPDATED_AT));
         PgPaymentResult done7 = pg(PgPaymentStatus.APPROVED, "TOPUP-7");
         PgPaymentResult done8 = pg(PgPaymentStatus.APPROVED, "TOPUP-8");
-        given(gateway.getPayment("pk_7")).willReturn(done7);
-        given(gateway.getPayment("pk_8")).willReturn(done8);
+        given(gateway.getPayment(ref("pk_7"))).willReturn(done7);
+        given(gateway.getPayment(ref("pk_8"))).willReturn(done8);
         given(processor.complete(7L, done7)).willThrow(new RuntimeException("DB 오류"));
 
         TopupReconcileResult result = useCase.reconcileProcessingTopups(NOW);
@@ -148,7 +149,7 @@ class PaymentReconcileTopupsUseCaseTest {
     @DisplayName("PG가 승인했지만 허용하지 않은 결제 수단이면 예치금에 반영하지 않고 PG 전액 취소로 넘긴다")
     void reconcile_approvedNotAllowedMethod() {
         targets(TARGET);
-        given(gateway.getPayment("pk_7")).willReturn(new PgPaymentResult("pk_7", "TOPUP-7", PgPaymentStatus.APPROVED, "DONE", 20_000, 0, PgPaymentMethod.OTHER, null));
+        given(gateway.getPayment(ref("pk_7"))).willReturn(new PgPaymentResult("pk_7", "TOPUP-7", PgPaymentStatus.APPROVED, "DONE", 20_000, 0, PgPaymentMethod.OTHER, null));
 
         TopupReconcileResult result = useCase.reconcileProcessingTopups(NOW);
 
@@ -171,5 +172,10 @@ class PaymentReconcileTopupsUseCaseTest {
 
     private static PgPaymentResult pg(PgPaymentStatus status, String pgStatus, String orderId) {
         return new PgPaymentResult("pk_1", orderId, status, pgStatus, 20_000, 0, PgPaymentMethod.CARD, null);
+    }
+
+    // PG 조회에 넘기는 충전 건 정보. 같은 결제키면 같은 값이라 목 설정과 대상이 맞물림
+    private static PgPaymentRef ref(String paymentKey) {
+        return new PgPaymentRef(paymentKey.replace("pk_", "TOPUP-"), paymentKey, 20_000, UPDATED_AT);
     }
 }

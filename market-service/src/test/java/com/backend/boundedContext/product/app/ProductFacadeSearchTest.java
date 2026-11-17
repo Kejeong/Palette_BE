@@ -8,6 +8,7 @@ import com.backend.boundedContext.product.domain.Category;
 import com.backend.boundedContext.product.domain.OptionStock;
 import com.backend.boundedContext.product.domain.Product;
 import com.backend.boundedContext.product.domain.ProductOption;
+import com.backend.boundedContext.product.domain.ProductPolicy;
 import com.backend.boundedContext.product.domain.ProductSaleStatus;
 import com.backend.boundedContext.product.domain.ProductSort;
 import com.backend.boundedContext.product.out.CategoryRepository;
@@ -15,6 +16,7 @@ import com.backend.boundedContext.product.out.OptionStockRepository;
 import com.backend.boundedContext.product.out.ProductOptionRepository;
 import com.backend.boundedContext.product.out.ProductRepository;
 import com.backend.boundedContext.product.out.ProductSearchPort;
+import com.backend.boundedContext.product.out.keyword.PopularKeywordPort;
 import com.backend.global.exception.DomainException;
 import com.backend.global.page.PageResponse;
 import com.backend.shared.member.dto.SellerDto;
@@ -33,6 +35,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -75,6 +78,15 @@ class ProductFacadeSearchTest {
 
     @Autowired
     private ProductDiscountSupport productDiscountSupport;
+
+    @Autowired
+    private ProductPopularKeywordSupport productPopularKeywordSupport;
+
+    @Autowired
+    private ProductSearchPort productSearchPort;
+
+    @Autowired
+    private ProductPolicy productPolicy;
 
     @MockitoBean
     private MemberApi memberApi;
@@ -284,12 +296,43 @@ class ProductFacadeSearchTest {
         List<Long> staleIds = List.of(stopped.getId(), onSale.getId(), deleted.getId(), inactiveCategory.getId(), Long.MAX_VALUE);
         ProductSearchPort staleIndex = (query, pageable) -> new PageImpl<>(staleIds, pageable, staleIds.size());
         ProductSearchProductsUseCase useCase = new ProductSearchProductsUseCase(
-                productSupport, productImageSupport, productDiscountSupport, staleIndex, productRepository);
+                productSupport, productImageSupport, productDiscountSupport, staleIndex, productRepository,
+                productPopularKeywordSupport);
 
         PageResponse<ProductSummaryDto> result = useCase.searchProducts(KEY, null, ProductSort.LATEST, true, PageRequest.of(0, 20));
 
         assertThat(ids(result)).containsExactly(onSale.getId());
         assertThat(result.totalElements()).isEqualTo(staleIds.size());   // 개수는 검색 구현의 값 그대로
+    }
+
+    @Test
+    @DisplayName("인기 검색어: 결과가 있는 첫 페이지 검색만 정규화한 검색어로 세고, 다음 페이지·0건·검색어 없음·응답 실패 검색은 세지 않는다")
+    void searchRecordsPopularKeyword() {
+        create(skincare, KEY + " 크림", 10_000, 10);
+        List<String> recorded = new ArrayList<>();
+        PopularKeywordPort recordingPort = new PopularKeywordPort() {
+            @Override
+            public void increase(String key, String label, LocalDateTime at) {
+                recorded.add(label);
+            }
+
+            @Override
+            public List<String> findTop(LocalDateTime lastHour, int hours, double halfLifeHours, double minScore, int limit) {
+                return List.of();
+            }
+        };
+        ProductSearchProductsUseCase useCase = new ProductSearchProductsUseCase(
+                productSupport, productImageSupport, productDiscountSupport, productSearchPort, productRepository,
+                new ProductPopularKeywordSupport(recordingPort, productPolicy));
+
+        useCase.searchProducts("  " + KEY.toUpperCase() + " 크림 ", null, null, true, PageRequest.of(0, 20));   // 앞뒤 공백, 대문자
+        useCase.searchProducts(KEY, null, null, true, PageRequest.of(1, 20));          // 다음 페이지
+        useCase.searchProducts(KEY + " 없는말", null, null, true, PageRequest.of(0, 20));   // 0건
+        useCase.searchProducts(null, skincare.getId(), null, true, PageRequest.of(0, 20));   // 카테고리만
+        given(memberApi.getSellers(anyCollection())).willThrow(new IllegalStateException("member down"));
+        assertThatThrownBy(() -> useCase.searchProducts(KEY, null, null, true, PageRequest.of(0, 20)));   // 응답 실패
+
+        assertThat(recorded).containsExactly(KEY + " 크림");
     }
 
     @Test

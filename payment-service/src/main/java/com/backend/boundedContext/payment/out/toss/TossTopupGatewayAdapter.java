@@ -1,15 +1,19 @@
 package com.backend.boundedContext.payment.out.toss;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
 import com.backend.boundedContext.payment.domain.PgProvider;
+import com.backend.boundedContext.payment.out.pg.PgCancelRequest;
+import com.backend.boundedContext.payment.out.pg.PgCheckout;
 import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgDeclinedException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
 import com.backend.boundedContext.payment.out.pg.PgPaymentNotFoundException;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.PgPaymentStatus;
 import com.backend.boundedContext.payment.out.pg.PgResultUnknownException;
@@ -75,11 +79,25 @@ public class TossTopupGatewayAdapter implements TopupGatewayPort {
             "계좌이체", PgPaymentMethod.TRANSFER
     );
 
+    // 사용자가 결제창을 닫거나 취소했을 때 토스가 주는 코드
+    // PAY_PROCESS_CANCELED: 실패 URL로 돌아온 경우, USER_CANCEL: 결제 요청(requestPayment)이 오류로 끝난 경우(데스크톱 팝업 닫기 등)
+    private static final Set<String> USER_CANCEL_CODES = Set.of("PAY_PROCESS_CANCELED", "USER_CANCEL");
+
     private final TossPaymentsClient tossPaymentsClient;
 
     @Override
     public PgProvider provider() {
         return PgProvider.TOSS;
+    }
+
+    @Override
+    public Optional<PgCheckout> checkout(PgPaymentRef payment) {
+        return Optional.empty();
+    }
+
+    @Override
+    public boolean isUserCancel(String failCode) {
+        return USER_CANCEL_CODES.contains(failCode);
     }
 
     @Override
@@ -100,9 +118,9 @@ public class TossTopupGatewayAdapter implements TopupGatewayPort {
     }
 
     @Override
-    public PgPaymentResult getPayment(String paymentKey) {
+    public PgPaymentResult getPayment(PgPaymentRef payment) {
         try {
-            return toResult(tossPaymentsClient.getPayment(paymentKey));
+            return toResult(tossPaymentsClient.getPayment(payment.paymentKey()));
         } catch (TossTimeoutException e) {
             throw new PgResultUnknownException(e);
         } catch (TossPaymentException e) {
@@ -114,9 +132,9 @@ public class TossTopupGatewayAdapter implements TopupGatewayPort {
     }
 
     @Override
-    public PgPaymentResult cancel(String paymentKey, long cancelAmount, String reason, String idempotencyKey) {
+    public PgPaymentResult cancel(PgCancelRequest request) {
         try {
-            return toResult(tossPaymentsClient.cancel(paymentKey, cancelAmount, reason, idempotencyKey));
+            return toResult(tossPaymentsClient.cancel(request.payment().paymentKey(), request.cancelAmount(), request.reason(), request.idempotencyKey()));
         } catch (TossTimeoutException e) {
             throw new PgResultUnknownException(e);
         } catch (TossPaymentException e) {

@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Topup;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
@@ -86,7 +87,7 @@ class TopupExpireIntegrationTest {
     }
 
     private Long prepare() {
-        Long topupId = paymentFacade.prepareTopup(memberId, 10_000).topupId();
+        Long topupId = paymentFacade.prepareTopup(memberId, 10_000, PgProvider.TOSS).topupId();
         topupIds.add(topupId);
         return topupId;
     }

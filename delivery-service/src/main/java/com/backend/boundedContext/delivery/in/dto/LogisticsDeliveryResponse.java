@@ -8,7 +8,7 @@ import com.backend.boundedContext.delivery.domain.Delivery;
 import com.backend.boundedContext.delivery.domain.DeliveryItem;
 import com.backend.shared.delivery.dto.DeliveryStatus;
 
-// 물류 담당자용 배송 건 (출고 목록·상세·송장 등록 응답). 배송지를 포함한다
+// 물류 담당자·관리자용 배송 건 (출고 목록·상세·송장 등록·수동 완료 응답). 배송지를 포함한다
 public record LogisticsDeliveryResponse(
         Long deliveryId,
         Long orderId,
@@ -27,6 +27,8 @@ public record LogisticsDeliveryResponse(
         LocalDateTime shippedAt,
         LocalDateTime deliveredAt,
         String lastTrackingStatus,
+        String manualCompletionReason,   // 관리자 수동 완료 사유. 택배사 조회로 완료됐거나 아직 완료 전이면 null
+        LocalDateTime manuallyCompletedAt,
         List<Item> items
 ) {
 
@@ -58,6 +60,8 @@ public record LogisticsDeliveryResponse(
                 delivery.getShippedAt(),
                 delivery.getDeliveredAt(),
                 delivery.getLastTrackingStatus(),
+                delivery.getManualCompletionReason(),
+                delivery.getManuallyCompletedAt(),
                 delivery.getItems().stream().map(Item::from).toList()
         );
     }

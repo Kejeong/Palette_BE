@@ -1,6 +1,8 @@
 package com.backend.boundedContext.payment.domain;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.backend.global.exception.DomainException;
 import com.backend.global.jpa.entity.BaseIdAndTime;
@@ -46,9 +48,14 @@ public class Payment extends BaseIdAndTime {
     @Column(nullable = false)
     private long amount;
 
-    // amount 중 배송비. 홀딩에 넣지 않고 플랫폼(관리자) 지갑으로 옮긴다. 홀딩 금액 = amount - shippingFee
+    // amount 중 배송비. 홀딩에 넣지 않고 플랫폼(관리자) 지갑으로 옮긴다
     @Column(nullable = false)
     private long shippingFee;
+
+    // 장바구니 쿠폰 지원금(플랫폼 부담)
+    // 홀딩 금액 = amount - shippingFee + couponSubsidyAmount
+    @Column(nullable = false)
+    private long couponSubsidyAmount;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
@@ -67,24 +74,131 @@ public class Payment extends BaseIdAndTime {
 
     private LocalDateTime canceledAt;
 
-    // 결제 성공 건 (지갑 차감·홀딩 생성은 호출한 쪽에서 같은 트랜잭션으로 처리)
-    public static Payment paid(Long orderId, String orderNumber, Wallet wallet, long amount, String idempotencyKey,
-                               LocalDateTime paidAt) {
+    public static Payment ready(
+            Long orderId,
+            String orderNumber,
+            Wallet wallet,
+            long amount,
+            long shippingFee,
+            long couponSubsidyAmount,
+            String idempotencyKey
+    ) {
+        if (couponSubsidyAmount < 0) {
+            throw new IllegalArgumentException("쿠폰 지원금은 0 이상이어야 합니다: " + couponSubsidyAmount);
+        }
         Payment payment = create(
                 orderId,
                 orderNumber,
                 wallet,
                 amount,
                 idempotencyKey,
-                PaymentStatus.PAID
-        );
-        payment.paidAt = paidAt;
+                PaymentStatus.READY
+        ).withShippingFee(shippingFee);
+        payment.couponSubsidyAmount = couponSubsidyAmount;
         return payment;
     }
 
+    /**
+     * 결제: 구매자 지갑에서 결제 금액을 빼고, 배송비는 플랫폼 지갑으로 보내고, 쿠폰 지원금은 플랫폼 지갑에서 홀딩으로 채운다
+     * 지갑은 잠금 조회한 것을 넘긴다. 배송비·지원금이 모두 0이면 플랫폼 지갑은 null이어도 된다
+     * 플랫폼 지갑 잔액이 지원금보다 적으면 돈을 옮기기 전에 막는다 (구매자 잔액 부족 402와 구분)
+     */
+    public PaymentRecords pay(Wallet buyerWallet, Wallet platformWallet, LocalDateTime now) {
+        if (status != PaymentStatus.READY) throw new IllegalStateException("준비 상태의 결제만 결제할 수 있습니다: " + status);
+        rejectIfPlatformWalletMissing(platformWallet);
+        if (hasCouponSubsidy() && !platformWallet.canPay(couponSubsidyAmount)) {
+            throw new DomainException(PaymentErrorCode.PLATFORM_SUBSIDY_INSUFFICIENT);
+        }
+
+        List<WalletTransaction> transactions = new ArrayList<>();
+        transactions.add(buyerWallet.change(
+                WalletTransactionType.PAYMENT,
+                amount,
+                getId(),
+                paymentIdempotencyKey()
+        ));
+        if (hasShippingFee()) {
+            transactions.add(platformWallet.change(
+                    WalletTransactionType.SHIPPING_FEE,
+                    shippingFee,
+                    getId(),
+                    shippingFeeIdempotencyKey()
+            ));
+        }
+        if (hasCouponSubsidy()) {
+            transactions.add(platformWallet.change(
+                    WalletTransactionType.COUPON_SUBSIDY,
+                    couponSubsidyAmount,
+                    getId(),
+                    couponSubsidyIdempotencyKey()
+            ));
+        }
+        this.status = PaymentStatus.PAID;
+        this.paidAt = now;
+        return new PaymentRecords(transactions, WalletHolding.hold(this, now));
+    }
+
+    /**
+     * 결제 취소: pay()를 거꾸로 한다. 홀딩 해제 → 구매자 환급 → 쿠폰 지원금을 플랫폼 지갑으로 반환 → 플랫폼 지갑에서 배송비 회수
+     * 정산 지급이 시작된 홀딩이면 해제에서 409로 막혀 돈이 움직이지 않는다. 반환한 원장은 호출한 쪽에서 저장
+     */
+    public List<WalletTransaction> cancel(
+            Wallet buyerWallet,
+            Wallet platformWallet,
+            WalletHolding holding,
+            LocalDateTime now
+    ) {
+        if (!isPaid()) throw new DomainException(PaymentErrorCode.PAYMENT_NOT_CANCELABLE);
+        rejectIfPlatformWalletMissing(platformWallet);
+        holding.release(now);
+
+        this.status = PaymentStatus.CANCELED;
+        this.canceledAt = now;
+
+        List<WalletTransaction> transactions = new ArrayList<>();
+        transactions.add(buyerWallet.change(
+                WalletTransactionType.PAYMENT_CANCEL,
+                amount,
+                getId(),
+                cancelIdempotencyKey()
+        ));
+        // 지원금을 먼저 돌려줘서, 배송비를 회수할 때 플랫폼 지갑 잔액이 모자라지 않게 한다
+        if (hasCouponSubsidy()) {
+            transactions.add(platformWallet.change(
+                    WalletTransactionType.COUPON_SUBSIDY_CANCEL,
+                    couponSubsidyAmount,
+                    getId(),
+                    couponSubsidyCancelIdempotencyKey()
+            ));
+        }
+        if (hasShippingFee()) {
+            transactions.add(platformWallet.change(
+                    WalletTransactionType.SHIPPING_FEE_CANCEL,
+                    shippingFee,
+                    getId(),
+                    shippingFeeCancelIdempotencyKey()
+            ));
+        }
+        return transactions;
+    }
+
+    private void rejectIfPlatformWalletMissing(Wallet platformWallet) {
+        if (needsPlatformWallet() && platformWallet == null) {
+            throw new IllegalArgumentException("배송비·쿠폰 지원금이 있는 결제는 플랫폼 지갑이 필요합니다: shippingFee="
+                    + shippingFee + ", couponSubsidyAmount=" + couponSubsidyAmount);
+        }
+    }
+
     // 결제 실패 건 (FAILED_*). 결제 트랜잭션과 별도 트랜잭션으로 저장
-    public static Payment failed(Long orderId, String orderNumber, Wallet wallet, long amount, String idempotencyKey,
-                                 PaymentStatus failStatus, String failReason) {
+    public static Payment failed(
+            Long orderId,
+            String orderNumber,
+            Wallet wallet,
+            long amount,
+            String idempotencyKey,
+            PaymentStatus failStatus,
+            String failReason
+    ) {
         if (!failStatus.isFailure()) throw new IllegalArgumentException("실패 상태가 아닙니다: " + failStatus);
         Payment payment = create(
                 orderId,
@@ -98,10 +212,17 @@ public class Payment extends BaseIdAndTime {
         return payment;
     }
 
-    private static Payment create(Long orderId, String orderNumber, Wallet wallet, long amount, String idempotencyKey,
-                                  PaymentStatus status) {
+    private static Payment create(
+            Long orderId,
+            String orderNumber,
+            Wallet wallet,
+            long amount,
+            String idempotencyKey,
+            PaymentStatus status
+    ) {
         if (amount <= 0) throw new IllegalArgumentException("결제 금액은 0보다 커야 합니다: " + amount);
         if (orderNumber == null || orderNumber.isBlank()) throw new IllegalArgumentException("주문번호가 없습니다: orderId=" + orderId);
+
         Payment payment = new Payment();
         payment.orderId = orderId;
         payment.orderNumber = orderNumber;
@@ -122,9 +243,31 @@ public class Payment extends BaseIdAndTime {
         return this;
     }
 
-    // 홀딩에 들어가는 금액 (정산 대상 금액)
+    // 홀딩에 들어가는 금액 = 결제액 - 배송비 + 쿠폰 지원금
     public long holdingAmount() {
-        return amount - shippingFee;
+        return amount - shippingFee + couponSubsidyAmount;
+    }
+
+    // 배송비나 쿠폰 지원금이 있으면 결제·취소할 때 플랫폼 지갑도 잠가서 넘겨야 한다
+    public boolean needsPlatformWallet() {
+        return hasShippingFee() || hasCouponSubsidy();
+    }
+
+    private boolean hasShippingFee() {
+        return shippingFee > 0;
+    }
+
+    private boolean hasCouponSubsidy() {
+        return couponSubsidyAmount > 0;
+    }
+
+    // 쿠폰 지원금 원장(COUPON_SUBSIDY)·지원금 반환 원장(COUPON_SUBSIDY_CANCEL)의 멱등 키
+    public String couponSubsidyIdempotencyKey() {
+        return "PAYMENT-" + getId() + "-COUPON_SUBSIDY";
+    }
+
+    public String couponSubsidyCancelIdempotencyKey() {
+        return "PAYMENT-" + getId() + "-COUPON_SUBSIDY-CANCEL";
     }
 
     // 배송비 원장(SHIPPING_FEE)·배송비 취소 원장(SHIPPING_FEE_CANCEL)의 멱등 키
@@ -152,13 +295,6 @@ public class Payment extends BaseIdAndTime {
     // 결제 원장(PAYMENT)의 멱등 키
     public String paymentIdempotencyKey() {
         return "PAYMENT-" + getId();
-    }
-
-    // 결제 취소 (홀딩 해제·지갑 환급은 호출한 쪽에서 같은 트랜잭션으로 처리)
-    public void cancel(LocalDateTime now) {
-        if (!isPaid()) throw new DomainException(PaymentErrorCode.PAYMENT_NOT_CANCELABLE);
-        this.status = PaymentStatus.CANCELED;
-        this.canceledAt = now;
     }
 
     // 결제 취소 원장(PAYMENT_CANCEL)의 멱등 키

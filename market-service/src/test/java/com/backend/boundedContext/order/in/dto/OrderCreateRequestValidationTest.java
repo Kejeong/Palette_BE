@@ -47,9 +47,9 @@ class OrderCreateRequestValidationTest {
     }
 
     @Test
-    @DisplayName("배송지 없이 보내면 통과한다 (프론트가 붙기 전까지 선택 값)")
+    @DisplayName("배송지 없이 보내면 실패한다 (배송지 필수)")
     void withoutShippingAddress() {
-        assertThat(invalidFields(null)).isEmpty();
+        assertThat(invalidFields(null)).containsExactly("shippingAddress");
     }
 
     @Test

@@ -22,6 +22,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import com.backend.boundedContext.payment.support.TestPayments;
 import com.backend.boundedContext.payment.app.dto.AdminPaymentDto;
 import com.backend.boundedContext.payment.domain.Payment;
 import com.backend.boundedContext.payment.domain.PaymentStatus;
@@ -148,10 +149,11 @@ class AdminPaymentQueryIntegrationTest {
     }
 
     private Payment savePaid(Long orderId, long amount) {
-        Payment payment = paymentRepository.save(Payment.paid(orderId, orderNumberOf(orderId), wallet, amount,
-                "TEST-" + UUID.randomUUID(), LocalDateTime.now()));
+        WalletHolding holding = TestPayments.paid(wallet, orderId, orderNumberOf(orderId), amount,
+                "TEST-" + UUID.randomUUID(), LocalDateTime.now()).holding();
+        Payment payment = paymentRepository.save(holding.getPayment());
         payments.add(payment);
-        holdings.add(walletHoldingRepository.save(WalletHolding.hold(payment, LocalDateTime.now())));
+        holdings.add(walletHoldingRepository.save(holding));
         return payment;
     }
 

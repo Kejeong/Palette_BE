@@ -12,6 +12,7 @@ import com.backend.boundedContext.settlement.out.SettlementRepository;
 import com.backend.global.exception.DomainException;
 import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
+import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.AfterEach;
@@ -92,7 +93,13 @@ class SettlementExportUseCaseTest {
             assertEquals(27_000, (long) statementSheet.getRow(2).getCell(4).getNumericCellValue());   // 합계 지급액
             Sheet itemSheet = read.getSheet("품목 내역");
             assertEquals(3, itemSheet.getLastRowNum());                                              // 머리글 + 품목 2 + 합계
-            assertEquals(30_000, (long) itemSheet.getRow(3).getCell(4).getNumericCellValue());       // 합계 판매가
+            assertEquals("티셔츠", itemSheet.getRow(1).getCell(4).getStringCellValue());              // 상품명
+            assertEquals("블랙 / M", itemSheet.getRow(1).getCell(5).getStringCellValue());            // 옵션명
+            assertEquals(2_000, (long) itemSheet.getRow(1).getCell(7).getNumericCellValue());        // 상품 쿠폰 할인액
+            assertEmptyCell(itemSheet.getRow(2).getCell(4));                                         // 이름이 실리기 전 후보
+            assertEquals(30_000, (long) itemSheet.getRow(3).getCell(6).getNumericCellValue());       // 합계 판매가
+            assertEquals(2_000, (long) itemSheet.getRow(3).getCell(7).getNumericCellValue());        // 합계 상품 쿠폰 할인액
+            assertEquals(27_000, (long) itemSheet.getRow(3).getCell(10).getNumericCellValue());      // 합계 지급액
         }
     }
 
@@ -128,9 +135,11 @@ class SettlementExportUseCaseTest {
             assertEquals(501, (long) statementSheet.getRow(1).getCell(9).getNumericCellValue());
             assertEquals(27_000, (long) statementSheet.getRow(2).getCell(6).getNumericCellValue());   // 합계 지급액
             Sheet itemSheet = read.getSheet("품목 내역");
-            assertEquals(12, itemSheet.getRow(0).getLastCellNum());
+            assertEquals(15, itemSheet.getRow(0).getLastCellNum());
             assertEquals(7, (long) itemSheet.getRow(1).getCell(2).getNumericCellValue());          // 판매자 ID 열
-            assertEquals(30_000, (long) itemSheet.getRow(3).getCell(5).getNumericCellValue());     // 합계 판매가
+            assertEquals("티셔츠", itemSheet.getRow(1).getCell(5).getStringCellValue());            // 상품명
+            assertEquals(30_000, (long) itemSheet.getRow(3).getCell(7).getNumericCellValue());     // 합계 판매가
+            assertEquals(2_000, (long) itemSheet.getRow(3).getCell(8).getNumericCellValue());      // 합계 상품 쿠폰 할인액
         }
     }
 
@@ -222,6 +231,11 @@ class SettlementExportUseCaseTest {
                 new SettlementExcelWriter(), policy, new ResourcelessTransactionManager());
     }
 
+    /** 이름이 없는 칸: 셀이 없거나 빈 문자열 */
+    private static void assertEmptyCell(Cell cell) {
+        assertTrue(cell == null || cell.getStringCellValue().isEmpty());
+    }
+
     /** 2026-09 지급 완료 정산서(판매 20,000 + 10,000, 수수료 10%) */
     private static SettlementExportRow paidRow(Long id, Long sellerId) {
         return new SettlementExportRow(id, "2026-09", sellerId, 30_000L, 3_000L, 27_000L, 2, PAID_AT, 501L);
@@ -229,10 +243,12 @@ class SettlementExportUseCaseTest {
 
     private static List<SettlementExportItemRow> itemsOf(Long settlementId) {
         return List.of(
-                new SettlementExportItemRow(settlementId, 100L, settlementId * 10 + 1, 20_000L, 10, 2_000L, 18_000L,
-                        CONFIRMED_AT, "2026-09"),
-                new SettlementExportItemRow(settlementId, 100L, settlementId * 10 + 2, 10_000L, 10, 1_000L, 9_000L,
-                        CONFIRMED_AT, "2026-09"));
+                // 상품 쿠폰 2,000원 할인된 품목(할인 전 22,000)
+                new SettlementExportItemRow(settlementId, 100L, settlementId * 10 + 1, "티셔츠", "블랙 / M", 20_000L,
+                        2_000L, 10, 2_000L, 18_000L, CONFIRMED_AT, "2026-09"),
+                // 이름이 실리기 전 구매 확정 이벤트로 만든 후보(이름 null, 할인 0)
+                new SettlementExportItemRow(settlementId, 100L, settlementId * 10 + 2, null, null, 10_000L, 0L, 10,
+                        1_000L, 9_000L, CONFIRMED_AT, "2026-09"));
     }
 
     @SuppressWarnings("unchecked")

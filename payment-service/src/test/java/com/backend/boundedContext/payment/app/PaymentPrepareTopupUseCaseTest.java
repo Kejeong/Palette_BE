@@ -9,6 +9,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +28,11 @@ import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.out.PaymentMemberPort;
 import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.WalletRepository;
+import com.backend.boundedContext.payment.out.pg.PgCheckout;
+import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
+import com.backend.boundedContext.payment.out.pg.TopupGatewayPort;
+import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
 import com.backend.global.exception.GlobalErrorCode;
 
@@ -33,22 +41,27 @@ class PaymentPrepareTopupUseCaseTest {
     private final WalletRepository walletRepository = mock(WalletRepository.class);
     private final TopupRepository topupRepository = mock(TopupRepository.class);
     private final PaymentMemberPort memberPort = mock(PaymentMemberPort.class);
+    private final TopupGatewayPort toss = gateway(PgProvider.TOSS);
+    private final TopupGatewayPort hecto = gateway(PgProvider.HECTO);
     private PaymentPrepareTopupUseCase paymentPrepareTopupUseCase;
 
     @BeforeEach
     void setUp() {
         PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 60, 1L);
-        paymentPrepareTopupUseCase = new PaymentPrepareTopupUseCase(paymentPolicy, walletRepository, topupRepository, memberPort);
+        paymentPrepareTopupUseCase = new PaymentPrepareTopupUseCase(paymentPolicy, walletRepository, topupRepository, memberPort,
+                new TopupGateways(List.of(toss, hecto)));
+        given(toss.checkout(any())).willReturn(Optional.empty());
     }
 
     @Test
-    @DisplayName("유효한 금액이면 회원 지갑으로 READY 충전 건을 저장하고 주문번호를 돌려준다")
+    @DisplayName("유효한 금액이면 회원 지갑으로 READY 충전 건을 결제 요청 시각과 함께 저장하고 주문번호를 돌려준다")
     void prepareTopup_success() {
         Wallet wallet = Wallet.create(1L);
         given(walletRepository.findByMemberId(1L)).willReturn(Optional.of(wallet));
         given(topupRepository.save(any(Topup.class))).willAnswer(invocation -> invocation.getArgument(0));
 
-        TopupPrepareDto result = paymentPrepareTopupUseCase.prepareTopup(1L, 20_000);
+        LocalDateTime before = LocalDateTime.now();
+        TopupPrepareDto result = paymentPrepareTopupUseCase.prepareTopup(1L, 20_000, PgProvider.TOSS);
 
         ArgumentCaptor<Topup> saved = ArgumentCaptor.forClass(Topup.class);
         verify(topupRepository).save(saved.capture());
@@ -57,14 +70,50 @@ class PaymentPrepareTopupUseCaseTest {
         assertThat(saved.getValue().getAmount()).isEqualTo(20_000);
         assertThat(saved.getValue().getStatus()).isEqualTo(TopupStatus.READY);
         assertThat(saved.getValue().getPgProvider()).isEqualTo(PgProvider.TOSS);
-        assertThat(result.orderId()).isEqualTo(saved.getValue().getTossOrderId()).startsWith("TOPUP-");
+        assertThat(saved.getValue().getRequestedAt()).isBetween(before, LocalDateTime.now());
+        assertThat(result.orderId()).isEqualTo(saved.getValue().getOrderId()).startsWith("TOPUP-");
         assertThat(result.amount()).isEqualTo(20_000);
+        assertThat(result.pgProvider()).isEqualTo(PgProvider.TOSS);
+        assertThat(result.checkout()).isNull();
+    }
+
+    @Test
+    @DisplayName("헥토를 고르면 HECTO 충전 건을 저장하고, 충전 건 정보로 만든 결제창 주소·요청 값을 돌려준다")
+    void prepareTopup_hecto() {
+        given(walletRepository.findByMemberId(1L)).willReturn(Optional.of(Wallet.create(1L)));
+        given(topupRepository.save(any(Topup.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(hecto.checkout(any())).willAnswer(invocation -> {
+            PgPaymentRef payment = invocation.getArgument(0);
+            return Optional.of(new PgCheckout("https://window", Map.of("mchtTrdNo", payment.orderId())));
+        });
+
+        TopupPrepareDto result = paymentPrepareTopupUseCase.prepareTopup(1L, 20_000, PgProvider.HECTO);
+
+        ArgumentCaptor<Topup> saved = ArgumentCaptor.forClass(Topup.class);
+        verify(topupRepository).save(saved.capture());
+        assertThat(saved.getValue().getPgProvider()).isEqualTo(PgProvider.HECTO);
+        verify(hecto).checkout(PgPaymentRef.from(saved.getValue()));
+        assertThat(result.pgProvider()).isEqualTo(PgProvider.HECTO);
+        assertThat(result.checkout().url()).isEqualTo("https://window");
+        assertThat(result.checkout().params()).containsEntry("mchtTrdNo", result.orderId());
+    }
+
+    @Test
+    @DisplayName("PG 키 설정 오류로 결제창 요청 값을 만들지 못하면 충전 건을 저장하지 않는다")
+    void prepareTopup_checkoutNotConfigured() {
+        given(walletRepository.findByMemberId(1L)).willReturn(Optional.of(Wallet.create(1L)));
+        given(hecto.checkout(any())).willThrow(new PgConfigurationException("HECTO_CONFIGURATION_ERROR", new IllegalStateException()));
+
+        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000, PgProvider.HECTO))
+                .isInstanceOf(PgConfigurationException.class);
+
+        verify(topupRepository, never()).save(any());
     }
 
     @Test
     @DisplayName("금액이 정책에 맞지 않으면 지갑을 조회하지 않고 TOPUP_AMOUNT_INVALID")
     void prepareTopup_invalidAmount() {
-        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 15_000))
+        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 15_000, PgProvider.TOSS))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("400-TOPUP_AMOUNT_INVALID");
 
@@ -77,7 +126,7 @@ class PaymentPrepareTopupUseCaseTest {
     void prepareTopup_withdrawnMember() {
         willThrow(new DomainException(GlobalErrorCode.UNAUTHORIZED)).given(memberPort).checkActiveMember(1L);
 
-        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000))
+        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000, PgProvider.TOSS))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("401-UNAUTHORIZED");
 
@@ -89,10 +138,16 @@ class PaymentPrepareTopupUseCaseTest {
     void prepareTopup_walletNotFound() {
         given(walletRepository.findByMemberId(1L)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000))
+        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000, PgProvider.TOSS))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("404-WALLET_NOT_FOUND");
 
         verify(topupRepository, never()).save(any());
+    }
+
+    private static TopupGatewayPort gateway(PgProvider provider) {
+        TopupGatewayPort port = mock(TopupGatewayPort.class);
+        given(port.provider()).willReturn(provider);
+        return port;
     }
 }

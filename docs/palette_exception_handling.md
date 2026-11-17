@@ -56,7 +56,7 @@ public RsData<OrderResponse> create(@Valid @RequestBody CreateOrderRequest req) 
 }
 ```
 
-- "완료"와 "처리 중"처럼 성공 안에서 구분이 필요하면 HTTP 상태가 아니라 `data.status`로 나눈다(6.4 토스 응답 시간 초과).
+- "완료"와 "처리 중"처럼 성공 안에서 구분이 필요하면 HTTP 상태가 아니라 `data.status`로 나눈다(6.4 PG 응답 시간 초과).
 
 ## 3. 사용법
 
@@ -142,7 +142,7 @@ catch (RestClientException e) {
 | 403-FORBIDDEN | 역할 부족(URL 규칙). 판매자 상태가 APPROVED가 아니면 member의 `403-SELLER_NOT_APPROVED`를 쓴다 |
 | 409-IDEMPOTENCY_KEY_REUSED | 결제 멱등 키(`PayCommand.idempotencyKey`)가 다른 주문·구매자·금액에 다시 쓰임 (`Idempotency-Key` 헤더는 미구현) |
 | 429-TOO_MANY_REQUESTS | 인증코드 재발송 제한 등 |
-| 502-EXTERNAL_SERVICE_ERROR | 토스·카카오·메일 서버가 오류로 응답하거나 응답이 없음 (`cause`와 함께) |
+| 502-EXTERNAL_SERVICE_ERROR | 토스·헥토·카카오·메일 서버가 오류로 응답하거나 응답이 없음 (`cause`와 함께) |
 | 500-INTERNAL_ERROR | 잡은 예외를 감싸 다시 던질 때 (`cause`와 함께) |
 
 ## 5. 레이어별 책임
@@ -206,7 +206,7 @@ int updated = orderRepository.markPaid(orderId, now);  // WHERE status IN (...) 
 if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
 ```
 
-### 6.4 외부 연동 (토스·메일·OpenAI)
+### 6.4 외부 연동 (토스·헥토·메일·OpenAI)
 
 - 외부 호출은 DB 트랜잭션 밖에서 하고, HTTP 클라이언트 예외가 `out` 어댑터 밖으로 새지 않게 `DomainException`으로 감싼다.
 - 외부가 오류로 응답하면 `502-EXTERNAL_SERVICE_ERROR`(또는 컨텍스트 코드)로 던진다.
@@ -222,6 +222,15 @@ if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
   - 응답 없음·5xx·`ALREADY_CANCELED_PAYMENT`·`IDEMPOTENT_REQUEST_PROCESSING`·`ALREADY_PROCESSING_REQUEST`·`FORBIDDEN_CONSECUTIVE_REQUEST`·`PROVIDER_ERROR`·취소 후 DB 반영 실패 → 취소됐을 수 있으므로 되돌리지 않고 충전 CANCELING, `200-1` + `data.status: "CANCELING"`. 대사 스케줄러가 토스 결제키 조회의 취소 금액 합계로 확정하거나 되돌린다
   - 토스 `Idempotency-Key`는 취소 회차마다 다르게(`TOPUP-{id}-CANCEL-{회차}`) 보내 재시도해도 같은 취소가 두 번 처리되지 않게 한다
 - 대사 스케줄러의 토스 조회는 결제키(`GET /v1/payments/{paymentKey}`)로 한다. 주문번호 조회(`/v1/payments/orders/{orderId}`)는 결제위젯 시크릿 키로 호출할 수 없다
+- 헥토(신용카드, 인증 분리 승인)는 성공·실패 모두 HTTP 200에 `outStatCd`(`0021` 성공, `0031` 실패)와 `outRsltCd`로 알려 준다. 어댑터가 이 코드를 토스와 같은 PG 중립 결과·예외로 바꾸므로 충전 로직의 처리(충전 상태·응답 코드)는 토스와 같다
+  - 공통: 응답 없음·HTTP 오류·해석할 수 없는 응답 → 결과 모름. 암호화 키가 없어 요청을 만들지 못함 → 키 오류(`502-EXTERNAL_SERVICE_ERROR`, 헥토에 요청이 가지 않음)
+  - 충전 준비: 결제창 요청 값(금액 암호화·해시)을 저장 전에 만든다. 키 오류면 충전 건을 만들지 않고 `502-EXTERNAL_SERVICE_ERROR`
+  - 승인: `0031` → 충전 FAILED_PG_DECLINED, `400-TOPUP_PAYMENT_DECLINED`(`data.code`: 헥토 `outRsltCd`). 결과 모름·**승인 응답 해시 불일치**·승인 후 DB 반영 실패 → 충전 PROCESSING
+  - 취소: `ST25`(이미 취소 완료)·결과 모름 → 앞선 요청으로 취소됐을 수 있어 되돌리지 않고 충전 CANCELING. 그 밖의 `0031`(`ST57` 취소 금액 초과 등) → 되돌림, `400-TOPUP_CANCEL_DECLINED`
+  - **헥토 취소는 멱등 키가 없다.** 취소 회차(`cnclOrd`, 충전 건의 취소 회차)를 보내지만, 이미 성공한 회차를 다시 보내면 또 취소된다(테스트베드 확인). 그래서 결과를 모르는 취소는 다시 요청하지 않고, 대사 스케줄러가 조회한 취소 금액 합계로 확정하거나 되돌린다(토스와 같은 방식)
+  - 조회: 주문번호·원거래 일자(충전 건의 결제 요청 시각)·금액으로 한다. `0000` 정상(취소 금액이 있으면 부분 취소) / `0001` 취소 / `0009` 결제 실패, 그 외 결과 코드는 확정되지 않음으로 두고 다음 회차에 다시 확인한다. 실패 `ST06`(거래 없음)은 결제창에서 인증하지 않은 주문이라 "PG에 결제 없음"과 같게 처리하고(PROCESSING이면 FAILED_SYSTEM_ERROR, CANCELING·METHOD_CANCELING이면 ERROR 로그 후 사람이 확인), 그 밖의 실패는 결과 모름으로 둔다
+  - 결제창 결과(`nextUrl`·`cancUrl`)는 브라우저를 거쳐 와서 믿지 않는다. 서버는 프론트 충전 결과 화면으로 넘기기만 하고, 승인 API가 회원·주문번호·금액을 확인한 뒤 헥토 승인 응답으로 확정한다. 결과 알림(`notiUrl`)은 기록만 하고 `OK`로 응답한다
+  - 연결 5초·응답 30초 제한 (`custom.hecto`)
 - 챗봇(ai-service)의 OpenAI 오류 처리. 챗봇은 답을 못 주는 것보다 FAQ 원문이라도 주는 쪽을 택한다:
   - 검색어 다시 쓰기(채팅) 실패·시간 초과·빈 답 → 예외로 응답하지 않고 원래 질문(같은 대화의 최근 질문 + 이번 질문)으로 FAQ를 찾는다. WARN 로그만 남긴다
   - 질문 임베딩 실패 → FAQ를 찾을 수 없으므로 `502-EXTERNAL_SERVICE_ERROR`(질문·답변을 대화에 남기지 않음)
@@ -239,7 +248,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 - **건별로 잡는다.** 한 건의 실패가 전체 작업을 멈추지 않게 건마다 try-catch하고, 실패 건은 로그를 남긴 뒤 다음 실행에서 다시 처리한다.
 - **실패 사유를 저장한다.** 정산서 `last_fail_reason`, 충전·결제 `fail_reason`(환불 `fail_reason`은 환불 구현 때) 등에 남겨 관리자 화면에서 보이게 한다.
 - **재시도할 실패와 아닌 실패를 나눈다.** 일시 장애(타임아웃, 락 경합)는 재시도하고, 데이터 문제(금액 불일치 등)는 바로 `FAILED`·`MANUAL_REQUIRED`로 둔다.
-- **충전 대사는 밀린 건을 한 번에 처리한다.** PROCESSING·CANCELING·METHOD_CANCELING 대사는 `topupReconcileBatchSize`(100)건씩 가져오고, 배치를 다 채우면 같은 실행에서 마지막 건 다음부터 이어서 가져온다(수정 시각·ID 순). 토스 조회 결과를 모르는 건(응답 없음 등)이 나오면 토스 장애일 수 있어 그 배치까지만 처리한다. 장애 중 한 번 실행이 길어져 같은 스케줄러 스레드를 쓰는 다른 작업이 밀리지 않게 하기 위함이다.
+- **충전 대사는 밀린 건을 한 번에 처리한다.** PROCESSING·CANCELING·METHOD_CANCELING 대사는 `topupReconcileBatchSize`(100)건씩 가져오고, 배치를 다 채우면 같은 실행에서 마지막 건 다음부터 이어서 가져온다(수정 시각·ID 순). PG 조회 결과를 모르는 건(응답 없음 등)이 나오면 PG 장애일 수 있어 그 배치까지만 처리한다. 장애 중 한 번 실행이 길어져 같은 스케줄러 스레드를 쓰는 다른 작업이 밀리지 않게 하기 위함이다.
 - **임베딩 스케줄러(ai)는 실패 건을 그대로 둔다.** 추천 상품·설문·FAQ 임베딩은 OpenAI 호출이 실패하면 WARN만 남기고 임베딩을 비워 두며, 다음 실행(5초 뒤)에서 다시 시도한다. 임베딩하는 동안 글이 바뀌었으면(해시가 다르면) 저장하지 않는다.
 - **오래 남은 충전 건은 알린다.** 결과가 정해지지 않은 상태(PROCESSING·CANCELING·METHOD_CANCELING)로 `topupStuckWarnMinutes`(60분)가 넘게 남은 충전 건은 대사 간격마다 상태별로 ERROR 로그 한 줄(건수·가장 작은 충전 건 ID)을 남긴다. Grafana가 같은 알림을 1시간마다 다시 보내므로, 남아 있는 동안 1시간마다 알리고 정리되면 멈춘다. 이런 건이 있으면 회원 탈퇴가 막힌다(`PENDING_TOPUPS`).
 
@@ -320,11 +329,11 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 400-PAYMENT_PERIOD_INVALID | 조회 시작일 > 종료일 (거래 내역, 관리자 결제·충전 조회) |
 | | 400-TOPUP_AMOUNT_INVALID | 1만 원 단위·1만~100만 원 위반 |
 | | 400-AMOUNT_MISMATCH | 저장 금액 ≠ 승인 요청 금액 |
-| | 400-TOPUP_PAYMENT_DECLINED | 토스가 결제를 승인하지 않음(카드 거절·한도 초과 등) (`data.code`·`message`: 토스 오류 코드·메시지) |
+| | 400-TOPUP_PAYMENT_DECLINED | PG가 결제를 승인하지 않음(카드 거절·한도 초과 등) (`data.code`·`message`: PG 오류 코드·메시지. 헥토는 `outRsltCd`·`outRsltMsg`) |
 | | 409-TOPUP_ALREADY_PROCESSED | READY가 아닌 충전 건(승인 중·완료·실패·만료)에 승인·실패 기록 요청, 이미 쓰인 결제키 |
 | | 409-TOPUP_NOT_CANCELABLE | 승인 완료(DONE)가 아니거나 취소할 남은 금액이 없는 충전 건에 취소 요청 |
 | | 400-TOPUP_METHOD_NOT_ALLOWED | 승인된 결제가 충전에 허용하지 않은 결제 수단(카드·간편결제·계좌이체 외). 예치금에 반영하지 않고 결제를 자동 취소 |
-| | 400-TOPUP_CANCEL_DECLINED | 토스가 충전 취소를 거절함(환불 기간 지남·부분 취소 불가 등). 잔액은 되돌림 (`data.code`·`message`: 토스 오류 코드·메시지) |
+| | 400-TOPUP_CANCEL_DECLINED | PG가 충전 취소를 거절함(환불 기간 지남·부분 취소 불가·헥토 취소 금액 초과 등). 잔액은 되돌림 (`data.code`·`message`: PG 오류 코드·메시지) |
 | | 409-PAYMENT_ALREADY_PAID | 다른 멱등 키로 이미 PAID인 주문을 결제 (내부 `PaymentApi.pay`) |
 | | 404-HOLDING_NOT_FOUND / 409-HOLDING_INSUFFICIENT / 409-TRANSFER_AMOUNT_MISMATCH | 정산 지급(`PaymentApi.transfer`)에서 홀딩 없음 / 홀딩 남은 금액 부족 / 주문별 금액 합 ≠ 지급액 + 수수료 |
 | | 404-TOPUP_NOT_FOUND / 404-WALLET_NOT_FOUND | |
@@ -336,7 +345,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 409-SETTLEMENT_CANDIDATE_STATE_INVALID | 정산 할 수 없는 정산 후보 상태가 정산을 시도 |
 | | 409-SETTLEMENT_ALREADY_COMPLETED | 월 정산이 이미 완료된 달을 다시 실행 |
 | | 409-SETTLEMENT_AMOUNT_MISMATCH | 정산 금액이 일치하지 않아서 정산할 수 없는 상태 |
-| | 400-SETTLEMENT_CANDIDATE_AMOUNT_INVALID | 주문 항목 금액이 올바르지 않아 정산 후보를 만들 수 없는 상태 |
+| | 400-SETTLEMENT_CANDIDATE_AMOUNT_INVALID | 주문 항목 금액 또는 상품 쿠폰 할인액이 올바르지 않아 정산 후보를 만들 수 없는 상태 (처리 이력에만 남음) |
 | | 500-SETTLEMENT_JOB_FAILED | JOB에 문제가 생긴 상태 |
 | | 409-SETTLEMENT_CANDIDATE_AMOUNT_TAMPERED | 판별 단계: 정산 후보 금액 스냅샷(판매가·수수료·지급액)이 서로 맞지 않아 확정하지 않음 (처리 이력에만 남음) |
 | | 409-SETTLEMENT_CANDIDATE_FEE_RATE_MISMATCH | 판별 단계: 정산 후보의 수수료율이 후보를 만든 시점의 정책 수수료율과 달라 확정하지 않음 (처리 이력에만 남음) |
@@ -345,10 +354,11 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 400-SETTLEMENT_MONTH_RANGE_INVALID | 정산서 기간 조회·엑셀 다운로드 기간 오류(시작월 > 끝월, 최대 개월 수 초과, 정산월과 기간 동시 사용) |
 | | 400-SETTLEMENT_EXPORT_TOO_LARGE | 정산서 엑셀에 담을 품목 수가 `custom.settlement.exportMaxRows`(기본 200,000)를 넘음(파일을 만들기 전에 거절) 또는 한 시트가 엑셀 최대 행 수를 넘음 |
 | | 500-SETTLEMENT_EXPORT_FAILED | 정산서 엑셀 파일 생성 실패 |
-| delivery (은정) | 404-DELIVERY_NOT_FOUND | 없는 배송 건 (물류 상세·송장 등록·수정) |
-| | 409-DELIVERY_STATE_INVALID | READY가 아닌 배송에 송장 등록, SHIPPED가 아닌 배송의 송장 수정 |
+| delivery (은정) | 404-DELIVERY_NOT_FOUND | 없는 배송 건 (물류 상세·송장 등록·수정·관리자 수동 완료) |
+| | 409-DELIVERY_STATE_INVALID | READY가 아닌 배송에 송장 등록, SHIPPED가 아닌 배송의 송장 수정·관리자 수동 완료 |
 | | 409-DELIVERY_TRACKING_DUPLICATED | 같은 택배사·송장번호(정규화 후)가 다른 배송 건에 이미 있음. 동시에 등록해 DB 유니크에 걸리면 409-DATA_CONFLICT |
 | | 400-DELIVERY_TRACKING_NUMBER_INVALID | 공백·하이픈을 지운 송장번호가 영문·숫자 8~30자가 아님 |
+| | 400-DELIVERY_DELIVERED_AT_INVALID | 관리자 수동 완료의 배송 완료 시각이 발송 시각보다 이름 |
 | coupon (다은) | 404-COUPON_NOT_FOUND | 없는 쿠폰 (관리자 상세, 강제 중지, 예약) |
 | | 400-COUPON_PERIOD_INVALID | 쿠폰 등록 시 시작이 종료보다 늦거나 같음, 종료가 현재 이전 |
 | | 400-COUPON_TIER_INVALID | 장바구니 쿠폰 구간 없음, 할인액이 최소 주문 금액 이상, 구간이 올라가도 최소 주문 금액이나 할인액이 커지지 않음 |
@@ -426,6 +436,7 @@ public RsData<PayResponse> pay(...) { ... }
 | 성공 응답 HTTP 200 통일 | 완료 (별도 코드 없음) |
 | Security `AuthenticationEntryPoint`·`AccessDeniedHandler` | 완료 (`JwtAuthenticationEntryPoint`·`JwtAccessDeniedHandler`) |
 | 토스 연동 예외(`TossPaymentException`·`TossTimeoutException`)·충전 대사 스케줄러(승인·취소·허용하지 않은 결제 수단 취소) | 완료 |
+| 헥토 연동 예외(`HectoResultUnknownException`, 응답 코드 → PG 중립 결과·예외)·결제창 결과 엔드포인트 | 완료 |
 | 챗봇 OpenAI 실패 시 FAQ 답변 대체·요청 수 제한(Redis) | 완료 |
 | 요청별 `traceId`(MDC, `X-Trace-Id` 헤더) | 미구현 |
 | 운영 프로필에서 `show-sql` 끄기 | 미구현 |
