@@ -109,7 +109,7 @@ class ProductSearchIndexTest {
 
         indexPort = new RecordingIndexPort();
         indexSupport = new ProductSearchIndexSupport(eventPublisher, productRepository, productDiscountRepository,
-                productSupport, productDiscountSupport, indexPort, productPolicy);
+                productSupport, productDiscountSupport, indexPort, productPolicy, entityManager);
     }
 
     @Test

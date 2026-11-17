@@ -11,6 +11,7 @@ import com.backend.boundedContext.product.out.ProductRepository;
 import com.backend.boundedContext.product.out.search.ProductSearchDocument;
 import com.backend.boundedContext.product.out.search.ProductSearchIndexPort;
 import com.backend.global.exception.DomainException;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -42,6 +43,7 @@ public class ProductSearchIndexSupport {
     private final ProductDiscountSupport productDiscountSupport;
     private final ProductSearchIndexPort productSearchIndexPort;
     private final ProductPolicy productPolicy;
+    private final EntityManager entityManager;
 
     /** 커밋 뒤에 이 상품들을 다시 색인해 달라고 요청한다 */
     public void requestIndex(Collection<Long> productIds) {
@@ -127,6 +129,8 @@ public class ProductSearchIndexSupport {
         Set<Long> changed = new HashSet<>(productRepository.findIdsChangedSince(
                 startedAt.minusSeconds(productPolicy.getDiscountBoundaryOverlapSeconds())));
         changed.addAll(findDiscountBoundaryProductIds(startedAt, LocalDateTime.now()));   // 안에서 같은 겹침을 뺀다
+        // 재색인 배치가 읽은 상품·재고가 1차 캐시에 남아 있어, 그대로 읽으면 재색인 중 다른 트랜잭션이 커밋한 변경 대신 옛 값을 돌려준다
+        entityManager.clear();
         indexProducts(changed);
         log.info("상품 검색 전체 재색인을 마쳤습니다. index={}, 상품 {}개, 재색인 중 바뀌어 다시 반영한 상품 {}개",
                 indexName, indexed, changed.size());
