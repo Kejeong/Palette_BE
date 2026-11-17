@@ -17,6 +17,7 @@ import static com.backend.boundedContext.product.out.ProductSpecifications.categ
 import static com.backend.boundedContext.product.out.ProductSpecifications.discountedAt;
 import static com.backend.boundedContext.product.out.ProductSpecifications.inStock;
 import static com.backend.boundedContext.product.out.ProductSpecifications.nameContains;
+import static com.backend.boundedContext.product.out.ProductSpecifications.orderByDiscountRate;
 import static com.backend.boundedContext.product.out.ProductSpecifications.statusEquals;
 
 /**
@@ -31,13 +32,19 @@ public class ProductJpaSearchAdapter implements ProductSearchPort {
 
     @Override
     public Page<Long> searchProductIds(ProductSearchQuery query, Pageable pageable) {
+        LocalDateTime now = LocalDateTime.now();
         Specification<Product> spec = Specification.allOf(
                 statusEquals(ProductSaleStatus.ON_SALE),
                 categoryIn(query.categoryIds()),
                 nameContains(query.keyword()),
                 query.excludeSoldOut() ? inStock() : Specification.unrestricted(),
-                query.discountedOnly() ? discountedAt(LocalDateTime.now()) : Specification.unrestricted()
+                query.discountedOnly() ? discountedAt(now) : Specification.unrestricted()
         );
+        if (query.sort() == ProductSort.DISCOUNT_RATE) {
+            // 할인율은 정가와 진행 중 할인의 할인가로 계산하는 값이라 Pageable 정렬로 쓸 수 없어 Specification에서 정렬한다
+            Pageable unsorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
+            return productRepository.findAll(spec.and(orderByDiscountRate(now)), unsorted).map(Product::getId);
+        }
         Pageable sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), toSort(query.sort()));
 
         return productRepository.findAll(spec, sorted).map(Product::getId);
@@ -46,8 +53,8 @@ public class ProductJpaSearchAdapter implements ProductSearchPort {
     private static Sort toSort(ProductSort sort) {
         Sort.Order byId = Sort.Order.desc("id");
         return switch (sort) {
-            // 관련도는 DB 검색에 없고, 할인율은 정가·할인가로 계산하는 값이라 정렬 조건으로 쓰기 어려워 최신순으로 대신한다
-            case RELEVANCE, LATEST, DISCOUNT_RATE -> Sort.by(Sort.Order.desc("createdAt"), byId);
+            case RELEVANCE, LATEST -> Sort.by(Sort.Order.desc("createdAt"), byId);   // 관련도는 DB 검색에 없어 최신순으로 대신한다
+            case DISCOUNT_RATE -> throw new IllegalArgumentException("할인율순은 orderByDiscountRate로 정렬한다");
             case PRICE_ASC -> Sort.by(Sort.Order.asc("price"), byId);
             case PRICE_DESC -> Sort.by(Sort.Order.desc("price"), byId);
         };

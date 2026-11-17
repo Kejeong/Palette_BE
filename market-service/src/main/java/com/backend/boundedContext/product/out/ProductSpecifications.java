@@ -5,6 +5,7 @@ import com.backend.boundedContext.product.domain.Product;
 import com.backend.boundedContext.product.domain.ProductDiscount;
 import com.backend.boundedContext.product.domain.ProductOption;
 import com.backend.boundedContext.product.domain.ProductSaleStatus;
+import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
@@ -70,6 +71,29 @@ public final class ProductSpecifications {
                     cb.lessThanOrEqualTo(discount.get("startsAt"), now),
                     cb.greaterThan(discount.get("endsAt"), now));
             return cb.exists(sub);
+        };
+    }
+
+    /**
+     * 그 시각에 진행 중인 할인의 할인율 높은순 → 최신순 → ID 내림차순으로 정렬한다. 할인이 없으면 할인율 0으로 본다.
+     * 할인율은 ProductDiscount.discountRate와 같은 계산((정가 - 할인가) × 100 / 정가, 소수점 내림)이다.
+     * 개수 조회(count)에는 정렬을 넣지 않는다. 조건은 걸지 않으므로 다른 조건과 and로 묶어 쓴다.
+     */
+    public static Specification<Product> orderByDiscountRate(LocalDateTime now) {
+        return (root, q, cb) -> {
+            if (Long.class.equals(q.getResultType())) return null;   // count 쿼리
+
+            Subquery<Long> salePrice = q.subquery(Long.class);
+            Root<ProductDiscount> discount = salePrice.from(ProductDiscount.class);
+            salePrice.select(cb.min(discount.get("salePrice"))).where(
+                    cb.equal(discount.get("product"), root),
+                    cb.isNull(discount.get("deletedAt")),
+                    cb.lessThanOrEqualTo(discount.get("startsAt"), now),
+                    cb.greaterThan(discount.get("endsAt"), now));
+            Expression<Long> price = root.get("price");
+            Expression<Number> rate = cb.quot(cb.prod(cb.diff(price, salePrice), 100L), price);
+            q.orderBy(cb.desc(cb.coalesce(rate, 0)), cb.desc(root.get("createdAt")), cb.desc(root.get("id")));
+            return null;
         };
     }
 

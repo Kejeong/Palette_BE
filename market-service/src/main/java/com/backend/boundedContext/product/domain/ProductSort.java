@@ -9,7 +9,7 @@ public enum ProductSort {
     LATEST,      // 최신 등록순 (검색어가 없을 때 기본)
     PRICE_ASC,   // 낮은 가격순
     PRICE_DESC,  // 높은 가격순
-    DISCOUNT_RATE; // 할인율 높은순 (할인 없는 상품은 뒤). DB 검색이면 최신순과 같다
+    DISCOUNT_RATE; // 할인율 높은순 (할인 없는 상품은 뒤, 같으면 최신순)
 
     /** 요청한 정렬(null이면 기본값)을 검색어 유무에 맞춰 정한다. 검색어가 없으면 관련도가 없으므로 최신순이다 */
     public static ProductSort resolve(ProductSort requested, boolean hasKeyword) {
