@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -25,12 +26,12 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     @Query("select r from Review r where r.memberId = :memberId and r.deletedAt is null")
     Page<Review> findActivePageByMemberId(@Param("memberId") Long memberId, Pageable pageable);
 
-    /** 상품의 별점별 리뷰 수. 리뷰가 없는 별점은 결과에 없다 */
+    /** 상품별·별점별 삭제되지 않은 리뷰 수. 리뷰가 없는 상품·별점은 결과에 없다 */
     @Query("""
-            select new com.backend.boundedContext.review.out.RatingCount(r.rating, count(r))
+            select new com.backend.boundedContext.review.out.RatingCount(r.productId, r.rating, count(r))
             from Review r
-            where r.productId = :productId and r.deletedAt is null
-            group by r.rating
+            where r.productId in :productIds and r.deletedAt is null
+            group by r.productId, r.rating
             """)
-    List<RatingCount> countByRating(@Param("productId") Long productId);
+    List<RatingCount> countByRating(@Param("productIds") Collection<Long> productIds);
 }

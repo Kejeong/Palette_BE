@@ -19,6 +19,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -29,6 +30,7 @@ import java.util.Optional;
 public class OrderFacade {
 
     private final OrderGetCartUseCase orderGetCartUseCase;
+    private final OrderSalesStatsUseCase orderSalesStatsUseCase;
     private final OrderAddCartItemUseCase orderAddCartItemUseCase;
     private final OrderUpdateCartItemUseCase orderUpdateCartItemUseCase;
     private final OrderSelectAllCartItemsUseCase orderSelectAllCartItemsUseCase;
@@ -202,6 +204,24 @@ public class OrderFacade {
     @Transactional(readOnly = true)
     public boolean hasActiveSales(Long sellerId) {
         return orderCheckActiveOrdersUseCase.hasActiveSales(sellerId);
+    }
+
+    // 상품별 paidSince 이후 결제 수량 (OrderApi, 상품 검색 판매량)
+    @Transactional(readOnly = true)
+    public Map<Long, Long> getSalesQuantities(Collection<Long> productIds, LocalDateTime paidSince) {
+        return orderSalesStatsUseCase.getSalesQuantities(productIds, paidSince);
+    }
+
+    // (from, to]에 결제·취소·반품된 주문의 상품 ID (OrderApi)
+    @Transactional(readOnly = true)
+    public List<Long> findProductIdsWithSalesChanged(LocalDateTime from, LocalDateTime to) {
+        return orderSalesStatsUseCase.findProductIdsWithSalesChanged(from, to);
+    }
+
+    // (from, to]에 결제한 주문의 상품 ID (OrderApi)
+    @Transactional(readOnly = true)
+    public List<Long> findProductIdsPaidBetween(LocalDateTime from, LocalDateTime to) {
+        return orderSalesStatsUseCase.findProductIdsPaidBetween(from, to);
     }
 
     // 구매자 본인의 구매 확정 주문 항목 (OrderApi)

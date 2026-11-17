@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -24,7 +25,7 @@ public class ReviewGetReviewSummaryUseCase {
         for (int rating = Review.MAX_RATING; rating >= Review.MIN_RATING; rating--) {
             ratingCounts.put(rating, 0L);
         }
-        for (RatingCount count : reviewRepository.countByRating(productId)) {
+        for (RatingCount count : reviewRepository.countByRating(List.of(productId))) {
             ratingCounts.put(count.rating(), count.count());
         }
 
