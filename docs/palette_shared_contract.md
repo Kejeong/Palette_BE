@@ -74,7 +74,7 @@ X-Internal-Key: <INTERNAL_API_KEY 값>
 | 주문 상세의 항목 이미지 | order | `ProductApi.getOptions(optionIds)` → 항목별 상품의 현재 대표 이미지(`items[].thumbnailUrl`, 판매 중지·삭제 상품 포함) (TRSS-242) | 동기 조회 (조회 실패 시 주문 상세는 200 + 이미지 null) |
 | 주문 취소·15분 만료 | order | `ProductApi.lockProductsForOrderChange(productIds)` → 주문 잠금·상태 다시 확인 → 주문 CANCELED → `ProductApi.restoreStock(ORDER_RESTORE)` | 동기, 같은 Tx |
 | 반품 승인 | order | 주문 RETURNED → 복원 선택 항목만 `ProductApi.restoreStock(RETURN_RESTORE)` → `OrderReturnedEvent` → (커밋 뒤 Kafka `order.events`) | 동기, 같은 Tx + 이벤트 (재고 복원과 outbox 저장이 승인과 같은 트랜잭션) |
-| 반품 환불 | payment | `OrderReturnedEvent` 수신(Kafka `order.events`) → 홀딩 → 구매자 지갑(REFUND), 플랫폼 지갑 → 구매자 지갑(배송비, SHIPPING_FEE_REFUND), 홀딩 → 플랫폼 지갑(장바구니 쿠폰 지원금, COUPON_SUBSIDY_CANCEL) → 결제 REFUNDED, 홀딩 RELEASED (결제 담당 구현 예정, 지금은 받는 코드 없음) | 이벤트, 별도 Tx |
+| 반품 환불 | payment | `OrderReturnedEvent` 수신(Kafka `order.events`). 반품 사유(`returnReasonCode`)로 나눈다. 상품불량·기타·사유 없음: 홀딩 → 구매자 지갑(결제 금액 전액, REFUND), 플랫폼 지갑에서 처음 배송비를 내놓음(SHIPPING_FEE_REFUND). 단순변심: 회수 택배비 결제 대기(`PICKUP_FEE_REQUIRED`) → 구매자가 반품 회수 택배비(2,500원)를 예치금으로 결제(`POST /api/v1/payments/refunds/{orderId}/pickup-fee`, 구매자 지갑 → 플랫폼 지갑, RETURN_PICKUP_FEE_PAYMENT·RETURN_PICKUP_FEE)하면 홀딩 → 구매자 지갑(상품값만, REFUND). 두 경우 모두 장바구니 쿠폰 지원금은 홀딩 → 플랫폼 지갑(COUPON_SUBSIDY_CANCEL) → 결제 REFUNDED, 홀딩 RELEASED | 이벤트, 별도 Tx (회수 택배비 결제는 구매자 API, 한 Tx) |
 | 구매 확정 (수동·7일 자동·반품 거절 시 즉시, 배송지 있는 주문은 배송 완료 뒤) | order | 주문 CONFIRMED → `OrderConfirmedEvent` | 이벤트 |
 | 정산 후보 생성 | settlement | `OrderConfirmedEvent` 수신(Kafka `order.events`) → 주문 항목별 후보(READY) | 이벤트 |
 | 월 정산 지급 | settlement | ⓪ 이전에 지급을 시도한 정산서(FAILED·MANUAL_REQUIRED)는 `PaymentApi.findTransfer`로 먼저 확인(잠금 밖, 지급 기록이 있으면 transfer 없이 PAID·금액이 다르면 MANUAL_REQUIRED로 확정, 조회 실패면 그대로 진행) → `MemberApi.getSeller(sellerId)`(잠금 밖) → ① 정산서 잠금·확인 후 PROCESSING 커밋 → ② `PaymentApi.transfer(command)`(트랜잭션 밖) → ③ 결과 기록(PAID / 4xx면 FAILED·MANUAL_REQUIRED / 결과 모름이면 PROCESSING 유지, 재확인 스케줄러가 `findTransfer`로 확정) | 동기(HTTP), 트랜잭션 세 개 |
@@ -500,7 +500,8 @@ public interface CouponApi {
   배송비는 배송비 작업에서 상품 쿠폰 할인 후 금액을 기준으로 더한다(장바구니 쿠폰 기준 금액은 배송비 제외라 바뀌지 않는다).
 - 장바구니 쿠폰 할인은 플랫폼 부담이다. 주문의 장바구니 쿠폰 할인액을 PayCommand.couponSubsidyAmount로 보내고, 결제가 플랫폼 지갑에서 홀딩으로 채운다.
   상품 쿠폰 할인은 판매자 부담이라 지원금이 없고, 정산이 할인 후 금액으로 지급한다.
-- 반품해도 사용한 쿠폰(상품·장바구니)은 복원하지 않는다. 구매자는 낸 금액(PayCommand.amount)만 돌려받고,
+- 반품해도 사용한 쿠폰(상품·장바구니)은 복원하지 않는다. 구매자는 낸 금액(PayCommand.amount) 안에서만 돌려받고
+  (상품불량·기타는 전액, 단순변심은 처음 배송비를 뺀 상품값),
   장바구니 쿠폰 지원금은 반품 환불 때 홀딩에서 관리자 지갑으로 돌려받는다(COUPON_SUBSIDY_CANCEL).
   결제 전 취소·만료는 지금처럼 예약 쿠폰을 해제해 복원한다(releaseReservedCoupons).
 - 쿠폰은 설정 custom.order.couponEnabled(환경변수 ORDER_COUPON_ENABLED, 기본 false)가 켜져 있을 때만 주문에 반영한다.
@@ -527,11 +528,15 @@ public record OrderConfirmedEvent(Long orderId, Long buyerId, LocalDateTime conf
 
 /**
  * 반품 승인. 관리자 승인 트랜잭션에서 재고 복원과 함께 발행한다. aggregate: ORDER / orderId → Kafka order.events
- * 결제 컨텍스트가 받아 홀딩 금액과 배송비를 구매자 지갑으로 환불하고, 장바구니 쿠폰 지원금을 플랫폼 지갑으로 회수한다(결제 담당 구현 예정).
+ * 결제 컨텍스트가 받아 반품 사유에 따라 환불하고, 장바구니 쿠폰 지원금을 플랫폼 지갑으로 회수한다.
+ *   상품불량·기타·사유 없음: 결제 금액 전액(배송비 포함). 단순변심: 구매자가 반품 회수 택배비를 결제하면 상품값만(처음 배송비 제외).
  * refundAmount = 주문의 pay_amount(배송비 포함 결제 금액 전액, 쿠폰 할인분은 돌려주지 않음).
  *   결제는 금액 내역(배송비·지원금)을 자기 결제 건에 저장된 값으로 나누고, refundAmount는 대조용으로만 쓴다.
+ * returnReasonCode: 구매자가 반품 요청 때 고른 사유. 사유를 싣기 전에 발행된 이벤트면 null이고 전액 환불한다.
+ *   사유 없이 부르던 4인자 생성자는 사유 null로 남겨 둔다.
  */
-public record OrderReturnedEvent(Long orderId, Long buyerId, long refundAmount, LocalDateTime returnedAt) implements DomainEvent { }
+public record OrderReturnedEvent(Long orderId, Long buyerId, long refundAmount, LocalDateTime returnedAt,
+                                 ReturnReasonCode returnReasonCode) implements DomainEvent { }
 ```
 
 ### DTO
@@ -564,6 +569,8 @@ public record PaidOrderItemDto(Long orderItemId, Long productId, Long optionId, 
 
 public enum OrderCancelType { USER, EXPIRED, PRODUCT_STOPPED, SELLER_SANCTIONED }
 public enum ConfirmType { MANUAL, AUTO, RETURN_REJECTED }
+/** 반품 사유. 주문(반품 요청)과 결제(반품 환불 금액)가 같이 쓴다 */
+public enum ReturnReasonCode { CHANGE_OF_MIND, DEFECTIVE, OTHER }
 ```
 
 ## 5. payment
@@ -614,7 +621,7 @@ public interface PaymentApi {
      * 주문별 홀딩의 settled_amount를 늘리고, 다 차면 SETTLED로 바꾼다.
      * idempotencyKey(SETTLEMENT-{settlementId})가 이미 처리됐으면 기존 결과를 반환한다.
      * HTTP라 호출한 쪽 트랜잭션에 참여하지 않는다. 4xx는 "돈이 움직이지 않은 거절", 5xx·응답 없음은 "결과 모름"이다.
-     * 같은 키 요청이 겹쳐도 두 번째 요청이 오류 대신 기존 결과를 받도록, 결제 쪽은 홀딩을 잠근 뒤 지급 내역을 한 번 더 찾는다(결제 담당).
+     * 같은 키 요청이 겹쳐도 두 번째 요청이 오류 대신 기존 결과를 받도록, 결제 쪽은 홀딩을 잠근 뒤 지급 내역을 한 번 더 찾는다.
      * 오류: 404 WALLET_NOT_FOUND, 404 HOLDING_NOT_FOUND, 409 HOLDING_INSUFFICIENT, 409 TRANSFER_AMOUNT_MISMATCH
      */
     TransferResultDto transfer(SettlementTransferCommand command);
@@ -673,7 +680,7 @@ public record TransferResultDto(String idempotencyKey, Long walletTransactionId,
 
 | 이벤트 | 처리 | 멱등 기준 |
 | --- | --- | --- |
-| `OrderReturnedEvent` (결제 담당 구현 예정, 지금은 받는 코드 없음) | Kafka `order.events`. 환불(REQUESTED → COMPLETED), 원장 REFUND(홀딩 → 구매자) + SHIPPING_FEE_REFUND(배송비 > 0, 플랫폼 → 구매자) + COUPON_SUBSIDY_CANCEL(지원금 > 0, 홀딩 → 플랫폼), 홀딩 RELEASED, 결제 REFUNDED. 금액 내역은 결제 건에 저장된 값을 쓰고 `refundAmount`는 대조용(어긋나면 환불을 FAILED로 두고 재시도하지 않음, 사람이 확인). 처리 실패는 FAILED로 남기고 스케줄러가 재시도 | `processed_event`(eventId, `payment`)로 재전달을 거르고, `payment_refund.payment_id` 유니크(주문당 PAID 결제는 1건)와 원장 `idempotency_key` 유니크로 한 번 더 막음 |
+| `OrderReturnedEvent` | Kafka `order.events`(`PaymentOrderEventListener`, groupId `payment`, 리스너에 트랜잭션 없음). ① 환불 기록(`payment_refund`, REQUESTED) 저장 → ② 확인 후 환불 → ②가 실패하면 ③ `FAILED_사유` 기록을 겹치지 않는 트랜잭션으로 차례로 실행. 상품불량·기타·사유 없음은 바로 COMPLETED(원장 REFUND + SHIPPING_FEE_REFUND(배송비 > 0) + COUPON_SUBSIDY_CANCEL(지원금 > 0), 홀딩 RELEASED, 결제 REFUNDED). 단순변심은 `PICKUP_FEE_REQUIRED`로 두고, 구매자가 회수 택배비를 결제하면 COMPLETED(RETURN_PICKUP_FEE_PAYMENT·RETURN_PICKUP_FEE + REFUND(상품값) + COUPON_SUBSIDY_CANCEL). 금액 내역은 결제 건에 저장된 값을 쓰고 `refundAmount`는 대조용. 다시 해도 같은 실패(`FAILED_AMOUNT_MISMATCH`·`FAILED_HOLDING_SETTLED`·`FAILED_PAYMENT_NOT_PAID`·`FAILED_PLATFORM_BALANCE`)는 기록만 하고 사람이 확인. 일시 오류(`FAILED_SYSTEM_ERROR`)는 기록 뒤 예외를 다시 던져 Kafka 컨슈머 재시도(처음 + 4번)로 다시 처리하고, 5번 실패하면 멈춤 | `payment_refund.order_id` 유니크(주문당 환불 1건)로 다시 온 이벤트·다른 이벤트 ID를 같은 기록으로 모으고, 기록 행을 잠근 뒤 COMPLETED면 아무것도 하지 않음. 원장 `idempotency_key`(`REFUND-{환불ID}…`) 유니크로 한 번 더 막음. `processed_event`는 쓰지 않음(이벤트 ID로 건너뛰면 Kafka 재시도로 다시 온 메시지까지 건너뛰어 재시도가 안 됨) |
 | `MemberSignedUpEvent` | 잔액 0인 지갑 생성 (Kafka `member.events`, `@KafkaListener` groupId `payment`, 가입과 별도 트랜잭션) | `processed_event`(eventId, `payment`)로 재전달을 거르고, 지갑이 이미 있으면 무시(`wallet.member_id` 유니크) |
 
 - `OrderReturnedEvent` 배포 조건: `order.events`는 보관 기간을 따로 정하지 않아 브로커 기본값(7일)이 지나면 메시지가 지워진다. 반품 승인(market)이 먼저 배포되면 **7일 안에 payment 구독을 배포**하거나, 그 전까지 반품 승인을 열지 않는다. 그렇지 않으면 그 사이 반품 환불이 오류 없이 빠진다. payment 컨슈머는 `auto-offset-reset: earliest`라 배포 전에 쌓인 이벤트는 처음 구독할 때 받는다
