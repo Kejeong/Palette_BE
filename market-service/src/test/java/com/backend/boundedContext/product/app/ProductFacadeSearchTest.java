@@ -154,7 +154,7 @@ class ProductFacadeSearchTest {
     }
 
     @Test
-    @DisplayName("특가(DB 검색): discounted=true면 지금 진행 중인 할인이 있는 상품만 나오고, 할인율순은 최신순으로 대신한다")
+    @DisplayName("특가(DB 검색): discounted=true면 지금 진행 중인 할인이 있는 상품만 나오고, 할인율순은 진행 중 할인의 할인율 높은순(같으면 최신순)이다")
     void searchDiscounted() {
         Product active = create(skincare, KEY + " 진행 중 할인", 10_000, 10);
         Product scheduled = create(skincare, KEY + " 예약 할인", 10_000, 10);
@@ -162,14 +162,22 @@ class ProductFacadeSearchTest {
         Product deleted = create(skincare, KEY + " 지운 할인", 10_000, 10);
         Product none = create(skincare, KEY + " 할인 없음", 10_000, 10);
         LocalDateTime now = LocalDateTime.now();
-        discount(active, 8_000, now.minusDays(1), now.plusDays(1), false);
+        Product bigSale = create(skincare, KEY + " 큰 할인", 10_000, 10);
+        Product sameRate = create(skincare, KEY + " 같은 할인율", 20_000, 10);
+        discount(active, 8_000, now.minusDays(1), now.plusDays(1), false);     // 20%
+        discount(bigSale, 5_000, now.minusDays(1), now.plusDays(1), false);    // 50%
+        discount(sameRate, 16_000, now.minusDays(1), now.plusDays(1), false);  // 20% (active보다 나중 등록)
         discount(scheduled, 5_000, now.plusDays(1), now.plusDays(2), false);
         discount(ended, 5_000, now.minusDays(2), now.minusDays(1), false);
         discount(deleted, 5_000, now.minusDays(1), now.plusDays(1), true);
 
-        assertThat(ids(searchDiscounted(KEY, ProductSort.LATEST))).containsExactly(active.getId());
-        assertThat(ids(search(KEY, null, ProductSort.DISCOUNT_RATE, true)))
-                .containsExactly(none.getId(), deleted.getId(), ended.getId(), scheduled.getId(), active.getId());
+        assertThat(ids(searchDiscounted(KEY, ProductSort.LATEST))).containsExactly(sameRate.getId(), bigSale.getId(), active.getId());
+        // 할인율 높은순, 같으면 최신순. 진행 중이 아닌 할인(예약·끝남·삭제)과 할인 없는 상품은 0%로 뒤에 최신순
+        PageResponse<ProductSummaryDto> byRate = search(KEY, null, ProductSort.DISCOUNT_RATE, true);
+        assertThat(ids(byRate)).containsExactly(bigSale.getId(), sameRate.getId(), active.getId(),
+                none.getId(), deleted.getId(), ended.getId(), scheduled.getId());
+        assertThat(byRate.totalElements()).isEqualTo(7);
+        assertThat(searchDiscounted(KEY, ProductSort.DISCOUNT_RATE).totalElements()).isEqualTo(3);
     }
 
     @Test

@@ -37,17 +37,24 @@ public class ProductEsSearchAdapter implements ProductSearchPort {
 
     private final ElasticsearchClient client;
     private final ProductJpaSearchAdapter fallback;
+    private final ProductEsIndexAdapter indexAdapter;
     private final String alias;
 
-    public ProductEsSearchAdapter(ElasticsearchClient client, ProductJpaSearchAdapter fallback,
+    public ProductEsSearchAdapter(ElasticsearchClient client, ProductJpaSearchAdapter fallback, ProductEsIndexAdapter indexAdapter,
                                   @Value("${custom.product.search.indexAlias}") String alias) {
         this.client = client;
         this.fallback = fallback;
+        this.indexAdapter = indexAdapter;
         this.alias = alias;
     }
 
     @Override
     public Page<Long> searchProductIds(ProductSearchQuery query, Pageable pageable) {
+        // 인덱스가 없거나 매핑 버전이 낮으면(매핑을 바꾼 배포 뒤 재색인 전) DB로 대신한다.
+        // 이전 인덱스에는 새 필드가 없어, 그 필드로 거르면 오류 없이 빈 결과가 나와 DB로 넘어가지도 않기 때문이다
+        if (!indexAdapter.isKnownCurrent()) {
+            return fallback.searchProductIds(query, pageable);
+        }
         try {
             return search(query, pageable);
         } catch (Exception e) {

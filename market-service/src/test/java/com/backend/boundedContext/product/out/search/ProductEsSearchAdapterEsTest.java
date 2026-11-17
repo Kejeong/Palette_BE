@@ -14,6 +14,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,7 +46,7 @@ class ProductEsSearchAdapterEsTest {
         alias = "products_test_" + UUID.randomUUID().toString().substring(0, 8);
         fallback = mock(ProductJpaSearchAdapter.class);
         indexAdapter = new ProductEsIndexAdapter(client, alias);
-        searchAdapter = new ProductEsSearchAdapter(client, fallback, alias);
+        searchAdapter = new ProductEsSearchAdapter(client, fallback, indexAdapter, alias);
     }
 
     /** 전체 재색인처럼 새 인덱스를 만들고 alias를 붙인다 */
@@ -198,6 +199,31 @@ class ProductEsSearchAdapterEsTest {
 
         createAlias();   // 지금 코드의 매핑으로 다시 만들고 alias를 옮긴다
         assertThat(indexAdapter.isCurrent()).isTrue();
+    }
+
+    @Test
+    @DisplayName("매핑 버전이 낮은 이전 인덱스면 ES에 묻지 않고 DB 검색으로 대신한다 (새 필드로 거른 검색이 빈 결과로 성공하지 않게)")
+    void outdatedIndexFallsBackToDb() throws Exception {
+        // 버전을 두기 전 매핑(_meta 없음, discountRate 없음). 검색·정렬에 쓰는 나머지 필드는 있어 ES 검색 자체는 성공한다
+        String oldIndex = alias + "_old";
+        client.indices().create(c -> c.index(oldIndex).mappings(m -> m
+                .properties("productId", p -> p.long_(l -> l))
+                .properties("status", p -> p.keyword(k -> k))
+                .properties("categoryId", p -> p.long_(l -> l))
+                .properties("soldOut", p -> p.boolean_(bo -> bo))
+                .properties("createdAt", p -> p.date(d -> d.format("epoch_millis")))));
+        client.index(i -> i.index(oldIndex).id("1").document(Map.of(
+                "productId", 1, "status", "ON_SALE", "categoryId", SKINCARE, "soldOut", false, "createdAt", 1)));
+        client.indices().refresh(r -> r.index(oldIndex));
+        client.indices().updateAliases(u -> u.actions(a -> a.add(add -> add.index(oldIndex).alias(alias))));
+        assertThat(indexAdapter.isCurrent()).isFalse();   // 복구 스케줄러의 확인
+        Page<Long> fromDb = new PageImpl<>(List.of(7L));
+        given(fallback.searchProductIds(any(), any())).willReturn(fromDb);
+
+        Page<Long> result = searchAdapter.searchProductIds(
+                new ProductSearchQuery(null, List.of(SKINCARE), false, true, ProductSort.LATEST), PageRequest.of(0, 20));
+
+        assertThat(result).isSameAs(fromDb);
     }
 
     @Test

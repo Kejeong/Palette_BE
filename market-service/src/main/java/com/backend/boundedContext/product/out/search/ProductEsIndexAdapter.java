@@ -43,6 +43,11 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
     /** 코드의 매핑 버전 (products-index.json의 mappings._meta.version). 매핑을 바꿀 때 올린다 */
     private final int mappingVersion;
     private volatile boolean aliasReady;
+    /**
+     * 마지막으로 확인한 인덱스가 최신인지 (isCurrent 결과, alias를 옮기면 true). 검색 어댑터가 요청마다 ES에 묻지 않고 이 값을 본다.
+     * 복구 스케줄러가 주기마다 isCurrent를 불러 갱신한다. 처음 확인하기 전에는 false다
+     */
+    private volatile boolean knownCurrent;
 
     public ProductEsIndexAdapter(ElasticsearchClient client,
                                  @Value("${custom.product.search.indexAlias}") String alias) {
@@ -63,15 +68,27 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
      */
     @Override
     public boolean isCurrent() {
-        if (!aliasExists()) return false;
+        if (!aliasExists()) {
+            knownCurrent = false;
+            return false;
+        }
         try {
             int current = client.indices().getMapping(g -> g.index(alias)).mappings().values().stream()
                     .mapToInt(index -> versionOf(index.mappings()))
                     .min().orElse(0);
-            return current >= mappingVersion;
+            knownCurrent = current >= mappingVersion;
+            return knownCurrent;
         } catch (IOException e) {
             throw new UncheckedIOException("상품 검색 인덱스 매핑을 확인하지 못했습니다. alias=" + alias, e);
         }
+    }
+
+    /**
+     * 마지막으로 확인한 결과 인덱스가 최신인지 (ES에 묻지 않는다). false면 검색은 DB로 대신한다.
+     * 매핑 버전이 낮은 이전 인덱스에는 새 필드가 없어, 그 필드로 거르는 검색이 오류 없이 빈 결과를 돌려주기 때문이다.
+     */
+    public boolean isKnownCurrent() {
+        return knownCurrent;
     }
 
     public boolean aliasExists() {
@@ -162,6 +179,7 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
                 return u;
             });
             aliasReady = true;
+            knownCurrent = true;   // 지금 코드의 매핑으로 만든 인덱스다
             if (!previous.isEmpty()) {
                 client.indices().delete(d -> d.index(List.copyOf(previous)));
             }
