@@ -3,7 +3,7 @@ package com.backend.boundedContext.order.app;
 import com.backend.shared.order.dto.CartLineDto;
 import com.backend.boundedContext.order.domain.ReturnFilter;
 import com.backend.boundedContext.order.domain.ReturnItemDecision;
-import com.backend.boundedContext.order.domain.ReturnReasonCode;
+import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.boundedContext.order.in.dto.*;
 import com.backend.global.page.PageResponse;
 import com.backend.shared.order.dto.OrderCancelType;

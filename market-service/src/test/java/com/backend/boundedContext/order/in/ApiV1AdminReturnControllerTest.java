@@ -33,7 +33,7 @@ import com.backend.boundedContext.order.app.OrderFacade;
 import com.backend.boundedContext.order.domain.OrderErrorCode;
 import com.backend.boundedContext.order.domain.ReturnFilter;
 import com.backend.boundedContext.order.domain.ReturnItemDecision;
-import com.backend.boundedContext.order.domain.ReturnReasonCode;
+import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.boundedContext.order.in.dto.AdminReturnSummaryResponse;
 import com.backend.boundedContext.order.in.dto.ReturnResultResponse;
 import com.backend.global.exception.DomainException;
@@ -272,7 +272,7 @@ class ApiV1AdminReturnControllerTest {
 
     private static AdminReturnSummaryResponse summary() {
         return new AdminReturnSummaryResponse(9L, "ORD-20261112-ABCDEFGH", 3L, OrderStatus.RETURN_REQUESTED,
-                27_500, 2_500, AT, AT.plusDays(1), ReturnReasonCode.DEFECTIVE, "깨짐", null, null,
+                27_500, 2_500, AT, AT.plusDays(1), ReturnReasonCode.DEFECTIVE, "깨짐", null, null, null,
                 List.of(new AdminReturnSummaryResponse.Item(11L, 10L, "립스틱", "기본", "상점", 2, 20_000, null)));
     }
 
