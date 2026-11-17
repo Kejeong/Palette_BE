@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.backend.boundedContext.payment.support.TestWalletCharger;
 import com.backend.boundedContext.payment.domain.Wallet;
 
 /**
@@ -53,7 +54,7 @@ class WalletRepositoryLockTest {
                 try {
                     start.await();
                     transactionTemplate.executeWithoutResult(status ->
-                            walletRepository.findByMemberIdForUpdate(memberId).orElseThrow().deposit(10_000));
+                            TestWalletCharger.charge(walletRepository.findByMemberIdForUpdate(memberId).orElseThrow(), 10_000));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } finally {

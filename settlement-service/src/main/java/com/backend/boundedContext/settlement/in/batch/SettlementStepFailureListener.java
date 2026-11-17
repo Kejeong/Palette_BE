@@ -8,7 +8,7 @@ import org.springframework.batch.infrastructure.item.ExecutionContext;
 import org.springframework.stereotype.Component;
 
 /**
- * 집계·지급 Step이 정상 종료했지만 실패 건이 있으면 Step 종료 코드를 "COMPLETED WITH FAILURES"로 바꾼다.
+ * 확정 Step이 정상 종료했지만 실패 건이 있으면 Step 종료 코드를 "COMPLETED WITH FAILURES"로 바꾼다.
  * 배치 메타 테이블(BATCH_STEP_EXECUTION.EXIT_CODE)만 보는 사람도 "정상 종료지만 실패 건이 있다"는 걸 알 수 있다.
  * 실패 건수는 Tasklet이 Step 실행 컨텍스트에 남기고, 판매자·정산서별 실패 내용은 처리 이력(settlement_process_history)에서 본다.
  * Step의 BatchStatus는 COMPLETED 그대로라서 Job 재시작·같은 달 재실행 규칙에는 영향이 없다.

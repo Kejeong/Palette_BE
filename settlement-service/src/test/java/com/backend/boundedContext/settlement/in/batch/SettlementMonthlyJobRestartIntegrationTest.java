@@ -1,7 +1,6 @@
 package com.backend.boundedContext.settlement.in.batch;
 
 import com.backend.boundedContext.settlement.app.SettlementJobNames;
-import com.backend.boundedContext.settlement.app.SettlementFacade;
 import com.backend.boundedContext.settlement.app.SettlementRunMonthlyJobUseCase;
 import com.backend.boundedContext.settlement.domain.SettlementCandidate;
 import com.backend.boundedContext.settlement.domain.SettlementStatus;
@@ -10,20 +9,23 @@ import com.backend.boundedContext.settlement.in.dto.SettlementRunResponse;
 import com.backend.boundedContext.settlement.out.SettlementCandidateRepository;
 import com.backend.boundedContext.settlement.out.SettlementMemberPort;
 import com.backend.boundedContext.settlement.out.SettlementPaymentPort;
+import com.backend.global.exception.DomainException;
+import com.backend.global.exception.GlobalErrorCode;
 import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
-import com.backend.shared.payment.dto.SettlementTransferCommand;
-import com.backend.shared.payment.dto.TransferResultDto;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.batch.core.job.parameters.JobParameters;
 import org.springframework.batch.core.job.parameters.JobParametersBuilder;
-import org.springframework.batch.core.step.StepExecution;
 import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.step.StepExecution;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -33,31 +35,33 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 월 정산 Job을 실제 JobRepository(로컬 Docker PostgreSQL의 BATCH_ 테이블)로 실행해, 지급 Step에서 멈춘 뒤
- * 같은 정산월로 다시 실행하면 지급 Step만 이어서 실행되는지 확인한다(코드리뷰 변경 제안 8, 정산 목표 2의 자동 검증).
+ * 월 정산 Job(확정 Step 하나)을 실제 JobRepository(로컬 Docker PostgreSQL의 BATCH_ 테이블)로 실행해,
+ * 확정 Step 도중에 멈춘 뒤 같은 정산월로 다시 실행하면 멈춘 판매자부터 이어서 확정하는지 확인한다(정산 목표 2의 자동 검증).
  *
- * 회원·결제 Port는 테스트 대역으로 바꾼다. 결제 대역은 두 번째 정산서를 처음 지급할 때 Error를 던진다.
- * SettlementPayoutTasklet은 Exception만 잡으므로 Error는 Step 실패가 되고 Job은 FAILED로 끝난다.
+ * 묶음 크기를 1로 줄여 판매자 A, B를 각각 다른 묶음으로 처리하게 하고, 회원 대역이 판매자 B의 상태를 처음 조회할 때 Error를 던진다.
+ * Tasklet은 Exception만 잡으므로 Error는 Step 실패가 되고 Job은 FAILED로 끝난다.
+ * 회원 서비스 장애(502)도 재시도 끝에 Step 실패가 되고, 같은 달을 다시 실행하면 그 판매자부터 확정한다.
+ * Job은 지급하지 않는다(지급은 지급 스케줄러). 그래서 결제 대역은 한 번도 불리지 않아야 한다.
  *
  * 정산월은 실행마다 아직 JobInstance가 없는 과거의 임의 달을 쓴다. 같은 달의 JobInstance가 이미 COMPLETED면 다시 실행할 수 없기 때문이다
  * (Batch 메타 테이블은 지우지 않는다). 테스트 데이터는 판매자 ID를 임의 범위로 잡아 다른 데이터와 섞이지 않게 한다.
  */
-@SpringBootTest(properties = "custom.outbox.relayEnabled=false")
+@ExtendWith(OutputCaptureExtension.class)
+@SpringBootTest(properties = {"custom.outbox.relayEnabled=false", "custom.settlement.batchChunkSize=1"})
 @EmbeddedKafka(topics = {"order.events", "seller.events"}, partitions = 1,
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 class SettlementMonthlyJobRestartIntegrationTest {
@@ -66,21 +70,20 @@ class SettlementMonthlyJobRestartIntegrationTest {
     @Autowired private SettlementCandidateRepository settlementCandidateRepository;
     @Autowired private JobRepository jobRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
-    @Autowired private SettlementFacade settlementFacade;
 
     @MockitoBean private SettlementMemberPort settlementMemberPort;
     @MockitoBean private SettlementPaymentPort settlementPaymentPort;
 
-    private final Map<Long, AtomicInteger> transferCalls = new ConcurrentHashMap<>();
-    private final AtomicLong walletTxId = new AtomicLong(700_000L);
     private final List<Long> candidateIds = new ArrayList<>();
     private final List<Long> executionIds = new ArrayList<>();
+    private final AtomicBoolean crashOnSellerB = new AtomicBoolean(true);
+    private final AtomicInteger sellerALookups = new AtomicInteger();
+    private final AtomicBoolean memberDownForSellerB = new AtomicBoolean(false);
+    private final AtomicInteger sellerBLookups = new AtomicInteger();
 
     private YearMonth targetMonth;
     private long sellerA;
     private long sellerB;
-    /** 이 정산서 ID를 처음 지급할 때 Error를 던진다(정산서가 만들어진 뒤 정해진다) */
-    private volatile Long crashOnSettlementId;
 
     @BeforeEach
     void setUp() {
@@ -89,21 +92,17 @@ class SettlementMonthlyJobRestartIntegrationTest {
         sellerA = 900_000_000L + random.nextLong(1_000_000L) * 10;
         sellerB = sellerA + 1;
 
-        when(settlementMemberPort.getSeller(anyLong())).thenAnswer(inv -> approved(inv.getArgument(0)));
         when(settlementMemberPort.getSellers(anyCollection())).thenAnswer(inv -> {
             Collection<Long> ids = inv.getArgument(0);
-            return ids.stream().map(this::approved).toList();
-        });
-        when(settlementPaymentPort.transfer(any())).thenAnswer(inv -> {
-            SettlementTransferCommand command = inv.getArgument(0);
-            // 정산서 ID는 확정 Step에서 정해지므로 첫 지급 호출 때 판매자 B의 정산서를 멈출 대상으로 정한다
-            if (crashOnSettlementId == null) crashOnSettlementId = settlementOf(sellerB).id();
-            int call = transferCalls.computeIfAbsent(command.settlementId(), id -> new AtomicInteger()).incrementAndGet();
-            if (command.settlementId().equals(crashOnSettlementId) && call == 1) {
-                throw new Error("테스트: 지급 도중 프로세스가 죽은 상황");
+            if (ids.contains(sellerA)) sellerALookups.incrementAndGet();
+            if (ids.contains(sellerB) && memberDownForSellerB.get()) {
+                sellerBLookups.incrementAndGet();
+                throw new DomainException(GlobalErrorCode.EXTERNAL_SERVICE_ERROR);   // 회원 서비스 응답 없음(502)
             }
-            return new TransferResultDto(command.idempotencyKey(), walletTxId.incrementAndGet(),
-                    command.payoutAmount(), command.feeAmount(), LocalDateTime.now());
+            if (ids.contains(sellerB) && crashOnSellerB.getAndSet(false)) {
+                throw new Error("테스트: 확정 도중 프로세스가 죽은 상황");
+            }
+            return ids.stream().map(this::approved).toList();
         });
 
         LocalDateTime confirmedAt = targetMonth.atDay(15).atTime(12, 0);
@@ -124,6 +123,8 @@ class SettlementMonthlyJobRestartIntegrationTest {
             jdbcTemplate.update("delete from settlement_process_history where target_type = 'CANDIDATE' and target_id = ?", id);
             jdbcTemplate.update("delete from settlement_candidate where id = ?", id);
         }
+        jdbcTemplate.update("delete from settlement_process_history where target_type = 'SELLER' and target_id in (?, ?)",
+                sellerA, sellerB);
         for (Long id : settlementIds) {
             jdbcTemplate.update("delete from settlement_process_history where target_type = 'SETTLEMENT' and target_id = ?", id);
             jdbcTemplate.update("delete from settlement where id = ?", id);
@@ -131,19 +132,15 @@ class SettlementMonthlyJobRestartIntegrationTest {
     }
 
     @Test
-    @DisplayName("지급 Step에서 멈춘 뒤 같은 달로 다시 실행하면 지급 Step만 실행되고, 이미 지급한 정산서와 결과를 모르는 정산서는 다시 요청하지 않으며, 결과 모름은 원장 확인으로 확정된다")
-    void restartAfterPayoutCrash_resumesOnlyPayoutStep() {
+    @DisplayName("확정 Step 도중 멈춘 뒤 같은 달로 다시 실행하면 멈춘 판매자부터 이어서 확정하고, 이미 확정한 판매자는 다시 확정하지 않으며, Job은 지급하지 않는다")
+    void restartAfterConfirmCrash_resumesFromCursor() {
         SettlementRunResponse first = runMonthlyJobUseCase.run(targetMonth, SettlementTrigger.ADMIN);
         executionIds.add(first.jobExecutionId());
 
         assertEquals("FAILED", first.status());
-        SettlementRow settlementA = settlementOf(sellerA);
-        SettlementRow settlementB = settlementOf(sellerB);
-        // 판매자 A가 B보다 먼저 지급되어야 시나리오가 성립한다(판매자 ID 순으로 확정하므로 정산서 ID도 A가 앞선다)
-        assertTrue(settlementA.id() < settlementB.id());
-        assertEquals(SettlementStatus.PAID.name(), settlementA.status());
-        // 지급 3구간: ① PROCESSING 선점은 이미 커밋됐고 ② 지급 요청 도중 멈췄으므로 결과 모름(PROCESSING)으로 남는다
-        assertEquals(SettlementStatus.PROCESSING.name(), settlementB.status());
+        assertEquals(1, settlementCountOf(sellerA));   // A는 첫 묶음에서 확정됨
+        assertEquals(0, settlementCountOf(sellerB));   // B는 상태 조회 중 멈춤
+        assertEquals("READY", candidateStatusOf(candidateIds.get(2)));
 
         SettlementRunResponse second = runMonthlyJobUseCase.run(targetMonth, SettlementTrigger.ADMIN);
         executionIds.add(second.jobExecutionId());
@@ -152,25 +149,45 @@ class SettlementMonthlyJobRestartIntegrationTest {
         List<String> steps = jobRepository.getJobExecution(second.jobExecutionId()).getStepExecutions().stream()
                 .map(StepExecution::getStepName)
                 .toList();
-        assertEquals(List.of(SettlementJobNames.PAYOUT_STEP), steps);
+        assertEquals(List.of(SettlementJobNames.AGGREGATE_STEP), steps);
         assertEquals(1, settlementCountOf(sellerA));
         assertEquals(1, settlementCountOf(sellerB));
-        assertEquals(1, transferCalls.get(settlementA.id()).get());   // A는 다시 지급하지 않는다
-        // B는 결과를 모르는 동안 재시작해도 다시 요청하지 않는다(지급 가능 상태가 아님)
-        assertEquals(1, transferCalls.get(settlementB.id()).get());
-        assertEquals(SettlementStatus.PROCESSING.name(), settlementOf(sellerB).status());
+        assertEquals(1, sellerALookups.get());          // A는 재시작에서 다시 확정하지 않는다(커서 다음부터)
+        SettlementRow b = settlementOf(sellerB);
+        assertEquals(SettlementStatus.READY.name(), b.status());
+        assertNotNull(b.payableOn());                   // 지급 예정일이 정해져 지급 스케줄러가 지급한다
+        verify(settlementPaymentPort, never()).transfer(any());   // Job은 지급하지 않는다
+    }
 
-        // 결과 확인: 멈추기 전 결제가 지급을 커밋했다고 보고, 같은 멱등 키의 원장 기록으로 PAID 확정 (재시도 없이)
-        Map<String, Object> b = jdbcTemplate.queryForMap(
-                "select idempotency_key, payout_amount, total_fee from settlement where id = ?", settlementB.id());
-        when(settlementPaymentPort.findTransfer((String) b.get("idempotency_key"))).thenReturn(Optional.of(
-                new TransferResultDto((String) b.get("idempotency_key"), walletTxId.incrementAndGet(),
-                        ((Number) b.get("payout_amount")).longValue(), ((Number) b.get("total_fee")).longValue(),
-                        LocalDateTime.now())));
-        settlementFacade.reconcileProcessing(settlementB.id());
+    @Test
+    @DisplayName("회원 서비스 장애로 판매자 상태 조회가 재시도 끝에 실패하면 Job이 FAILED로 멈추고(실패 이력 1건, ERROR 알림), 복구 뒤 같은 달을 다시 실행하면 그 판매자부터 확정한다")
+    void memberDown_failsJob_thenRestartConfirms(CapturedOutput output) {
+        crashOnSellerB.set(false);
+        memberDownForSellerB.set(true);
 
-        assertEquals(SettlementStatus.PAID.name(), settlementOf(sellerB).status());
-        assertEquals(1, transferCalls.get(settlementB.id()).get());   // 지급은 한 번뿐
+        SettlementRunResponse first = runMonthlyJobUseCase.run(targetMonth, SettlementTrigger.ADMIN);
+        executionIds.add(first.jobExecutionId());
+
+        assertEquals("FAILED", first.status());
+        assertEquals(3, sellerBLookups.get());          // 처음 + 재시도 2번
+        assertEquals(1, settlementCountOf(sellerA));
+        assertEquals(0, settlementCountOf(sellerB));
+        assertEquals("READY", candidateStatusOf(candidateIds.get(2)));
+        List<String> failures = jdbcTemplate.queryForList(
+                "select fail_reason from settlement_process_history where batch_execution_id = ? and stage = 'AGGREGATE' and result = 'FAILED'",
+                String.class, first.jobExecutionId());
+        assertEquals(1, failures.size());
+        assertTrue(failures.get(0).contains("sellerId=%d..%d".formatted(sellerB, sellerB)));
+        assertTrue(output.getOut().contains("월 정산 Job 실패로 멈춤"));
+
+        memberDownForSellerB.set(false);   // 회원 서비스 복구
+        SettlementRunResponse second = runMonthlyJobUseCase.run(targetMonth, SettlementTrigger.ADMIN);
+        executionIds.add(second.jobExecutionId());
+
+        assertEquals("COMPLETED", second.status());
+        assertEquals(1, settlementCountOf(sellerA));
+        assertEquals(1, settlementCountOf(sellerB));
+        assertEquals(1, sellerALookups.get());          // A는 다시 확정하지 않는다
     }
 
     /**
@@ -200,12 +217,17 @@ class SettlementMonthlyJobRestartIntegrationTest {
     /** 정산서 조회는 잠금 조회만 있어 테스트에서는 SQL로 읽는다 */
     private SettlementRow settlementOf(long sellerId) {
         return jdbcTemplate.queryForObject(
-                "select id, status from settlement where seller_id = ? and settlement_month = ?",
-                (rs, n) -> new SettlementRow(rs.getLong("id"), rs.getString("status")), sellerId,
-                targetMonth.toString());
+                "select id, status, payable_on from settlement where seller_id = ? and settlement_month = ?",
+                (rs, n) -> new SettlementRow(rs.getLong("id"), rs.getString("status"), rs.getObject("payable_on")),
+                sellerId, targetMonth.toString());
     }
 
-    private record SettlementRow(long id, String status) {
+    private record SettlementRow(long id, String status, Object payableOn) {
+    }
+
+    private String candidateStatusOf(long candidateId) {
+        return jdbcTemplate.queryForObject("select status from settlement_candidate where id = ?", String.class,
+                candidateId);
     }
 
     private int settlementCountOf(long sellerId) {

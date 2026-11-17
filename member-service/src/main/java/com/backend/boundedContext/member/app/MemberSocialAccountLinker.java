@@ -31,17 +31,21 @@ public class MemberSocialAccountLinker {
 
     /**
      * 로그인한 회원에게 소셜 계정을 연결함
-     * - 같은 회원에 같은 계정이 이미 연결돼 있으면 그대로 성공 (카카오 쪽에서 연결을 끊었다가 다시 잇는 경우 등)
+     * - 프로필 이미지 주소도 함께 저장함 (없으면 null)
+     * - 같은 회원에 같은 계정이 이미 연결돼 있으면 이미지만 갱신하고 성공 (카카오 쪽에서 연결을 끊었다가 다시 잇는 경우 등)
      * - 다른 회원에 연결된 계정이면 409 SOCIAL_ACCOUNT_LINKED_TO_OTHER
      * - 이 회원에 같은 제공자의 다른 계정이 연결돼 있으면 409 SOCIAL_PROVIDER_ALREADY_LINKED (해제 후 다시 연결)
      */
     @Transactional
-    public void link(Long memberId, SocialProvider provider, String providerUserId) {
+    public void link(Long memberId, SocialProvider provider, String providerUserId, String profileImageUrl) {
         Member member = memberSupport.getLoginMember(memberId);   // 탈퇴 직후 남은 Access Token이면 401
 
         Optional<MemberSocialAccount> linked = memberSocialAccountRepository.findByProviderAndProviderUserId(provider, providerUserId);
         if (linked.isPresent()) {
-            if (linked.get().getMember().getId().equals(memberId)) return;
+            if (linked.get().getMember().getId().equals(memberId)) {
+                linked.get().updateProfileImage(profileImageUrl);
+                return;
+            }
             throw new DomainException(MemberErrorCode.SOCIAL_ACCOUNT_LINKED_TO_OTHER);
         }
         if (memberSocialAccountRepository.findByMemberIdAndProvider(memberId, provider).isPresent()) {
@@ -49,11 +53,21 @@ public class MemberSocialAccountLinker {
         }
 
         try {
-            memberSocialAccountRepository.saveAndFlush(MemberSocialAccount.link(member, provider, providerUserId));
+            memberSocialAccountRepository.saveAndFlush(MemberSocialAccount.link(member, provider, providerUserId, profileImageUrl));
         } catch (DataIntegrityViolationException e) {
             // 조회와 저장 사이에 같은 요청이 동시에 들어와 UNIQUE에 걸림 → 어느 제약인지로 위와 같은 오류를 돌려줌
             throw new DomainException(violates(e, MEMBER_PROVIDER_UNIQUE) ? MemberErrorCode.SOCIAL_PROVIDER_ALREADY_LINKED : MemberErrorCode.SOCIAL_ACCOUNT_LINKED_TO_OTHER, e);
         }
+    }
+
+    /**
+     * 소셜 로그인 때 받은 최신 프로필 이미지로 갱신함
+     * 조회와 갱신 사이에 연결이 해제돼 행이 없으면 그냥 넘어감 (로그인 자체는 이미 확인을 마침)
+     */
+    @Transactional
+    public void updateProfileImage(Long socialAccountId, String profileImageUrl) {
+        memberSocialAccountRepository.findById(socialAccountId)
+                .ifPresent(account -> account.updateProfileImage(profileImageUrl));
     }
 
     /**

@@ -206,7 +206,7 @@ int updated = orderRepository.markPaid(orderId, now);  // WHERE status IN (...) 
 if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
 ```
 
-### 6.4 외부 연동 (토스·헥토·메일)
+### 6.4 외부 연동 (토스·헥토·메일·OpenAI)
 
 - 외부 호출은 DB 트랜잭션 밖에서 하고, HTTP 클라이언트 예외가 `out` 어댑터 밖으로 새지 않게 `DomainException`으로 감싼다.
 - 외부가 오류로 응답하면 `502-EXTERNAL_SERVICE_ERROR`(또는 컨텍스트 코드)로 던진다.
@@ -231,6 +231,13 @@ if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
   - 조회: 주문번호·원거래 일자(충전 건의 결제 요청 시각)·금액으로 한다. `0000` 정상(취소 금액이 있으면 부분 취소) / `0001` 취소 / `0009` 결제 실패, 그 외 결과 코드는 확정되지 않음으로 두고 다음 회차에 다시 확인한다. 실패 `ST06`(거래 없음)은 결제창에서 인증하지 않은 주문이라 "PG에 결제 없음"과 같게 처리하고(PROCESSING이면 FAILED_SYSTEM_ERROR, CANCELING·METHOD_CANCELING이면 ERROR 로그 후 사람이 확인), 그 밖의 실패는 결과 모름으로 둔다
   - 결제창 결과(`nextUrl`·`cancUrl`)는 브라우저를 거쳐 와서 믿지 않는다. 서버는 프론트 충전 결과 화면으로 넘기기만 하고, 승인 API가 회원·주문번호·금액을 확인한 뒤 헥토 승인 응답으로 확정한다. 결과 알림(`notiUrl`)은 기록만 하고 `OK`로 응답한다
   - 연결 5초·응답 30초 제한 (`custom.hecto`)
+- 챗봇(ai-service)의 OpenAI 오류 처리. 챗봇은 답을 못 주는 것보다 FAQ 원문이라도 주는 쪽을 택한다:
+  - 검색어 다시 쓰기(채팅) 실패·시간 초과·빈 답 → 예외로 응답하지 않고 원래 질문(같은 대화의 최근 질문 + 이번 질문)으로 FAQ를 찾는다. WARN 로그만 남긴다
+  - 질문 임베딩 실패 → FAQ를 찾을 수 없으므로 `502-EXTERNAL_SERVICE_ERROR`(질문·답변을 대화에 남기지 않음)
+  - 답변 생성(채팅) 실패·시간 초과(10초, `spring.ai.openai.chat.timeout`)·빈 답변 → 예외로 응답하지 않고 가장 비슷한 FAQ 답변을 그대로 `200-1` + `data.answerType: "FAQ"`로 준다. WARN 로그만 남긴다
+  - OpenAI SDK 재시도는 끈다(`max-retries: 0`). 재시도로 응답이 몇십 초씩 늦어지지 않고 바로 FAQ 답변으로 넘어가게 하기 위함이다
+  - 근거 FAQ가 없으면 OpenAI 채팅을 부르지 않고 고객센터 안내 문구(`answerType: "NO_MATCH"`)로 답한다. 근거 없이 지어낸 답을 막기 위함이다
+  - 요청 수 제한(Redis)이 실패하면 챗봇을 막지 않고 WARN만 남긴다. 제한은 비용 보호용이라 Redis 장애로 상담까지 막지 않는다
 - **응답 시간 초과는 실패로 단정하지 않는다.** 카드 승인은 이미 됐을 수 있다. 충전을 `PROCESSING`으로 두고 성공 응답 `200-1` + `data.status: "PROCESSING"`(결과 확인 중)으로 돌려준다. 프론트는 `data.status`로 완료와 확인 중을 구분한다. 대사 스케줄러가 토스 조회로 결과를 확정한다.
 - 같은 `Idempotency-Key` + 같은 요청은 오류가 아니라 처음 응답을 그대로 돌려준다. 다른 본문이면 `409-IDEMPOTENCY_KEY_REUSED`다. (주문 생성 `POST /orders`는 구현: 같은 구매자·같은 키면 처음 만든 주문을 돌려주고(그 주문이 취소됐으면 `409-IDEMPOTENCY_KEY_EXPIRED`), 본문은 비교하지 않는다. 그 밖의 API는 헤더 미구현. 지금은 충전 승인 재요청이 `409-TOPUP_ALREADY_PROCESSED`이고 상태는 `GET /topups/{id}`로 확인한다. 내부 `PaymentApi.pay()`만 같은 키에 처음 결과를 돌려준다)
 
@@ -242,6 +249,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 - **실패 사유를 저장한다.** 정산서 `last_fail_reason`, 충전·결제 `fail_reason`(환불 `fail_reason`은 환불 구현 때) 등에 남겨 관리자 화면에서 보이게 한다.
 - **재시도할 실패와 아닌 실패를 나눈다.** 일시 장애(타임아웃, 락 경합)는 재시도하고, 데이터 문제(금액 불일치 등)는 바로 `FAILED`·`MANUAL_REQUIRED`로 둔다.
 - **충전 대사는 밀린 건을 한 번에 처리한다.** PROCESSING·CANCELING·METHOD_CANCELING 대사는 `topupReconcileBatchSize`(100)건씩 가져오고, 배치를 다 채우면 같은 실행에서 마지막 건 다음부터 이어서 가져온다(수정 시각·ID 순). PG 조회 결과를 모르는 건(응답 없음 등)이 나오면 PG 장애일 수 있어 그 배치까지만 처리한다. 장애 중 한 번 실행이 길어져 같은 스케줄러 스레드를 쓰는 다른 작업이 밀리지 않게 하기 위함이다.
+- **임베딩 스케줄러(ai)는 실패 건을 그대로 둔다.** 추천 상품·설문·FAQ 임베딩은 OpenAI 호출이 실패하면 WARN만 남기고 임베딩을 비워 두며, 다음 실행(5초 뒤)에서 다시 시도한다. 임베딩하는 동안 글이 바뀌었으면(해시가 다르면) 저장하지 않는다.
 - **오래 남은 충전 건은 알린다.** 결과가 정해지지 않은 상태(PROCESSING·CANCELING·METHOD_CANCELING)로 `topupStuckWarnMinutes`(60분)가 넘게 남은 충전 건은 대사 간격마다 상태별로 ERROR 로그 한 줄(건수·가장 작은 충전 건 ID)을 남긴다. Grafana가 같은 알림을 1시간마다 다시 보내므로, 남아 있는 동안 1시간마다 알리고 정리되면 멈춘다. 이런 건이 있으면 회원 탈퇴가 막힌다(`PENDING_TOPUPS`).
 
 ## 7. Spring Security를 추가할 때
@@ -285,7 +293,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 409-PRODUCT_NOT_ON_SALE | 판매 중이 아닌 상품 차감(주문), 관리자 즉시 중지 시 이미 중지·삭제된 상품 |
 | | 409-PRODUCT_NOT_EDITABLE | 판매 중지·삭제된 상품의 수정·삭제·재고 조정·중지 요청 |
 | | 400-STOCK_NEGATIVE | 재고 조정 결과가 음수 |
-| | 400-STOCK_LIMIT_EXCEEDED | 재고 조정·복원 결과가 1,000,000개 초과 |
+| | 400-STOCK_LIMIT_EXCEEDED | 재고를 늘리는 조정의 결과가 1,000,000개 초과 (주문 취소·반품 복원은 상한을 넘어도 받는다) |
 | | 400-OUT_OF_STOCK | 주문 수량 > 재고 |
 | | 400-THUMBNAIL_REQUIRED | 상품 등록 시 대표 이미지 없음 |
 | | 400-IMAGE_TYPE_NOT_ALLOWED | jpg·png·webp가 아닌 이미지 (파일 내용으로 확인) |
@@ -376,6 +384,10 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 403-INFLUENCER_NOT_APPROVED | 승인된 인플루언서가 아닌 회원이 인플루언서 API 호출 |
 | recommend (은정, ai) | 404-SURVEY_NOT_FOUND | 뷰티 설문을 아직 하지 않은 회원의 프로필 조회 |
 | | 400-SURVEY_ANSWER_INVALID | 설문 답이 칸에 맞지 않음: 선호 성분 칸에 피하는 성분 코드(또는 반대), 같은 코드 중복, 고민 4개 이상(도메인 검사. 요청 검증에서는 400-VALIDATION_FAILED). 모르는 코드는 400-INVALID_REQUEST |
+| faq (시연, ai) | 404-FAQ_NOT_FOUND | 관리자가 없는 FAQ를 수정·노출 변경 |
+| chat (시연, ai) | 404-CONVERSATION_NOT_FOUND | 없는 대화로 질문하거나 대화 메시지 조회. 다른 회원의 대화도 같음(있는지 알려 주지 않음) |
+| | 429-TOO_MANY_REQUESTS | 챗봇 질문이 회원별 1분에 10번을 넘음(`GlobalErrorCode`, `custom.chat.rateLimit*`). OpenAI를 부르기 전에 막는다 |
+| | 502-EXTERNAL_SERVICE_ERROR | 질문 임베딩(OpenAI) 실패. 답변 생성 실패는 오류가 아니라 FAQ 답변으로 대신한다(6.4) |
 
 
 ## 9. 로그 규칙
@@ -425,5 +437,6 @@ public RsData<PayResponse> pay(...) { ... }
 | Security `AuthenticationEntryPoint`·`AccessDeniedHandler` | 완료 (`JwtAuthenticationEntryPoint`·`JwtAccessDeniedHandler`) |
 | 토스 연동 예외(`TossPaymentException`·`TossTimeoutException`)·충전 대사 스케줄러(승인·취소·허용하지 않은 결제 수단 취소) | 완료 |
 | 헥토 연동 예외(`HectoResultUnknownException`, 응답 코드 → PG 중립 결과·예외)·결제창 결과 엔드포인트 | 완료 |
+| 챗봇 OpenAI 실패 시 FAQ 답변 대체·요청 수 제한(Redis) | 완료 |
 | 요청별 `traceId`(MDC, `X-Trace-Id` 헤더) | 미구현 |
 | 운영 프로필에서 `show-sql` 끄기 | 미구현 |

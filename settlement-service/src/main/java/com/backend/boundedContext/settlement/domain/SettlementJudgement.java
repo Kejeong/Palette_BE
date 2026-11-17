@@ -8,7 +8,7 @@ import java.util.List;
  * PASS: 확정·지급 진행 / HOLD: 정산서를 HOLD로 만든다(후보는 묶고 지급만 보류) /
  * BLOCK: 이번 실행에서 확정하지 않는다(후보는 READY로 남고 관리자가 확인)
  *
- * 판별 Step이 Job 실행 컨텍스트에 남기고 확정 Step이 읽으므로, 문자열로 바꾸고 되돌리는 방법을 함께 둔다.
+ * 예전에는 판별 Step이 Job 실행 컨텍스트에 남겨 확정 Step이 읽었다. 지금은 확정 Step 안에서 판별하지만 문자열 변환은 이력 표시용으로 남겨 둔다.
  */
 public record SettlementJudgement(Type type, String errorCode, String reason, List<Long> rejectedCandidateIds) {
 

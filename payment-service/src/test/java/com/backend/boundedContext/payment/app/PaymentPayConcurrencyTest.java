@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import com.backend.boundedContext.payment.support.TestWalletCharger;
 import com.backend.boundedContext.payment.domain.Payment;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.out.PaymentRepository;
@@ -63,7 +64,7 @@ class PaymentPayConcurrencyTest {
     @BeforeEach
     void setUp() {
         Wallet created = Wallet.create(buyerMemberId);
-        created.deposit(30_000);
+        TestWalletCharger.charge(created, 30_000);
         wallet = walletRepository.save(created);
     }
 

@@ -59,7 +59,7 @@ class ApiV1MemberControllerTest {
     @DisplayName("내 정보 조회: 토큰의 회원 ID로 조회해 돌려준다")
     void getMyInfo_success() throws Exception {
         given(memberFacade.getMyInfo(3L)).willReturn(
-                new MyInfoDto(3L, "buyer@palette.test", "구매자", MemberRole.USER, LocalDateTime.of(2026, 10, 11, 15, 0), true, null));
+                new MyInfoDto(3L, "buyer@palette.test", "구매자", MemberRole.USER, LocalDateTime.of(2026, 10, 11, 15, 0), true, null, "https://k.kakaocdn.net/dn/abc/img_640x640.jpg"));
         String token = jwtTokenProvider.createAccessToken(3L, MemberRole.USER);
 
         mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + token))
@@ -68,7 +68,8 @@ class ApiV1MemberControllerTest {
                 .andExpect(jsonPath("$.data.memberId").value(3))
                 .andExpect(jsonPath("$.data.email").value("buyer@palette.test"))
                 .andExpect(jsonPath("$.data.role").value("USER"))
-                .andExpect(jsonPath("$.data.kakaoLinked").value(true));
+                .andExpect(jsonPath("$.data.kakaoLinked").value(true))
+                .andExpect(jsonPath("$.data.profileImageUrl").value("https://k.kakaocdn.net/dn/abc/img_640x640.jpg"));
     }
 
     @Test

@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.backend.boundedContext.payment.support.TestWalletCharger;
 import com.backend.boundedContext.payment.app.dto.TopupConfirmDto;
 import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Topup;
@@ -139,7 +140,7 @@ class PaymentTopupConfirmProcessorTest {
     @DisplayName("승인 반영: 지갑 잔액을 늘리고 원장 CHARGE를 남긴 뒤 충전 건을 DONE으로 바꾼다")
     void complete_success() {
         Wallet wallet = Wallet.create(MEMBER_ID);
-        wallet.deposit(5_000);
+        TestWalletCharger.charge(wallet, 5_000);
         Topup topup = processingTopup(wallet, 20_000);
 
         TopupConfirmDto result = processor.complete(TOPUP_ID, approved(topup, 20_000, PgPaymentMethod.CARD));
@@ -174,7 +175,7 @@ class PaymentTopupConfirmProcessorTest {
     @DisplayName("승인 반영: 이미 반영된(PROCESSING이 아닌) 충전 건은 다시 반영하지 않고 현재 상태를 돌려준다")
     void complete_alreadyApplied() {
         Wallet wallet = Wallet.create(MEMBER_ID);
-        wallet.deposit(20_000);
+        TestWalletCharger.charge(wallet, 20_000);
         Topup topup = processingTopup(wallet, 20_000);
         topup.approve(LocalDateTime.of(2026, 10, 13, 10, 0));
 

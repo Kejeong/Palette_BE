@@ -257,7 +257,7 @@ public interface ProductApi {
      * 재고만 바꾸고 상품 상태는 바꾸지 않는다(STOPPED 상품도 재고만 늘어난다).
      * 삭제된 상품·옵션은 ORDER_RESTORE만 재고를 늘리고, RETURN_RESTORE면 409 PRODUCT_DELETED / OPTION_DELETED
      * (주문 컨텍스트가 반품 승인에서 삭제된 대상을 미리 거른다).
-     * 복원 결과가 옵션 최대 재고(1,000,000)를 넘으면 400 STOCK_LIMIT_EXCEEDED.
+     * 이미 판 수량을 돌려놓는 것이라 옵션 최대 재고(1,000,000)를 넘어도 받는다(주문 취소·반품 승인이 재고 상한 때문에 실패하지 않게).
      * 같은 주문 항목·사유로 다시 호출하면 아무것도 하지 않고 정상 종료한다. 차감한 적 없는 항목이면 IllegalStateException.
      */
     void restoreStock(List<StockChangeDto> items, StockRestoreReason reason);
@@ -636,6 +636,8 @@ public record WalletSummaryDto(Long memberId, long balance, long heldAmount) { }
  * couponSubsidyAmount: 장바구니 쿠폰 지원금 = 주문의 장바구니 쿠폰 할인액(0 이상). 장바구니 쿠폰은 플랫폼 부담이다.
  * 결제는 배송비를 홀딩에 넣지 않고 플랫폼 지갑으로 옮기고(SHIPPING_FEE), 지원금을 플랫폼 지갑에서 홀딩으로 옮긴다(COUPON_SUBSIDY).
  * 홀딩 금액 = amount − shippingFee + couponSubsidyAmount. 정산은 이 홀딩에서 판매자·수수료를 지급한다(배송비는 정산 대상 아님).
+ * 금액 불변식: 주문별 홀딩 금액 = 그 주문의 정산 판매가 합(항목 금액 − 상품 쿠폰 할인액의 합) = 판매자 지급액 합 + 수수료 합.
+ *   상품 쿠폰 할인은 판매자 부담이라 홀딩과 정산 판매가 모두에서 빠지고, 장바구니 쿠폰 할인은 플랫폼 지원금으로 홀딩을 채워 정산 판매가에서 빠지지 않는다.
  * (두 필드의 처리는 결제 담당 구현 예정)
  * 두 필드 없이 부르던 6인자 생성자는 둘 다 0으로 남겨 둔다.
  * HTTP 본문에서 두 필드는 필수다. 값이 없으면 0을 보낸다. 빠지거나 null이면 400(Jackson 3 기본 설정).
@@ -691,6 +693,17 @@ public record TransferResultDto(String idempotencyKey, Long walletTransactionId,
 | 주문 → 정산 (`OrderConfirmedEvent`) | 없음 (Kafka `order.events`) | 그대로 동작 |
 
 정산 스케줄러는 기본으로 켜져 있습니다(`SETTLEMENT_SCHEDULING_ENABLED` 기본 true). 개발 서버의 재시도 간격은 120분입니다(`SETTLEMENT_RETRY_INTERVAL_MINUTES`).
+
+정산 흐름은 수집, 사전 판별, 확정, 지급으로 나뉩니다.
+
+| 단계 | 언제 | 하는 일 |
+| --- | --- | --- |
+| 수집 | 구매 확정 이벤트를 받을 때 | 정산 후보 생성(금액 검사, 원본 이벤트 ID `source_event_id` 기록) |
+| 사전 판별 | 매월 1~9일 02:30 | 지난달 정산 대상을 판별 규칙으로 미리 판별해 이력만 남김(상태는 바꾸지 않음) |
+| 확정 (월 정산 Job, 확정 Step 하나) | 매월 10일 00:00, 관리자 수동 실행 | 판매자마다 후보를 잠그고 그 후보로 판별 → READY 또는 HOLD 정산서, 지급 예정일(`payable_on`, 확정한 날 또는 다음 평일) |
+| 지급 | 10분마다 지급 스케줄러 | 지급 예정일이 된 READY + 재시도 시각이 된 FAILED를 지급. 한 회차에 대상이 없을 때까지(최대 8분) 이어서 지급 |
+
+관리자 수동 실행(`POST /api/v1/admin/settlements/runs`)은 실행할 수 있는지만 확인하고 202로 바로 돌아옵니다. 결과는 실행 기록(`GET /api/v1/admin/settlements/runs`)으로 봅니다.
 
 ### SettlementApi
 
@@ -862,6 +875,38 @@ public record DeliveryCompletedEvent(Long deliveryId, Long orderId, Long buyerId
 - 송장 수정은 이벤트가 없어 알림을 다시 보내지 않는다. 바뀐 송장번호는 주문 상세의 배송 정보로 확인한다.
 - 한 메시지를 한 트랜잭션에서 처리한다. eventId 처리 기록과 알림 저장이 함께 커밋되고, 저장이 실패하면 기록도 롤백되어 다시 처리된다. 1·2·4·8초 간격으로 다시 처리하고(총 5번), 그래도 실패하면 `<토픽>-dlt`로 보낸다.
 - 알림 저장이 실패해도 주문·배송 처리는 되돌리지 않는다(별도 컨슈머, groupId `notification`).
+
+## 8.1 ai: FAQ 챗봇
+
+FAQ 챗봇은 `ai-service`(포트 8087, DB 스키마 `ai`)의 `faq`·`chat` 컨텍스트입니다(담당 시연, TRSS-254). FAQ를 벡터(pgvector)로 의미 기반 검색하고, 찾은 FAQ만 근거로 LLM(OpenAI)이 답합니다. 다른 서비스를 부르지 않고, 이벤트도 주고받지 않습니다.
+
+### 챗봇 API (프론트용, 로그인 필요)
+
+| 요청 | 응답 `data` | 비고 |
+| --- | --- | --- |
+| `POST /api/v1/ai/chat` `{ conversationId?, message }` | `{ conversationId, answer, answerType, sources: [{ faqId, category, categoryLabel, question }] }` | `message`는 1~200자(앞뒤 공백 제거). `conversationId`가 없으면 새 대화를 시작하고, 이어서 물을 때는 응답의 `conversationId`를 그대로 보낸다. 없거나 다른 회원의 대화면 404 `CONVERSATION_NOT_FOUND`. 1분에 10번을 넘으면 429 `TOO_MANY_REQUESTS`. 질문 임베딩(OpenAI) 실패면 502 `EXTERNAL_SERVICE_ERROR` |
+| `GET /api/v1/ai/chat/conversations?page=0&size=20` | `PageResponse<{ conversationId, title, lastMessageAt }>` | 내 대화를 마지막 메시지가 최근인 순으로. `title`은 첫 질문(100자까지) |
+| `GET /api/v1/ai/chat/conversations/{conversationId}/messages` | `[{ messageId, role, content, answerType, sources, createdAt }]` | 대화의 질문·답변을 오래된 순으로 모두. 없거나 다른 회원의 대화면 404 `CONVERSATION_NOT_FOUND` |
+| `GET /api/v1/ai/faqs/search?query=` | `{ faqs: [{ faqId, category, categoryLabel, question, answer, similarity }] }` | 질문과 뜻이 가까운 노출 중 FAQ를 유사도 높은 순으로 최대 3건. 기준값보다 낮으면 빠지고, 없으면 빈 목록. `query`는 1~200자 |
+
+- `answerType`은 `AI`(근거 FAQ로 AI가 답함)·`FAQ`(AI가 실패·시간 초과라 가장 비슷한 FAQ 답변을 그대로 줌)·`NO_MATCH`(관련 FAQ가 없어 고객센터 안내 문구, `sources`는 빈 목록)다. 화면은 셋 모두 같은 말풍선으로 보여 주고, `sources`가 있으면 출처(카테고리 · 질문)를 붙인다.
+- `role`은 `USER`(질문)·`ASSISTANT`(답변)이고, 질문 메시지의 `answerType`은 null, `sources`는 빈 목록이다. 메시지의 `sources`는 저장한 FAQ ID로 지금 FAQ의 카테고리·질문을 찾아 보여 준다(FAQ는 지우지 않으므로 숨긴 FAQ도 나온다).
+- `category`는 `MEMBER`(회원)·`TOPUP`(충전)·`ORDER`(주문·결제)·`DELIVERY`(배송)·`RETURN`(반품·환불)·`SELLER`(판매·정산)이고, 화면 표시는 `categoryLabel`을 쓴다.
+- FAQ를 찾기 전에 질문을 LLM으로 FAQ 질문 같은 문장으로 다시 쓴다(구어·줄임말을 쇼핑몰 용어로, 이어지는 질문은 이전 대화로 생략된 대상을 채움). 다시 쓰기가 실패하면 같은 대화의 최근 질문 1개 + 이번 질문으로 찾는다. 답변에는 최근 메시지 6개를 프롬프트에 넣는다. 주문 조회·취소 같은 처리는 하지 않는다(FAQ 안내만).
+- 대화 목록·메시지 조회와 FAQ 검색은 요청 수 제한에 세지 않는다.
+
+### 관리자 FAQ API (ADMIN)
+
+| 요청 | 응답 `data` | 비고 |
+| --- | --- | --- |
+| `GET /api/v1/admin/faqs?category=` | `[{ faqId, category, categoryLabel, question, answer, visible, embedded, createdAt, updatedAt }]` | 숨긴 FAQ까지 최근 등록 순으로 모두(페이지 없음). `category`를 넘기면 그 카테고리만 |
+| `POST /api/v1/admin/faqs` `{ category, question, answer, visible }` | `{ faqId }` | `question` 200자, `answer` 2000자까지(앞뒤 공백 제거). 없는 `category`면 400 `INVALID_REQUEST` |
+| `PUT /api/v1/admin/faqs/{faqId}` `{ category, question, answer }` | 위 목록의 한 건 | 세 값을 모두 보낸다. 질문·답변이 바뀌면 다시 임베딩될 때까지 `embedded=false`. 없으면 404 `FAQ_NOT_FOUND` |
+| `PATCH /api/v1/admin/faqs/{faqId}/visibility` `{ visible }` | 위 목록의 한 건 | `visible=false`면 챗봇 검색에서 빠진다. 임베딩은 그대로라 다시 켜면 바로 검색된다. 없으면 404 `FAQ_NOT_FOUND` |
+
+- 삭제 API는 없다. 내리려면 노출을 끈다(대화 기록의 근거 FAQ가 남고, 실수해도 되돌릴 수 있다).
+- `embedded`는 챗봇 검색 반영 여부다. 등록·수정 뒤 스케줄러가 5초마다 임베딩해 보통 수 초 안에 `true`가 되고, OpenAI 장애 중이면 복구될 때까지 `false`다. 화면은 `false`를 "반영 중"으로 보여 준다.
+- nginx는 `/api/v1/ai/**`와 `/api/v1/admin/faqs/**`를 ai-service로 보낸다.
 
 ## 9. 구현 주의사항
 

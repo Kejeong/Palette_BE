@@ -34,6 +34,9 @@ import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.core.io.Resource;
+import com.backend.boundedContext.settlement.in.dto.SettlementRunStartResponse;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -60,17 +63,20 @@ public class ApiV1AdminSettlementController {
     private final SettlementFacade settlementFacade;
 
     @Operation(summary = "월 정산 수동 실행",
-            description = "settleMonth(종료된 달만)로 집계 → 지급 Job을 동기로 실행하고 결과를 돌려준다. 실패로 끝난 달은 이어서 실행된다")
-    @ApiResponse(responseCode = "200", description = "200-1 실행 완료(data.status로 COMPLETED·FAILED 구분)")
+            description = "settleMonth(종료된 달만)의 월 정산(확정)을 시작하고 바로 돌아온다(202). 결과는 실행 기록(GET /runs)으로 본다. "
+                    + "실패로 끝난 달은 이어서 실행된다. 지급은 지급 스케줄러가 지급 예정일부터 한다")
+    @ApiResponse(responseCode = "202", description = "202-1 실행 접수 (status STARTED: 바로 시작, QUEUED: 다른 달 수동 실행이 끝난 뒤 시작)")
     @ApiResponse(responseCode = "400", description = "400-SETTLEMENT_MONTH_INVALID 끝나지 않은 달 / 400-VALIDATION_FAILED 형식 오류")
-    @ApiResponse(responseCode = "409", description = "409-SETTLEMENT_RUNNING 같은 달 실행 중 / 409-SETTLEMENT_ALREADY_COMPLETED 이미 완료된 달")
+    @ApiResponse(responseCode = "409", description = "409-SETTLEMENT_RUNNING 같은 달 실행 중이거나 이미 접수됨 / 409-SETTLEMENT_ALREADY_COMPLETED 이미 완료된 달")
     @PostMapping("/runs")
-    public RsData<SettlementRunResponse> run(@Valid @RequestBody SettlementRunRequest request) {
-        return RsData.of("200-1", "월 정산을 실행했습니다.",
-                settlementFacade.runMonthlyJob(YearMonth.parse(request.settleMonth()), SettlementTrigger.ADMIN));
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public RsData<SettlementRunStartResponse> run(@Valid @RequestBody SettlementRunRequest request) {
+        return RsData.of("202-1", "월 정산을 시작했습니다. 결과는 실행 기록에서 확인해 주세요.",
+                settlementFacade.startMonthlyJob(YearMonth.parse(request.settleMonth()), SettlementTrigger.ADMIN));
     }
 
-    @Operation(summary = "월 정산 실행 결과", description = "정산월·실행 시각·상태, 성공·실패 건수, 지급·수수료 총액 (최신 실행부터)")
+    @Operation(summary = "월 정산 실행 결과", description = "정산월·실행 시각·상태, 확정 건수·실패 판매자 수 (최신 실행부터). "
+            + "지급 건수·지급·수수료 총액은 Job이 지급하던 이전 실행에만 있고 지금 실행은 null이다(지급은 지급 스케줄러가 하므로 정산서 목록·요약에서 본다)")
     @ApiResponse(responseCode = "200", description = "200-1 조회 성공")
     @GetMapping("/runs")
     public RsData<PageResponse<SettlementRunResponse>> getRuns(Pageable pageable) {
