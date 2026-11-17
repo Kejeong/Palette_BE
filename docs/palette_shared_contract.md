@@ -863,6 +863,38 @@ public record DeliveryCompletedEvent(Long deliveryId, Long orderId, Long buyerId
 - 한 메시지를 한 트랜잭션에서 처리한다. eventId 처리 기록과 알림 저장이 함께 커밋되고, 저장이 실패하면 기록도 롤백되어 다시 처리된다. 1·2·4·8초 간격으로 다시 처리하고(총 5번), 그래도 실패하면 `<토픽>-dlt`로 보낸다.
 - 알림 저장이 실패해도 주문·배송 처리는 되돌리지 않는다(별도 컨슈머, groupId `notification`).
 
+## 8.1 ai: FAQ 챗봇
+
+FAQ 챗봇은 `ai-service`(포트 8087, DB 스키마 `ai`)의 `faq`·`chat` 컨텍스트입니다(담당 시연, TRSS-254). FAQ를 벡터(pgvector)로 의미 기반 검색하고, 찾은 FAQ만 근거로 LLM(OpenAI)이 답합니다. 다른 서비스를 부르지 않고, 이벤트도 주고받지 않습니다.
+
+### 챗봇 API (프론트용, 로그인 필요)
+
+| 요청 | 응답 `data` | 비고 |
+| --- | --- | --- |
+| `POST /api/v1/ai/chat` `{ conversationId?, message }` | `{ conversationId, answer, answerType, sources: [{ faqId, category, categoryLabel, question }] }` | `message`는 1~200자(앞뒤 공백 제거). `conversationId`가 없으면 새 대화를 시작하고, 이어서 물을 때는 응답의 `conversationId`를 그대로 보낸다. 없거나 다른 회원의 대화면 404 `CONVERSATION_NOT_FOUND`. 1분에 10번을 넘으면 429 `TOO_MANY_REQUESTS`. 질문 임베딩(OpenAI) 실패면 502 `EXTERNAL_SERVICE_ERROR` |
+| `GET /api/v1/ai/chat/conversations?page=0&size=20` | `PageResponse<{ conversationId, title, lastMessageAt }>` | 내 대화를 마지막 메시지가 최근인 순으로. `title`은 첫 질문(100자까지) |
+| `GET /api/v1/ai/chat/conversations/{conversationId}/messages` | `[{ messageId, role, content, answerType, sources, createdAt }]` | 대화의 질문·답변을 오래된 순으로 모두. 없거나 다른 회원의 대화면 404 `CONVERSATION_NOT_FOUND` |
+| `GET /api/v1/ai/faqs/search?query=` | `{ faqs: [{ faqId, category, categoryLabel, question, answer, similarity }] }` | 질문과 뜻이 가까운 노출 중 FAQ를 유사도 높은 순으로 최대 3건. 기준값보다 낮으면 빠지고, 없으면 빈 목록. `query`는 1~200자 |
+
+- `answerType`은 `AI`(근거 FAQ로 AI가 답함)·`FAQ`(AI가 실패·시간 초과라 가장 비슷한 FAQ 답변을 그대로 줌)·`NO_MATCH`(관련 FAQ가 없어 고객센터 안내 문구, `sources`는 빈 목록)다. 화면은 셋 모두 같은 말풍선으로 보여 주고, `sources`가 있으면 출처(카테고리 · 질문)를 붙인다.
+- `role`은 `USER`(질문)·`ASSISTANT`(답변)이고, 질문 메시지의 `answerType`은 null, `sources`는 빈 목록이다. 메시지의 `sources`는 저장한 FAQ ID로 지금 FAQ의 카테고리·질문을 찾아 보여 준다(FAQ는 지우지 않으므로 숨긴 FAQ도 나온다).
+- `category`는 `MEMBER`(회원)·`TOPUP`(충전)·`ORDER`(주문·결제)·`DELIVERY`(배송)·`RETURN`(반품·환불)·`SELLER`(판매·정산)이고, 화면 표시는 `categoryLabel`을 쓴다.
+- FAQ를 찾기 전에 질문을 LLM으로 FAQ 질문 같은 문장으로 다시 쓴다(구어·줄임말을 쇼핑몰 용어로, 이어지는 질문은 이전 대화로 생략된 대상을 채움). 다시 쓰기가 실패하면 같은 대화의 최근 질문 1개 + 이번 질문으로 찾는다. 답변에는 최근 메시지 6개를 프롬프트에 넣는다. 주문 조회·취소 같은 처리는 하지 않는다(FAQ 안내만).
+- 대화 목록·메시지 조회와 FAQ 검색은 요청 수 제한에 세지 않는다.
+
+### 관리자 FAQ API (ADMIN)
+
+| 요청 | 응답 `data` | 비고 |
+| --- | --- | --- |
+| `GET /api/v1/admin/faqs?category=` | `[{ faqId, category, categoryLabel, question, answer, visible, embedded, createdAt, updatedAt }]` | 숨긴 FAQ까지 최근 등록 순으로 모두(페이지 없음). `category`를 넘기면 그 카테고리만 |
+| `POST /api/v1/admin/faqs` `{ category, question, answer, visible }` | `{ faqId }` | `question` 200자, `answer` 2000자까지(앞뒤 공백 제거). 없는 `category`면 400 `INVALID_REQUEST` |
+| `PUT /api/v1/admin/faqs/{faqId}` `{ category, question, answer }` | 위 목록의 한 건 | 세 값을 모두 보낸다. 질문·답변이 바뀌면 다시 임베딩될 때까지 `embedded=false`. 없으면 404 `FAQ_NOT_FOUND` |
+| `PATCH /api/v1/admin/faqs/{faqId}/visibility` `{ visible }` | 위 목록의 한 건 | `visible=false`면 챗봇 검색에서 빠진다. 임베딩은 그대로라 다시 켜면 바로 검색된다. 없으면 404 `FAQ_NOT_FOUND` |
+
+- 삭제 API는 없다. 내리려면 노출을 끈다(대화 기록의 근거 FAQ가 남고, 실수해도 되돌릴 수 있다).
+- `embedded`는 챗봇 검색 반영 여부다. 등록·수정 뒤 스케줄러가 5초마다 임베딩해 보통 수 초 안에 `true`가 되고, OpenAI 장애 중이면 복구될 때까지 `false`다. 화면은 `false`를 "반영 중"으로 보여 준다.
+- nginx는 `/api/v1/ai/**`와 `/api/v1/admin/faqs/**`를 ai-service로 보낸다.
+
 ## 9. 구현 주의사항
 
 계약의 모양과는 별개로, 구현할 때 꼭 지켜야 하는 규칙입니다.

@@ -6,7 +6,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -36,5 +40,22 @@ class AiApplicationTest {
 
         assertThat(schema).isEqualTo("ai");
         assertThat(distance).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("V6 초기 FAQ는 노출 중·임베딩 전이고, 해시는 질문 + 줄바꿈 + 답변의 SHA-256 hex다")
+    void seedsFaqWithSourceHash() throws Exception {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "select question, answer, embedding_source_hash, visible, embedding is null as pending from faq");
+
+        assertThat(rows).isNotEmpty();
+        for (Map<String, Object> row : rows) {
+            String source = row.get("question") + "\n" + row.get("answer");
+            String hash = HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(source.getBytes(StandardCharsets.UTF_8)));
+            assertThat(row.get("embedding_source_hash")).isEqualTo(hash);
+            assertThat(row.get("visible")).isEqualTo(true);
+            assertThat(row.get("pending")).isEqualTo(true);
+        }
     }
 }

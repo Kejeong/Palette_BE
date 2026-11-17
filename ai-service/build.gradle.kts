@@ -1,4 +1,4 @@
-// ai-service: 뷰티 설문, 피부 맞춤 상품 추천(피하는 성분 제외·임베딩), 피부가 비슷한 크리에이터 추천.
+// ai-service: 뷰티 설문, 피부 맞춤 상품 추천(피하는 성분 제외·임베딩), 피부가 비슷한 크리에이터 추천, FAQ 근거 챗봇.
 // Java 21·Lombok·Boot BOM·테스트 설정은 루트 allprojects에서 온다.
 plugins {
 	id("org.springframework.boot")
@@ -15,8 +15,10 @@ dependencies {
 	// webmvc, data-jpa, validation, security, kafka, jjwt, springdoc은 common이 api로 준다
 	implementation(project(":common"))
 	implementation("org.springframework.boot:spring-boot-starter-flyway")
-	// 임베딩(EmbeddingModel)만 쓴다. 벡터 저장·검색은 JdbcTemplate SQL로 한다(피하는 성분 필터를 같은 SQL에 두려고)
+	// 임베딩(EmbeddingModel)과 챗봇 답변(ChatModel)을 쓴다. 벡터 저장·검색은 JdbcTemplate SQL로 한다(피하는 성분·노출 여부 필터를 같은 SQL에 두려고)
 	implementation("org.springframework.ai:spring-ai-starter-model-openai")
+	// 챗봇 회원별 요청 횟수 제한
+	implementation("org.springframework.boot:spring-boot-starter-data-redis")
 
 	developmentOnly("org.springframework.boot:spring-boot-devtools")
 	runtimeOnly("org.postgresql:postgresql")
