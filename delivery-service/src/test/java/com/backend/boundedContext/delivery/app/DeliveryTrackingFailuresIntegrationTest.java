@@ -126,7 +126,7 @@ class DeliveryTrackingFailuresIntegrationTest {
     }
 
     @Test
-    @DisplayName("공통 형식: 판매자 대상(첫 항목 판매자, 상호명 외 N곳), 금액 null, 원인 STALLED_AFTER_SHIPPED, 물류 담당자 확인, 배송·주문 ID")
+    @DisplayName("공통 형식: 판매자 대상(첫 항목 판매자, 상호명 외 N곳), 금액 null, 택배사 상태가 있으면 원인 STALLED_AFTER_SHIPPED, 물류 담당자 확인, 배송·주문 ID")
     void toAdminFailureItem() {
         LocalDateTime shippedAt = NOW.minusDays(16);
         long multiSeller = shipped(0, shippedAt);   // 판매자 1, 1, 2
@@ -153,7 +153,24 @@ class DeliveryTrackingFailuresIntegrationTest {
         assertThat(second.refId()).isEqualTo(singleSeller);
         assertThat(second.targetId()).isEqualTo(9L);
         assertThat(second.targetLabel()).isEqualTo("판매자9");
-        assertThat(second.reasonLabel()).isEqualTo("송장 등록 후 15일 지남");
+        assertThat(second.reasonCode()).isEqualTo("TRACKING_NOT_FOUND");
+        assertThat(second.reasonLabel()).isEqualTo("송장 등록 후 15일째 택배사 조회 결과 없음");
+        assertThat(second.handlingCode()).isEqualTo("LOGISTICS_CHECK");
+    }
+
+    @Test
+    @DisplayName("원인: 택배사 상태를 한 번도 받지 못했으면 TRACKING_NOT_FOUND, 받았으면 STALLED_AFTER_SHIPPED(상태를 문구에)")
+    void reasonCode_byLastTrackingStatus() {
+        long notFound = shipped(0, NOW.minusDays(20));
+        long inTransit = shipped(1, NOW.minusDays(21));
+        jdbcTemplate.update("update delivery set last_tracking_status = 'IN_TRANSIT' where id = ?", inTransit);
+
+        List<AdminFailureItem> items = failures(FROM, TO, FIRST_PAGE, NOW).items();
+
+        assertThat(items).extracting(AdminFailureItem::refId).containsExactly(notFound, inTransit);
+        assertThat(items).extracting(AdminFailureItem::reasonCode).containsExactly("TRACKING_NOT_FOUND", "STALLED_AFTER_SHIPPED");
+        assertThat(items).extracting(AdminFailureItem::reasonLabel).containsExactly(
+                "송장 등록 후 15일째 택배사 조회 결과 없음", "송장 등록 후 15일 지남 (택배사 상태: IN_TRANSIT)");
     }
 
     @Test

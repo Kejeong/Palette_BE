@@ -756,9 +756,12 @@ public record TransferResultDto(String idempotencyKey, Long walletTransactionId,
 - 대상: 송장 등록 후 `custom.delivery.trackingFailureAfterDays`(기본 15일)가 지나도 배송 완료(DELIVERED)가 안 된 SHIPPED 배송. 정확히 15일째도 포함
 - `occurredAt` = 송장 등록 시각(`shippedAt`), `from`·`to`도 이 날짜로 거른다
 - `targetType` = SELLER, `targetId`·`targetLabel` = 배송 항목의 결제 시점 판매자 스냅샷(sellerId, 상호명). 회원 서비스는 부르지 않는다. 판매자가 여럿이면 첫 항목의 판매자와 "상호명 외 N곳"
-- `amount` = null, `reasonCode` = `STALLED_AFTER_SHIPPED`, `reasonLabel` = "송장 등록 후 15일 지남"(택배사에서 받은 마지막 상태가 있으면 " (택배사 상태: EXCEPTION)"처럼 붙임)
+- `amount` = null
+- 원인은 택배사에서 받은 마지막 상태(`lastTrackingStatus`)로 나눈다
+  - 상태가 없음: `TRACKING_NOT_FOUND`, "송장 등록 후 15일째 택배사 조회 결과 없음". 안전망이 매일 다시 조회해도 택배사에 없는 송장이라 송장 번호부터 확인한다(송장을 수정하면 상태가 비어 여기에 든다)
+  - 상태가 있음: `STALLED_AFTER_SHIPPED`, "송장 등록 후 15일 지남 (택배사 상태: EXCEPTION)". 택배사 상태가 완료 전에서 멈췄다
 - `handlingCode` = `LOGISTICS_CHECK`("물류 담당자 확인"), `refId` = 배송 ID, `orderId` = 주문 ID
-- 웹훅·조회 실패 횟수는 저장하지 않아 원인을 따로 나누지 않는다(지금은 `STALLED_AFTER_SHIPPED` 하나)
+- 웹훅·조회 실패 횟수는 저장하지 않는다. 원인은 이미 있는 택배사 상태로만 나눈다
 
 ### SettlementApi
 
