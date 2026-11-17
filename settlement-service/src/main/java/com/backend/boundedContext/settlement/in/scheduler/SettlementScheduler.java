@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.HashSet;
@@ -219,28 +220,63 @@ public class SettlementScheduler {
         log.info("정산 사전 판별 targetMonth={} judged={} holdOrBlock={} failed={}", targetMonth, judged, notPass, failed);
     }
 
+    /** 지급 스케줄러 한 회차의 최대 시간. 회차 간격(10분)보다 짧게 두어 남은 건은 다음 회차가 이어서 지급한다 */
+    static final Duration PAYOUT_ROUND_TIME_LIMIT = Duration.ofMinutes(8);
+
+    /**
+     * 지급 스케줄러: 10분마다, 지급 예정일이 된 READY와 재시도 일시가 지난 FAILED를 지급한다
+     * 한 회차 안에서 대상이 없을 때까지 retryBatchSize씩 페이지를 이어 읽어 지급한다(월 정산 확정 직후 수천 건도 한 회차에 끝나게).
+     * ID 커서로 읽으므로 지급하지 못하고 대상에 남은 건을 같은 회차에서 다시 집지 않는다(다음 회차가 처음부터 다시 본다).
+     * 회차가 PAYOUT_ROUND_TIME_LIMIT(8분)를 넘기거나 월 정산 Job이 시작되면 멈추고, 남은 건은 다음 회차가 지급한다
+     */
     @Scheduled(cron = "0 */10 * * * *", zone = "Asia/Seoul")
     public void retryPayouts() {
         if (settlementFacade.isMonthlyJobRunning()) {
             log.info("월 정산 Job 실행 중이라 이번 정산 재시도 스케줄을 건너뜀");
             return;
         }
-        List<Long> settlementIds = settlementFacade.findRetryTargetIds(settlementPolicy.getRetryBatchSize());
+        long startedAt = currentNanos();
+        long afterId = 0L;
+        int targets = 0;
         int paid = 0;
         int notPaid = 0;
-        for (Long settlementId : settlementIds) {
-            try {
-                SettlementPayoutResult result =
-                        settlementFacade.payout(settlementId, SettlementTrigger.RETRY_SCHEDULER, null);
-                if (result.isPaid()) paid++;
-                else if (result.processed()) notPaid++;
-            } catch (Exception e) {
-                notPaid++;
-                log.error("정산 재시도 스케줄 오류 settlementId={}", settlementId, e);
+        int pages = 0;
+        String stoppedBy = null;
+        while (true) {
+            if (currentNanos() - startedAt >= PAYOUT_ROUND_TIME_LIMIT.toNanos()) {
+                stoppedBy = "시간 한도";
+                break;
             }
+            if (pages > 0 && settlementFacade.isMonthlyJobRunning()) {
+                stoppedBy = "월 정산 Job 시작";
+                break;
+            }
+            List<Long> settlementIds = settlementFacade.findRetryTargetIds(afterId,
+                    settlementPolicy.getRetryBatchSize());
+            if (settlementIds.isEmpty()) break;
+            pages++;
+            targets += settlementIds.size();
+            for (Long settlementId : settlementIds) {
+                try {
+                    SettlementPayoutResult result =
+                            settlementFacade.payout(settlementId, SettlementTrigger.RETRY_SCHEDULER, null);
+                    if (result.isPaid()) paid++;
+                    else if (result.processed()) notPaid++;
+                } catch (Exception e) {
+                    notPaid++;
+                    log.error("정산 재시도 스케줄 오류 settlementId={}", settlementId, e);
+                }
+            }
+            afterId = settlementIds.get(settlementIds.size() - 1);
         }
-        if (!settlementIds.isEmpty()) {
-            log.info("정산 재시도 스케줄 targets={} paid={} notPaid={}", settlementIds.size(), paid, notPaid);
+        if (targets > 0 || stoppedBy != null) {
+            log.info("정산 재시도 스케줄 targets={} paid={} notPaid={} pages={}{}", targets, paid, notPaid, pages,
+                    stoppedBy == null ? "" : " 멈춤=" + stoppedBy + "(남은 건은 다음 회차)");
         }
+    }
+
+    /** 회차 시간 측정용. 테스트에서 시간을 바꿔 끼울 수 있게 따로 둔다 */
+    long currentNanos() {
+        return System.nanoTime();
     }
 }

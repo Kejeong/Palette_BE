@@ -47,17 +47,19 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long>, J
     /**
      * 지급 스케줄러 대상: 지급 예정일이 된 READY(월 정산 확정, 보류 해제) + 다음 재시도 일시가 지난 FAILED
      * 지급 예정일이 없는 READY(이 컬럼이 생기기 전 정산서)는 바로 지급한다
+     * afterId 다음 ID부터 ID 순. 스케줄러가 한 회차 안에서 페이지를 이어 읽을 때, 지급하지 못하고 대상에 남은 건을 다시 집지 않게 한다
      */
     @Query("""
             select s.id from Settlement s
-             where (s.status = com.backend.boundedContext.settlement.domain.SettlementStatus.READY
-                    and (s.payableOn is null or s.payableOn <= :today))
-                or (s.status = com.backend.boundedContext.settlement.domain.SettlementStatus.FAILED
-                    and s.nextRetryAt <= :now)
+             where s.id > :afterId
+               and ((s.status = com.backend.boundedContext.settlement.domain.SettlementStatus.READY
+                     and (s.payableOn is null or s.payableOn <= :today))
+                    or (s.status = com.backend.boundedContext.settlement.domain.SettlementStatus.FAILED
+                        and s.nextRetryAt <= :now))
              order by s.id
             """)
     List<Long> findRetryTargetIds(@Param("now") LocalDateTime now, @Param("today") LocalDate today,
-                                  Pageable pageable);
+                                  @Param("afterId") Long afterId, Pageable pageable);
 
     /**
      * 원장 재대조 대상: 지급일이 since 이후인 PAID 정산서. afterId 커서로 한 번씩만 본다

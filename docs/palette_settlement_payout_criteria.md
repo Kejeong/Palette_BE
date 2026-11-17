@@ -14,7 +14,7 @@
 | 확정 | 풀리지 않은 원장 재대조 불일치 | HOLD | `LedgerMismatchRule` |
 | 확정 | 판매자 제재 (상태는 묶음마다 트랜잭션 밖에서 한 번에 조회) | HOLD | `SellerStatusRule` |
 | 확정 | 지급 예정일 = 확정한 날, 주말이면 다음 월요일 (공휴일은 아직 보지 않음) | - | `SettlementAggregateUseCase` |
-| 지급 시점 | 지급 스케줄러(10분마다)가 지급 예정일이 된 READY를 지급 (월 정산 Job은 지급하지 않음) | - | `SettlementScheduler.retryPayouts` |
+| 지급 시점 | 지급 스케줄러(10분마다)가 지급 예정일이 된 READY를 지급 (월 정산 Job은 지급하지 않음). 한 회차에 대상이 없을 때까지 이어서 지급하고, 8분을 넘기거나 월 정산 Job이 시작되면 멈춰 남은 건은 다음 회차가 지급 | - | `SettlementScheduler.retryPayouts` |
 | 지급 직전 (이전에 지급을 시도한 정산서) | 결제 원장에 이 정산서 멱등 키(`SETTLEMENT-{id}`)의 지급 기록이 있는지 (제재·원장 불일치 확인보다 먼저, 잠금 밖) | 있으면 다시 요청하지 않고 PAID, 금액이 다르면 MANUAL_REQUIRED (조회 실패면 그대로 진행) | `SettlementPayoutUseCase` |
 | 지급 직전 | 지급 가능 상태, 판매자 제재, 원장 불일치, 정산서 합계 = 후보 합계 | HOLD, MANUAL_REQUIRED | `SettlementPayoutUseCase` |
 | 지급 | 멱등 키 `SETTLEMENT-{id}`, 결제의 홀딩 잔액과 주문별 금액 검사, 응답 금액 = 정산서 금액 | FAILED, MANUAL_REQUIRED, 결과 모름이면 재확인 | `SettlementPayoutUseCase`, 결제 |

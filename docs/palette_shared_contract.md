@@ -701,7 +701,7 @@ public record TransferResultDto(String idempotencyKey, Long walletTransactionId,
 | 수집 | 구매 확정 이벤트를 받을 때 | 정산 후보 생성(금액 검사, 원본 이벤트 ID `source_event_id` 기록) |
 | 사전 판별 | 매월 1~9일 02:30 | 지난달 정산 대상을 판별 규칙으로 미리 판별해 이력만 남김(상태는 바꾸지 않음) |
 | 확정 (월 정산 Job, 확정 Step 하나) | 매월 10일 00:00, 관리자 수동 실행 | 판매자마다 후보를 잠그고 그 후보로 판별 → READY 또는 HOLD 정산서, 지급 예정일(`payable_on`, 확정한 날 또는 다음 평일) |
-| 지급 | 10분마다 지급 스케줄러 | 지급 예정일이 된 READY + 재시도 시각이 된 FAILED를 지급 |
+| 지급 | 10분마다 지급 스케줄러 | 지급 예정일이 된 READY + 재시도 시각이 된 FAILED를 지급. 한 회차에 대상이 없을 때까지(최대 8분) 이어서 지급 |
 
 관리자 수동 실행(`POST /api/v1/admin/settlements/runs`)은 실행할 수 있는지만 확인하고 202로 바로 돌아옵니다. 결과는 실행 기록(`GET /api/v1/admin/settlements/runs`)으로 봅니다.
 

@@ -195,9 +195,10 @@ public class SettlementFacade {
 
     // ================= 지급 (지급 스케줄러, 관리자 재처리) =================
 
+    /** 지급 대상(지급 예정일이 된 READY, 재시도 일시가 지난 FAILED) 중 afterId 다음 ID부터 limit건 */
     @Transactional(readOnly = true)
-    public List<Long> findRetryTargetIds(int limit) {
-        return settlementSupport.findRetryTargetIds(LocalDateTime.now(), limit);
+    public List<Long> findRetryTargetIds(Long afterId, int limit) {
+        return settlementSupport.findRetryTargetIds(LocalDateTime.now(), afterId, limit);
     }
 
     /** 선점·결과 기록·실패 기록 트랜잭션은 UseCase가 TransactionTemplate으로 연다(결제 지급 요청은 트랜잭션 밖) */
