@@ -124,6 +124,9 @@ public class Order extends BaseIdAndTime {
     // 반품 환불 완료 시각 (결제 서비스가 환불한 시각). RETURNED인데 null이면 아직 환불 전
     private LocalDateTime refundedAt;
 
+    // 환불 지연 알림(ERROR 로그)을 보낸 시각. 같은 주문으로 알림을 한 번만 보내려고 남긴다
+    private LocalDateTime refundAlertedAt;
+
     // 배송지 스냅샷
     @Embedded
     private ShippingAddress shippingAddress;
@@ -419,6 +422,18 @@ public class Order extends BaseIdAndTime {
             return false;
         }
         this.refundedAt = refundedAt;
+        return true;
+    }
+
+    /**
+     * 환불 지연 알림을 보냈다고 기록한다(환불 확인 스케줄러). 환불 전이고 아직 알리지 않았을 때만 기록하고 true.
+     * true일 때만 알림을 보내서, 환불이 계속 오지 않아도 알림은 한 번만 간다.
+     */
+    public boolean markRefundAlerted(LocalDateTime alertedAt) {
+        if (!isRefundPending() || refundAlertedAt != null) {
+            return false;
+        }
+        this.refundAlertedAt = alertedAt;
         return true;
     }
 

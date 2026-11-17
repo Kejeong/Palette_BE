@@ -23,7 +23,7 @@ import java.util.Optional;
  * 반품을 승인하면 OrderReturnedEvent로 결제 서비스에 환불을 넘기고 끝나므로, 주문은 환불이 실제로 됐는지 모른다.
  * 이벤트로 넘긴 일의 결과는 보낸 쪽이 다시 확인해야 유실을 알 수 있다(결제 PAYING 재확인과 같은 원칙).
  * - 결제 시도 조회(getPaymentAttempts)에 REFUNDED가 있으면 그 환불 시각을 주문에 기록한다
- * - 아직 없으면 그대로 둔다. 반품 승인 후 refundAlertMinutes가 지나도 없으면 ERROR 로그로 알린다
+ * - 아직 없으면 그대로 둔다. 반품 승인 후 refundAlertMinutes가 지나도 없으면 ERROR 로그로 한 번 알린다(refund_alerted_at)
  * 결제 조회는 HTTP라 트랜잭션 밖에서 하고, 기록할 때만 주문을 잠그고 다시 확인한다.
  */
 @Slf4j
@@ -89,9 +89,17 @@ public class OrderCheckRefundsUseCase {
     }
 
     // 반품 승인 후 오래 환불되지 않은 주문은 사람이 봐야 한다 (돈이 홀딩에 남아 있다)
+    // 알림은 주문마다 한 번만: 잠근 뒤 알림 시각을 기록할 수 있을 때만 ERROR를 남긴다(5분마다 같은 알림이 반복되지 않게)
     private void alertIfStale(Order order, LocalDateTime now) {
         LocalDateTime returnedAt = order.getReturnedAt();
-        if (returnedAt != null && !now.isBefore(returnedAt.plusMinutes(refundAlertMinutes))) {
+        if (order.getRefundAlertedAt() != null || returnedAt == null
+                || now.isBefore(returnedAt.plusMinutes(refundAlertMinutes))) {
+            return;
+        }
+        boolean first = Boolean.TRUE.equals(transaction.execute(status -> orderRepository.findByIdForUpdate(order.getId())
+                .map(locked -> locked.markRefundAlerted(now))
+                .orElse(false)));
+        if (first) {
             log.error("반품 승인 후 {}분이 지나도 환불되지 않았습니다: orderId={}, returnedAt={}",
                     refundAlertMinutes, order.getId(), returnedAt);
         }
