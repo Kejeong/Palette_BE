@@ -34,6 +34,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.Set;
 
 import static com.backend.boundedContext.product.ProductImageFixtures.THUMBNAIL;
@@ -44,7 +45,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
 /**
- * 상품 검색 색인: 변경 시 색인 요청 이벤트, 색인 문서 값(할인가·품절), 할인 경계 대상, DB 검색 설정의 재색인 거부.
+ * 상품 검색 색인: 변경 시 색인 요청 이벤트, 색인 문서 값(할인가·품절), 할인 경계 대상, DB 검색 설정의 재색인 거부,
+ * 전체 재색인(alias가 없을 때만 복구 재색인, 한 번에 하나만 실행).
+ * 재색인 중 다른 트랜잭션이 바꾼 상품의 보정은 테스트 트랜잭션 없이 {@link ProductSearchIndexRebuildCatchUpTest}에서 확인한다.
  * 테스트 설정은 DB 검색(engine=jpa)이라 색인 포트가 아무것도 하지 않으므로, 문서 값은 기록용 포트를 넣은 Support로 확인한다.
  * 다른 상품 통합 테스트와 mock 조합을 맞춰 테스트 컨텍스트를 같이 쓰고, 테스트마다 롤백된다.
  */
@@ -108,7 +111,7 @@ class ProductSearchIndexTest {
 
         indexPort = new RecordingIndexPort();
         indexSupport = new ProductSearchIndexSupport(eventPublisher, productRepository, productDiscountRepository,
-                productSupport, productDiscountSupport, indexPort, productPolicy);
+                productSupport, productDiscountSupport, indexPort, productPolicy, entityManager);
     }
 
     @Test
@@ -205,6 +208,53 @@ class ProductSearchIndexTest {
     }
 
     @Test
+    @DisplayName("기동 재색인: alias가 있으면 하지 않고, 없으면 판매 중 상품 전체를 새 인덱스에 색인한 뒤 alias를 옮긴다")
+    void rebuildOnlyWhenAliasMissing() {
+        Long onSale = create();
+
+        assertThat(indexSupport.rebuildIndexIfMissing()).isEmpty();
+        assertThat(indexPort.events).isEmpty();
+
+        indexPort.aliasExists = false;
+        assertThat(indexSupport.rebuildIndexIfMissing()).isPresent();
+        assertThat(indexPort.bulkIndexed).contains(onSale);
+        assertThat(indexPort.events).first().isEqualTo("create");
+        assertThat(indexPort.events).contains("switch");
+    }
+
+    @Test
+    @DisplayName("전체 재색인은 한 번에 하나만: 실행 중에 관리자 재색인은 409-SEARCH_INDEX_REBUILDING, 복구 재색인은 건너뛴다")
+    void rebuildRunsOneAtATime() {
+        Long productId = create();
+        indexPort.aliasExists = false;
+        List<Object> duringRebuild = new ArrayList<>();
+        indexPort.afterBulkIndexOf(productId, () -> {
+            try {
+                indexSupport.rebuildIndex();
+                duringRebuild.add("rebuilt");
+            } catch (DomainException e) {
+                duringRebuild.add(e.getResultCode());
+            }
+            duringRebuild.add(indexSupport.rebuildIndexIfMissing());
+        });
+
+        indexSupport.rebuildIndex();
+
+        assertThat(duringRebuild).containsExactly("409-SEARCH_INDEX_REBUILDING", OptionalInt.empty());
+        assertThat(indexPort.events).filteredOn("create"::equals).hasSize(1);
+
+        // 끝나면 다시 실행할 수 있다
+        indexSupport.rebuildIndex();
+        assertThat(indexPort.events).filteredOn("create"::equals).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("기동 재색인: DB 검색 설정이면 아무것도 하지 않는다")
+    void rebuildIfMissingDisabledWithJpa() {
+        assertThat(productFacade.rebuildSearchIndexIfMissing()).isEmpty();
+    }
+
+    @Test
     @DisplayName("전체 재색인: DB 검색 설정이면 409-SEARCH_INDEX_DISABLED")
     void rebuildDisabledWithJpa() {
         assertThatThrownBy(() -> productFacade.rebuildSearchIndex())
@@ -246,14 +296,31 @@ class ProductSearchIndexTest {
         return LocalDateTime.now().plusDays(1).withNano(0);
     }
 
-    /** 받은 문서와 지운 ID를 기록하는 색인 포트 */
+    /** 받은 문서와 지운 ID, 호출 순서를 기록하는 색인 포트 */
     private static class RecordingIndexPort implements ProductSearchIndexPort {
         final List<ProductSearchDocument> upserted = new ArrayList<>();
         final List<Long> deleted = new ArrayList<>();
+        final List<Long> bulkIndexed = new ArrayList<>();
+        /** create, switch, delete:{id} 순서 */
+        final List<String> events = new ArrayList<>();
+        boolean aliasExists = true;
+        /** triggerId가 든 묶음을 bulkIndex한 직후 한 번 실행한다 (재색인 중 변경 흉내) */
+        private Long triggerId;
+        private Runnable onBulkIndex;
+
+        void afterBulkIndexOf(Long productId, Runnable hook) {
+            this.triggerId = productId;
+            this.onBulkIndex = hook;
+        }
 
         @Override
         public boolean isEnabled() {
             return true;
+        }
+
+        @Override
+        public boolean aliasExists() {
+            return aliasExists;
         }
 
         @Override
@@ -264,20 +331,28 @@ class ProductSearchIndexTest {
         @Override
         public void delete(Collection<Long> productIds) {
             deleted.addAll(productIds);
+            productIds.forEach(id -> events.add("delete:" + id));
         }
 
         @Override
         public String createIndex() {
+            events.add("create");
             return "products_test";
         }
 
         @Override
         public void bulkIndex(String indexName, List<ProductSearchDocument> documents) {
-            upserted.addAll(documents);
+            documents.forEach(doc -> bulkIndexed.add(doc.productId()));
+            if (onBulkIndex != null && documents.stream().anyMatch(doc -> doc.productId() == triggerId)) {
+                Runnable hook = onBulkIndex;
+                onBulkIndex = null;
+                hook.run();
+            }
         }
 
         @Override
         public void switchAlias(String indexName) {
+            events.add("switch");
         }
     }
 }

@@ -13,10 +13,13 @@ public interface ProductSearchIndexPort {
     /** 색인을 쓰는 구현인지 (DB 검색이면 false) */
     boolean isEnabled();
 
-    /** 지금 검색에 쓰는 인덱스에 문서를 넣거나 덮어쓴다 */
+    /** 검색 alias가 있는지. 없으면 upsert·delete는 쓰지 않고 예외를 던진다 (전체 재색인이 alias를 만든다) */
+    boolean aliasExists();
+
+    /** 지금 검색에 쓰는 인덱스에 문서를 넣거나 덮어쓴다. alias가 없으면 예외 */
     void upsert(List<ProductSearchDocument> documents);
 
-    /** 지금 검색에 쓰는 인덱스에서 문서를 지운다. 없는 문서는 무시한다 */
+    /** 지금 검색에 쓰는 인덱스에서 문서를 지운다. 없는 문서는 무시한다. alias가 없으면 예외 */
     void delete(Collection<Long> productIds);
 
     /** 전체 재색인용 새 인덱스를 만들고 이름을 돌려준다. 아직 검색에는 쓰지 않는다 */

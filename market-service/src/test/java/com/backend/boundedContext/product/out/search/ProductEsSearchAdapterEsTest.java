@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
@@ -25,7 +26,7 @@ import static org.mockito.Mockito.verify;
 /**
  * ES 상품 색인·검색 통합 테스트. 로컬 compose의 ES(9.4.5 + nori)가 필요하다.
  * 기본 test에서는 빠지고 {@code ./gradlew :market-service:esTest}로 돌린다.
- * 테스트마다 다른 alias(products_test_...)를 만들고 끝나면 지운다.
+ * 테스트마다 다른 alias(products_test_...)를 만들고 끝나면 지운다. alias가 없으면 색인에 쓰지 않으므로, 보통은 시작할 때 빈 인덱스와 alias를 만든다.
  */
 @Tag("es")
 class ProductEsSearchAdapterEsTest {
@@ -47,6 +48,11 @@ class ProductEsSearchAdapterEsTest {
         searchAdapter = new ProductEsSearchAdapter(client, fallback, alias);
     }
 
+    /** 전체 재색인처럼 새 인덱스를 만들고 alias를 붙인다 */
+    private void createAlias() {
+        indexAdapter.switchAlias(indexAdapter.createIndex());
+    }
+
     /** ES는 와일드카드로 인덱스를 지울 수 없어서(destructive_requires_name) 만든 인덱스 이름을 찾아 지운다 */
     @AfterEach
     void tearDown() throws Exception {
@@ -55,12 +61,17 @@ class ProductEsSearchAdapterEsTest {
         if (!indices.isEmpty()) {
             client.indices().delete(d -> d.index(indices));
         }
+        // require_alias가 깨져 ES가 alias 이름으로 인덱스를 자동으로 만든 경우도 지운다
+        if (client.indices().exists(e -> e.index(alias)).value()) {
+            client.indices().delete(d -> d.index(alias));
+        }
         client.close();
     }
 
     @Test
     @DisplayName("nori: 띄어쓰기·조사가 달라도 형태소로 찾고, 다른 상품은 빼낸다")
     void keywordWithNori() throws Exception {
+        createAlias();
         indexAdapter.upsert(List.of(
                 doc(1, "촉촉한 수분크림 50ml", SKINCARE, false, 30_000, 1),
                 doc(2, "수분 가득 크림을", SKINCARE, false, 20_000, 2),
@@ -74,6 +85,7 @@ class ProductEsSearchAdapterEsTest {
     @Test
     @DisplayName("가격순은 effectivePrice(할인가) 기준이고, 값이 같으면 상품 ID 내림차순이다")
     void priceSortUsesEffectivePrice() throws Exception {
+        createAlias();
         indexAdapter.upsert(List.of(
                 doc(1, "크림 A", SKINCARE, false, 15_000, 1),   // 정가 20,000 → 할인가 15,000
                 doc(2, "크림 B", SKINCARE, false, 18_000, 2),
@@ -88,6 +100,7 @@ class ProductEsSearchAdapterEsTest {
     @Test
     @DisplayName("카테고리·품절 제외 필터를 적용하고, 지운 문서는 검색되지 않는다")
     void filtersAndDelete() throws Exception {
+        createAlias();
         indexAdapter.upsert(List.of(
                 doc(1, "크림 A", SKINCARE, false, 10_000, 1),
                 doc(2, "크림 B", SKINCARE, true, 10_000, 2),
@@ -102,16 +115,57 @@ class ProductEsSearchAdapterEsTest {
     }
 
     @Test
-    @DisplayName("전체 재색인: 새 인덱스를 채운 뒤 alias를 옮기고 이전 인덱스를 지운다")
+    @DisplayName("전체 재색인: 새 인덱스를 채운 뒤 alias를 옮기고 이전 인덱스를 지운다. 옮긴 직후부터 새 문서가 검색된다 (refresh 뒤 전환)")
     void rebuildSwitchesAlias() throws Exception {
+        createAlias();
         indexAdapter.upsert(List.of(doc(1, "예전 크림", SKINCARE, false, 10_000, 1)));
         String newIndex = indexAdapter.createIndex();
         indexAdapter.bulkIndex(newIndex, List.of(doc(2, "새 크림", SKINCARE, false, 10_000, 2)));
-        indexAdapter.switchAlias(newIndex);
-        refresh();
+        indexAdapter.switchAlias(newIndex);   // 테스트에서 refresh하지 않고 바로 검색한다
 
         assertThat(ids(search(null, ProductSort.LATEST, false))).containsExactly(2L);
         assertThat(client.indices().getAlias(g -> g.name(alias)).aliases().keySet()).containsExactly(newIndex);
+    }
+
+    @Test
+    @DisplayName("alias가 없으면 색인·삭제 요청은 예외이고 인덱스를 만들지 않는다 (빈 인덱스로 검색이 '성공'하지 않게)")
+    void noAliasNoWrite() throws Exception {
+        assertThat(indexAdapter.aliasExists()).isFalse();
+
+        assertThatThrownBy(() -> indexAdapter.upsert(List.of(doc(1, "크림 A", SKINCARE, false, 10_000, 1))))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> indexAdapter.delete(List.of(1L)))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(indexAdapter.aliasExists()).isFalse();
+        assertThat(client.indices().exists(e -> e.index(alias)).value()).isFalse();
+        assertThat(client.indices().get(g -> g.index(alias + "*").allowNoIndices(true).ignoreUnavailable(true)).indices()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("앱이 떠 있는 동안 인덱스가 지워져도(alias 사라짐) ES가 매핑 없는 인덱스를 자동으로 만들지 않고 쓰기를 거부한다 (require_alias)")
+    void requireAliasAfterIndexDeleted() throws Exception {
+        createAlias();
+        indexAdapter.upsert(List.of(doc(1, "크림 A", SKINCARE, false, 10_000, 1)));   // alias 확인을 마친 상태
+        List<String> indices = List.copyOf(client.indices().getAlias(g -> g.name(alias)).aliases().keySet());
+        client.indices().delete(d -> d.index(indices));
+
+        assertThatThrownBy(() -> indexAdapter.upsert(List.of(doc(2, "크림 B", SKINCARE, false, 10_000, 2))))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(client.indices().exists(e -> e.index(alias)).value()).as("alias 이름으로 인덱스가 자동 생성되지 않는다").isFalse();
+    }
+
+    @Test
+    @DisplayName("전체 재색인 중 새 인덱스가 지워지면 bulkIndex는 예외이고, 같은 이름으로 매핑 없는 인덱스를 자동으로 만들지 않는다")
+    void bulkIndexRefusesDeletedIndex() throws Exception {
+        String newIndex = indexAdapter.createIndex();
+        client.indices().delete(d -> d.index(newIndex));
+
+        assertThatThrownBy(() -> indexAdapter.bulkIndex(newIndex, List.of(doc(1, "크림 A", SKINCARE, false, 10_000, 1))))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(client.indices().exists(e -> e.index(newIndex)).value()).isFalse();
     }
 
     @Test

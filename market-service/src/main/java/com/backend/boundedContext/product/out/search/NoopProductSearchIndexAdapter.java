@@ -16,6 +16,12 @@ public class NoopProductSearchIndexAdapter implements ProductSearchIndexPort {
         return false;
     }
 
+    /** DB 검색에는 색인이 없으니 기동 재색인을 부르지 않도록 true */
+    @Override
+    public boolean aliasExists() {
+        return true;
+    }
+
     @Override
     public void upsert(List<ProductSearchDocument> documents) {
     }
