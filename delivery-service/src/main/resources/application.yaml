@@ -108,3 +108,4 @@ custom:
     safetyCheckAfterDays: 2              # 발송 후 이 일수가 지나도 SHIPPED면 하루 한 번 다시 확인
     safetyCheckCron: "0 0 6 * * *"       # 안전망 확인 시각 (KST 매일 06:00)
     schedulerBatchSize: 50               # 스케줄러가 한 번에 조회하는 배송 건 수 (초당 5회로 10초 안에 끝나는 양)
+    trackingFailureAfterDays: 15         # 송장 등록 후 이 일수가 지나도 배송 완료가 안 되면 관리자 실패 거래(배송 추적 실패)에 보인다

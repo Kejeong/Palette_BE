@@ -46,7 +46,7 @@ class DeliverySchedulerQaTest {
         facade = mock(DeliveryFacade.class);
         DeliveryTrackerPolicy trackerPolicy = new DeliveryTrackerPolicy("http://localhost:1/graphql", "id", "secret",
                 "https://palette.test/webhooks/delivery-tracker", TOKEN, 48, 24, 15000, 5, 900, true, false);
-        scheduler = new DeliveryScheduler(facade, new DeliveryPolicy(2, 50), trackerPolicy);
+        scheduler = new DeliveryScheduler(facade, new DeliveryPolicy(2, 50, 15), trackerPolicy);
     }
 
     @Test
@@ -135,7 +135,7 @@ class DeliverySchedulerQaTest {
     void webhookDisabled_safetyStillRuns() {
         DeliveryTrackerPolicy off = new DeliveryTrackerPolicy("http://localhost:1/graphql", "id", "secret",
                 "http://palette.test/webhooks/delivery-tracker", TOKEN, 48, 24, 15000, 5, 900, false, false);
-        DeliveryScheduler disabled = new DeliveryScheduler(facade, new DeliveryPolicy(2, 50), off);
+        DeliveryScheduler disabled = new DeliveryScheduler(facade, new DeliveryPolicy(2, 50, 15), off);
         given(facade.requestSafetyCheck(any())).willReturn(3);
 
         disabled.registerWebhooks();
