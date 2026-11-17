@@ -46,11 +46,29 @@ public class Faq extends BaseIdAndTime {
     public static Faq create(FaqCategory category, String question, String answer, boolean visible) {
         Faq faq = new Faq();
         faq.category = category;
-        faq.question = question;
-        faq.answer = answer;
+        faq.question = question.strip();
+        faq.answer = answer.strip();
         faq.visible = visible;
         faq.embeddingSourceHash = hash(faq.embeddingSource());
         return faq;
+    }
+
+    // 카테고리·질문·답변을 바꿈. 임베딩할 글(질문·답변)이 바뀌었으면 true: 호출한 쪽이 임베딩을 비워야 함
+    public boolean modify(FaqCategory category, String question, String answer) {
+        this.category = category;
+        this.question = question.strip();
+        this.answer = answer.strip();
+
+        String newHash = hash(embeddingSource());
+        if (newHash.equals(embeddingSourceHash)) return false;
+        this.embeddingSourceHash = newHash;
+
+        return true;
+    }
+
+    // 노출 여부만 바꿈. 임베딩은 그대로 둠(다시 노출하면 바로 검색됨)
+    public void changeVisibility(boolean visible) {
+        this.visible = visible;
     }
 
     // 임베딩할 글. 카테고리는 넣지 않음(검색 필터로만 씀). V6의 해시 계산과 같은 형식이어야 함

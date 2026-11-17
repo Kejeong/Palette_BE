@@ -1,7 +1,13 @@
 package com.backend.boundedContext.faq.out;
 
 import com.backend.boundedContext.faq.domain.Faq;
+import com.backend.boundedContext.faq.domain.FaqCategory;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
+
 public interface FaqRepository extends JpaRepository<Faq, Long> {
+
+    List<Faq> findAllByCategory(FaqCategory category, Sort sort);
 }
