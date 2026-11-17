@@ -12,10 +12,8 @@ import javax.crypto.SecretKey;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -32,13 +30,17 @@ import reactor.netty.http.server.HttpServer;
  * gateway JWT 검사. 서비스 7개 대신 가짜 서비스 서버 하나로 모든 경로를 받아,
  * 통과한 요청은 서비스까지 가고 막힌 요청은 서비스에 닿지 않는지 확인한다.
  */
-@SpringBootTest
+// 실제 포트로 띄워 보낸다: CORS·헤더 처리가 운영과 같은 경로(Netty 서버)를 타게
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class GatewayJwtFilterTest {
 
     // nginx가 넣어 보내는 값. 실제 요청에는 Host가 항상 있다
     private static final String PUBLIC_HOST = "palette-shop.example";
 
-    // 가짜 서비스: 받은 요청 수와 헤더를 기록하고 200을 돌려준다
+    // 로컬 프론트 주소. CORS_ALLOWED_ORIGINS 기본값에 들어 있다
+    private static final String FRONT_ORIGIN = "http://localhost:5173";
+
+    // 가짜 서비스: 받은 요청 수와 헤더를 기록하고 200을 돌려준다. 진짜 서비스처럼 Origin이 오면 CORS 허용 헤더를 붙인다
     private static final AtomicInteger serviceHits = new AtomicInteger();
     private static final AtomicReference<io.netty.handler.codec.http.HttpHeaders> receivedHeaders = new AtomicReference<>();
     private static final DisposableServer fakeService = HttpServer.create()
@@ -46,6 +48,10 @@ class GatewayJwtFilterTest {
             .handle((request, response) -> {
                 serviceHits.incrementAndGet();
                 receivedHeaders.set(request.requestHeaders().copy());
+                String origin = request.requestHeaders().get(HttpHeaders.ORIGIN);
+                if (origin != null) {
+                    response.header(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+                }
                 return response.sendString(Mono.just("ok"));
             })
             .bindNow();
@@ -63,8 +69,8 @@ class GatewayJwtFilterTest {
         fakeService.disposeNow();
     }
 
-    @Autowired
-    private ApplicationContext context;
+    @Value("${local.server.port}")
+    private int port;
 
     @Value("${custom.jwt.secret}")
     private String secret;
@@ -73,7 +79,7 @@ class GatewayJwtFilterTest {
 
     @BeforeEach
     void setUp() {
-        client = WebTestClient.bindToApplicationContext(context).configureClient()
+        client = WebTestClient.bindToServer().baseUrl("http://localhost:" + port)
                 .defaultHeader(HttpHeaders.HOST, PUBLIC_HOST)
                 .build();
         serviceHits.set(0);
@@ -162,6 +168,38 @@ class GatewayJwtFilterTest {
     void CORS_확인_요청은_토큰_없이_넘긴다() {
         client.method(HttpMethod.OPTIONS).uri("/api/v1/orders").exchange().expectStatus().isOk();
         assertThat(serviceHits).hasValue(1);
+    }
+
+    // 다른 주소(로컬 프론트)에서 부를 때: 브라우저는 본 요청 전에 OPTIONS로 허용 여부를 묻는다
+    @Test
+    void CORS_사전_확인은_gateway가_허용_헤더로_답한다() {
+        client.options().uri("/api/v1/orders")
+                .header(HttpHeaders.ORIGIN, FRONT_ORIGIN)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, FRONT_ORIGIN)
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true");
+    }
+
+    // 허용 헤더가 없으면 브라우저가 401 내용을 못 읽어 프론트가 토큰 재발급을 못 한다
+    @Test
+    void gateway가_막은_401에도_CORS_허용_헤더가_붙는다() {
+        client.get().uri("/api/v1/orders").header(HttpHeaders.ORIGIN, FRONT_ORIGIN)
+                .exchange()
+                .expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, FRONT_ORIGIN);
+    }
+
+    // gateway와 서비스가 둘 다 붙이면 헤더가 두 개가 되고, 브라우저는 두 개면 거절한다
+    @Test
+    void 서비스_응답의_CORS_허용_헤더는_하나만_남는다() {
+        client.get().uri("/api/v1/products").header(HttpHeaders.ORIGIN, FRONT_ORIGIN)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().values(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                        values -> assertThat(values).containsExactly(FRONT_ORIGIN));
     }
 
     private void expectUnauthorized(WebTestClient.ResponseSpec response, String resultCode) {
