@@ -115,14 +115,13 @@ class ProductEsSearchAdapterEsTest {
     }
 
     @Test
-    @DisplayName("전체 재색인: 새 인덱스를 채운 뒤 alias를 옮기고 이전 인덱스를 지운다")
+    @DisplayName("전체 재색인: 새 인덱스를 채운 뒤 alias를 옮기고 이전 인덱스를 지운다. 옮긴 직후부터 새 문서가 검색된다 (refresh 뒤 전환)")
     void rebuildSwitchesAlias() throws Exception {
         createAlias();
         indexAdapter.upsert(List.of(doc(1, "예전 크림", SKINCARE, false, 10_000, 1)));
         String newIndex = indexAdapter.createIndex();
         indexAdapter.bulkIndex(newIndex, List.of(doc(2, "새 크림", SKINCARE, false, 10_000, 2)));
-        indexAdapter.switchAlias(newIndex);
-        refresh();
+        indexAdapter.switchAlias(newIndex);   // 테스트에서 refresh하지 않고 바로 검색한다
 
         assertThat(ids(search(null, ProductSort.LATEST, false))).containsExactly(2L);
         assertThat(client.indices().getAlias(g -> g.name(alias)).aliases().keySet()).containsExactly(newIndex);

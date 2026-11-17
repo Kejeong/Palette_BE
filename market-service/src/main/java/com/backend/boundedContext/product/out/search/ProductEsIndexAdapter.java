@@ -104,9 +104,14 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
         execute(bulk.build());
     }
 
+    /**
+     * 새 인덱스를 refresh한 뒤 alias를 옮긴다. bulk로 넣은 문서는 refresh 전까지 검색되지 않으므로,
+     * 먼저 옮기면 잠깐 동안 검색이 오류 없이 빈 결과를 돌려준다 (DB 검색으로 넘어가지도 않는다).
+     */
     @Override
     public void switchAlias(String indexName) {
         try {
+            client.indices().refresh(r -> r.index(indexName));
             Set<String> previous = currentIndices();
             client.indices().updateAliases(u -> {
                 u.actions(a -> a.add(add -> add.index(indexName).alias(alias)));
