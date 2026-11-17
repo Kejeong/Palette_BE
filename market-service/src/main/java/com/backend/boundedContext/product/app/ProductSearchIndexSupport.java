@@ -179,7 +179,14 @@ public class ProductSearchIndexSupport {
                         product.getStatus().name(),
                         ProductSupport.isSoldOut(stocks.getOrDefault(product.getId(), List.of())),
                         prices.get(product.getId()).basePrice(),
+                        discountRateOrZero(prices.get(product.getId())),
                         product.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()))
                 .toList();
+    }
+
+    /** 색인 문서의 할인율. 할인 중이 아니면 0 (할인은 1% 이상만 등록되므로 0이면 할인 없음) */
+    private static int discountRateOrZero(ProductPrice price) {
+        Integer rate = price.discountRate();
+        return rate == null ? 0 : rate;
     }
 }

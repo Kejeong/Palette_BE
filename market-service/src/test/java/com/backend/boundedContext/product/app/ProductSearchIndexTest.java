@@ -155,13 +155,14 @@ class ProductSearchIndexTest {
             assertThat(doc.name()).isEqualTo("색인테스트셔츠");
             assertThat(doc.status()).isEqualTo(ProductSaleStatus.ON_SALE.name());
             assertThat(doc.effectivePrice()).isEqualTo(15_000);
+            assertThat(doc.discountRate()).isEqualTo(25);   // 20,000 → 15,000
             assertThat(doc.soldOut()).isFalse();
         });
         assertThat(indexPort.deleted).isEmpty();
     }
 
     @Test
-    @DisplayName("색인: 할인이 없으면 정가, 판매 중이 아니거나 없는 상품은 색인에서 지운다")
+    @DisplayName("색인: 할인이 없으면 정가·할인율 0, 판매 중이 아니거나 없는 상품은 색인에서 지운다")
     void listPriceAndDeleteNotOnSale() {
         Long onSale = create();
         Long deleted = create();
@@ -169,8 +170,9 @@ class ProductSearchIndexTest {
 
         indexSupport.indexProducts(List.of(onSale, deleted, -1L));
 
-        assertThat(indexPort.upserted).extracting(ProductSearchDocument::productId, ProductSearchDocument::effectivePrice)
-                .containsExactly(tuple(onSale, PRICE));
+        assertThat(indexPort.upserted)
+                .extracting(ProductSearchDocument::productId, ProductSearchDocument::effectivePrice, ProductSearchDocument::discountRate)
+                .containsExactly(tuple(onSale, PRICE, 0));
         assertThat(indexPort.deleted).containsExactlyInAnyOrder(deleted, -1L);
     }
 
