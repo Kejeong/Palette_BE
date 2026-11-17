@@ -38,6 +38,7 @@ class KakaoOAuthClientTest {
     private static final String USER_JSON = """
             {"id":4011223344,"connected_at":"2026-11-02T01:00:00Z","properties":{"nickname":"홍길동"}}
             """;
+    private static final String IMAGE_URL = "https://k.kakaocdn.net/dn/abc/img_640x640.jpg";
 
     private MockRestServiceServer server;
 
@@ -49,7 +50,7 @@ class KakaoOAuthClientTest {
 
     @Test
     @DisplayName("인가 코드로 카카오 토큰을 받고, 그 토큰으로 회원번호를 조회한다 (Client Secret은 서버가 보냄)")
-    void getUserId() {
+    void getUser() {
         KakaoOAuthClient client = client(CLIENT_SECRET);
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("grant_type", "authorization_code");
@@ -66,13 +67,13 @@ class KakaoOAuthClientTest {
                 .andExpect(header("Authorization", "Bearer kakao-access-token"))
                 .andRespond(withSuccess(USER_JSON, MediaType.APPLICATION_JSON));
 
-        assertThat(client.getUserId("auth-code")).isEqualTo("4011223344");
+        assertThat(client.getUser("auth-code")).isEqualTo(new KakaoUser("4011223344", null));
         server.verify();
     }
 
     @Test
     @DisplayName("Client Secret을 쓰지 않는 앱이면 토큰 요청에 client_secret을 넣지 않는다")
-    void getUserId_withoutClientSecret() {
+    void getUser_withoutClientSecret() {
         KakaoOAuthClient client = client("");
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("grant_type", "authorization_code");
@@ -85,7 +86,50 @@ class KakaoOAuthClientTest {
         server.expect(requestTo(API_BASE_URL + "/v2/user/me"))
                 .andRespond(withSuccess(USER_JSON, MediaType.APPLICATION_JSON));
 
-        assertThat(client.getUserId("auth-code")).isEqualTo("4011223344");
+        assertThat(client.getUser("auth-code").id()).isEqualTo("4011223344");
+    }
+
+    @Test
+    @DisplayName("프로필 이미지에 동의했으면 회원번호와 함께 이미지 주소를 돌려준다")
+    void getUser_profileImage() {
+        assertThat(getUserWith(userJson("{\"profile_image_url\":\"" + IMAGE_URL + "\",\"is_default_image\":false}")))
+                .isEqualTo(new KakaoUser("4011223344", IMAGE_URL));
+    }
+
+    @Test
+    @DisplayName("프로필에 동의하지 않았으면(kakao_account·profile 없음) 이미지는 null")
+    void getUser_profileNotAgreed() {
+        assertThat(getUserWith(USER_JSON).profileImageUrl()).isNull();
+        assertThat(getUserWith("{\"id\":4011223344,\"kakao_account\":{\"profile_needs_agreement\":true}}").profileImageUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("카카오 기본 이미지이거나 빈 값이면 이미지는 null")
+    void getUser_defaultOrBlankImage() {
+        assertThat(getUserWith(userJson("{\"profile_image_url\":\"" + IMAGE_URL + "\",\"is_default_image\":true}")).profileImageUrl()).isNull();
+        assertThat(getUserWith(userJson("{\"profile_image_url\":\"\",\"is_default_image\":false}")).profileImageUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("http 이미지 주소는 https로 바꿔 돌려준다 (https 사이트에서 막히지 않게)")
+    void getUser_httpImageToHttps() {
+        String httpUrl = "http://k.kakaocdn.net/dn/abc/img_640x640.jpg";
+
+        assertThat(getUserWith(userJson("{\"profile_image_url\":\"" + httpUrl + "\",\"is_default_image\":false}")).profileImageUrl())
+                .isEqualTo(IMAGE_URL);
+    }
+
+    private static String userJson(String profileJson) {
+        return "{\"id\":4011223344,\"kakao_account\":{\"profile_image_needs_agreement\":false,\"profile\":" + profileJson + "}}";
+    }
+
+    private KakaoUser getUserWith(String userJson) {
+        KakaoOAuthClient client = client(CLIENT_SECRET);
+        server.expect(requestTo(AUTH_BASE_URL + "/oauth/token"))
+                .andRespond(withSuccess(TOKEN_JSON, MediaType.APPLICATION_JSON));
+        server.expect(requestTo(API_BASE_URL + "/v2/user/me"))
+                .andRespond(withSuccess(userJson, MediaType.APPLICATION_JSON));
+        return client.getUser("auth-code");
     }
 
     @Test
@@ -96,7 +140,7 @@ class KakaoOAuthClientTest {
                 .andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
                         .body("{\"error\":\"invalid_grant\",\"error_description\":\"authorization code not found\",\"error_code\":\"KOE320\"}"));
 
-        assertThatThrownBy(() -> client.getUserId("used-code"))
+        assertThatThrownBy(() -> client.getUser("used-code"))
                 .isInstanceOf(DomainException.class)
                 .isNotInstanceOf(KakaoApiException.class)
                 .extracting("resultCode").isEqualTo("400-KAKAO_AUTH_FAILED");
@@ -111,7 +155,7 @@ class KakaoOAuthClientTest {
                 .andRespond(withStatus(HttpStatus.UNAUTHORIZED).contentType(MediaType.APPLICATION_JSON)
                         .body("{\"error\":\"invalid_client\",\"error_description\":\"Bad client credentials\",\"error_code\":\"KOE010\"}"));
 
-        assertThatThrownBy(() -> client.getUserId("auth-code"))
+        assertThatThrownBy(() -> client.getUser("auth-code"))
                 .isInstanceOfSatisfying(KakaoApiException.class, e -> {
                     assertThat(e.getHttpStatus()).isEqualTo(401);
                     assertThat(e.getCode()).isEqualTo("KOE010");
@@ -128,14 +172,14 @@ class KakaoOAuthClientTest {
         server.expect(requestTo(API_BASE_URL + "/v2/user/me"))
                 .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR).contentType(MediaType.TEXT_HTML).body("<html>error</html>"));
 
-        assertThatThrownBy(() -> client.getUserId("auth-code"))
+        assertThatThrownBy(() -> client.getUser("auth-code"))
                 .isInstanceOfSatisfying(KakaoApiException.class, e -> assertThat(e.getHttpStatus()).isEqualTo(500));
 
         KakaoOAuthClient timeoutClient = client(CLIENT_SECRET);
         server.expect(requestTo(AUTH_BASE_URL + "/oauth/token"))
                 .andRespond(withException(new SocketTimeoutException("Read timed out")));
 
-        assertThatThrownBy(() -> timeoutClient.getUserId("auth-code"))
+        assertThatThrownBy(() -> timeoutClient.getUser("auth-code"))
                 .isInstanceOfSatisfying(KakaoApiException.class, e -> {
                     assertThat(e.getHttpStatus()).isZero();
                     assertThat(e.getResultCode()).isEqualTo("502-EXTERNAL_SERVICE_ERROR");
