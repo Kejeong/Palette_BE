@@ -46,7 +46,8 @@ import static org.mockito.BDDMockito.given;
 
 /**
  * 상품 검색 색인: 변경 시 색인 요청 이벤트, 색인 문서 값(할인가·품절), 할인 경계 대상, DB 검색 설정의 재색인 거부,
- * 전체 재색인(alias가 없을 때만 기동 재색인, 재색인 중 바뀐 상품 보정).
+ * 전체 재색인(alias가 없을 때만 복구 재색인, 한 번에 하나만 실행).
+ * 재색인 중 다른 트랜잭션이 바꾼 상품의 보정은 테스트 트랜잭션 없이 {@link ProductSearchIndexRebuildCatchUpTest}에서 확인한다.
  * 테스트 설정은 DB 검색(engine=jpa)이라 색인 포트가 아무것도 하지 않으므로, 문서 값은 기록용 포트를 넣은 Support로 확인한다.
  * 다른 상품 통합 테스트와 mock 조합을 맞춰 테스트 컨텍스트를 같이 쓰고, 테스트마다 롤백된다.
  */
@@ -219,23 +220,6 @@ class ProductSearchIndexTest {
         assertThat(indexPort.bulkIndexed).contains(onSale);
         assertThat(indexPort.events).first().isEqualTo("create");
         assertThat(indexPort.events).contains("switch");
-    }
-
-    @Test
-    @DisplayName("전체 재색인: 색인하는 사이 삭제된 상품은 alias를 옮긴 뒤 새 인덱스에서 지운다")
-    void rebuildReappliesChangesDuringRebuild() {
-        Long kept = create();
-        Long deletedDuringRebuild = create();
-        // 그 상품이 든 묶음을 새 인덱스에 넣은 직후 판매자가 삭제한다
-        indexPort.afterBulkIndexOf(deletedDuringRebuild, () -> productFacade.deleteProduct(MEMBER_ID, deletedDuringRebuild));
-
-        indexSupport.rebuildIndex();
-
-        assertThat(indexPort.bulkIndexed).contains(kept, deletedDuringRebuild);   // 재색인은 삭제 전 값으로 넣었다
-        int switched = indexPort.events.indexOf("switch");
-        assertThat(indexPort.events.subList(switched, indexPort.events.size()))
-                .contains("delete:" + deletedDuringRebuild);   // alias를 옮긴 뒤 보정에서 지운다
-        assertThat(indexPort.upserted).extracting(ProductSearchDocument::productId).contains(kept);
     }
 
     @Test
