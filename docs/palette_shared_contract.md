@@ -451,7 +451,7 @@ public interface OrderApi {
      */
     int cancelPendingOrders(Collection<Long> productIds, OrderCancelType cancelType);
 
-    /** 구매자로서 진행 중인 주문(CREATED·PAYING·PAYMENT_FAILED·PAID·RETURN_REQUESTED)이 있는지. 회원 탈퇴 검사용 */
+    /** 구매자로서 진행 중인 주문(CREATED·PAYING·PAYMENT_FAILED·PAID·RETURN_REQUESTED)이나 반품 승인됐는데 환불 전인 주문(RETURNED, refunded_at 없음)이 있는지. 회원 탈퇴 검사용 */
     boolean hasActiveOrders(Long buyerId);
 
     /**
