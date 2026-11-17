@@ -33,6 +33,7 @@ public class SecurityConfig {
     // 서비스 간 호출 전용. 외부에는 열지 않음 (nginx는 /api/ 등만 앱으로 넘김)
     private static final String INTERNAL_API_URLS = "/internal/**";
 
+    // 공개 경로(SWAGGER_URLS·PUBLIC_*_API_URLS, influencers/me 예외)는 gateway JwtAuthenticationFilter에도 같은 목록이 있다. 고치면 같이 고친다
     private static final String[] SWAGGER_URLS = {
             "/swagger-ui/**",
             "/v3/api-docs/**"

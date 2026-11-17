@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: gateway
+  config:
+    # 로컬 실행 때 레포 루트의 .env(JWT_SECRET 등)를 읽는다. 다른 서비스와 같은 방식
+    import: optional:file:.env[.properties],optional:file:../.env[.properties]
   cloud:
     gateway:
       server:
@@ -82,3 +85,8 @@ spring:
                 - Path=/api/v1/ai/**,/api/v1/admin/faqs/**,/v3/api-docs/ai
               filters:
                 - RewritePath=^/v3/api-docs/ai$, /v3/api-docs
+
+custom:
+  jwt:
+    # 서비스와 같은 서명 키. 기본값 없이 환경변수(.env)로만 주입한다
+    secret: ${JWT_SECRET}

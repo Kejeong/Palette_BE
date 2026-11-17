@@ -8,6 +8,10 @@ plugins {
 dependencies {
 	implementation(platform("org.springframework.cloud:spring-cloud-dependencies:2025.1.4"))
 	implementation("org.springframework.cloud:spring-cloud-starter-gateway-server-webflux")
+	// Access Token 검사. common과 같은 버전
+	implementation("io.jsonwebtoken:jjwt-api:0.12.6")
+	runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
+	runtimeOnly("io.jsonwebtoken:jjwt-gson:0.12.6")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-webflux-test")   // WebTestClient
