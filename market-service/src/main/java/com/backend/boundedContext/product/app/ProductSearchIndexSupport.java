@@ -52,6 +52,13 @@ public class ProductSearchIndexSupport {
      */
     private final AtomicBoolean rebuilding = new AtomicBoolean();
 
+    /**
+     * 인덱스가 최신이 아님(alias 없음·매핑 버전 낮음)을 처음 본 시각. 재색인이 끝나면 비운다.
+     * 그동안의 색인 쓰기는 거부되거나(alias 없음, 이전 strict 매핑) 이전 인덱스에만 들어가므로,
+     * 재색인 뒤 보정을 재색인 시작이 아니라 이 시각부터 해야 그사이 바뀐 상품이 새 인덱스에 빠지지 않는다
+     */
+    private volatile LocalDateTime outdatedSince;
+
     /** 커밋 뒤에 이 상품들을 다시 색인해 달라고 요청한다 */
     public void requestIndex(Collection<Long> productIds) {
         if (productIds.isEmpty()) return;
@@ -100,6 +107,9 @@ public class ProductSearchIndexSupport {
         if (!productSearchIndexPort.isEnabled() || productSearchIndexPort.isCurrent()) {
             return OptionalInt.empty();
         }
+        if (outdatedSince == null) {
+            outdatedSince = LocalDateTime.now();   // 재색인이 실패해 다음 주기로 넘어가도 처음 본 시각을 유지한다
+        }
         if (!rebuilding.compareAndSet(false, true)) {
             return OptionalInt.empty();   // 다른 재색인이 새 인덱스를 만드는 중이다
         }
@@ -116,6 +126,7 @@ public class ProductSearchIndexSupport {
      * <p>
      * 재색인 중에 바뀐 상품은 이전 인덱스에만 반영되거나(alias가 있을 때), 쓰지 못하고 버려진다(alias가 없을 때).
      * 그래서 alias를 옮긴 뒤 시작 시각 이후 바뀐 상품과 할인 경계를 지난 상품을 새 인덱스에 한 번 더 반영한다.
+     * 그 전부터 인덱스가 최신이 아니었으면(outdatedSince) 그 시각부터 반영한다 (그사이 거부된 색인 쓰기를 채운다).
      * 커밋 지연을 고려해 할인 경계와 같은 겹침(discountBoundaryOverlapSeconds)만큼 앞에서부터 찾는다.
      * 보정이 끝나기 전 잠깐은 이전 값이 보일 수 있지만, 그 뒤의 변경은 alias(새 인덱스)로 들어가므로 어긋나지 않는다.
      */
@@ -154,12 +165,15 @@ public class ProductSearchIndexSupport {
         }
         productSearchIndexPort.switchAlias(indexName);
 
+        LocalDateTime since = outdatedSince;
+        LocalDateTime catchUpFrom = since != null && since.isBefore(startedAt) ? since : startedAt;
         Set<Long> changed = new HashSet<>(productRepository.findIdsChangedSince(
-                startedAt.minusSeconds(productPolicy.getDiscountBoundaryOverlapSeconds())));
-        changed.addAll(findDiscountBoundaryProductIds(startedAt, LocalDateTime.now()));   // 안에서 같은 겹침을 뺀다
+                catchUpFrom.minusSeconds(productPolicy.getDiscountBoundaryOverlapSeconds())));
+        changed.addAll(findDiscountBoundaryProductIds(catchUpFrom, LocalDateTime.now()));   // 안에서 같은 겹침을 뺀다
         indexProducts(changed);   // 묶음마다 1차 캐시를 비웠으므로 DB의 최신 값을 읽는다
-        log.info("상품 검색 전체 재색인을 마쳤습니다. index={}, 상품 {}개, 재색인 중 바뀌어 다시 반영한 상품 {}개",
-                indexName, indexed, changed.size());
+        outdatedSince = null;
+        log.info("상품 검색 전체 재색인을 마쳤습니다. index={}, 상품 {}개, {} 이후 바뀌어 다시 반영한 상품 {}개",
+                indexName, indexed, catchUpFrom, changed.size());
         return indexed;
     }
 

@@ -251,6 +251,51 @@ class ProductSearchIndexTest {
     }
 
     @Test
+    @DisplayName("복구 재색인 보정: 인덱스가 최신이 아님을 처음 본 시각부터 바뀐 상품을 새 인덱스에 다시 반영한다 (재색인 시작보다 이른 변경 포함)")
+    void catchUpFromWhenFirstSeenOutdated() {
+        Long changedWhileOutdated = create();
+        // 인덱스가 10분 전부터 최신이 아니었고, 그사이(5분 전) 바뀐 상품. 재색인 시작 30초 전보다 이르다
+        changedMinutesAgo(changedWhileOutdated, 5);
+        indexPort.current = false;
+        ReflectionTestUtils.setField(indexSupport, "outdatedSince", LocalDateTime.now().minusMinutes(10));
+
+        indexSupport.rebuildIndexIfOutdated();
+
+        assertThat(afterSwitch()).contains("upsert:" + changedWhileOutdated);
+        assertThat(ReflectionTestUtils.getField(indexSupport, "outdatedSince")).isNull();   // 재색인이 끝나면 비운다
+    }
+
+    @Test
+    @DisplayName("복구 재색인 보정: 처음 확인에서 바로 재색인하면 재색인 시작 30초 전부터만 다시 반영한다")
+    void catchUpFromRebuildStartWhenJustSeen() {
+        Long changedLongAgo = create();
+        changedMinutesAgo(changedLongAgo, 5);
+        indexPort.current = false;
+
+        indexSupport.rebuildIndexIfOutdated();
+
+        assertThat(indexPort.bulkIndexed).contains(changedLongAgo);   // 재색인 자체에는 들어간다
+        assertThat(afterSwitch()).doesNotContain("upsert:" + changedLongAgo);
+    }
+
+    /** 상품과 그 옵션·재고의 마지막 변경 시각(updated_at)을 몇 분 전으로 옮긴다 (보정은 이 시각으로 대상을 찾는다) */
+    private void changedMinutesAgo(Long productId, int minutes) {
+        entityManager.flush();
+        String ago = "now() - make_interval(mins => " + minutes + ")";
+        entityManager.createNativeQuery("update product set updated_at = " + ago + " where id = :id")
+                .setParameter("id", productId).executeUpdate();
+        entityManager.createNativeQuery("update product_option set updated_at = " + ago + " where product_id = :id")
+                .setParameter("id", productId).executeUpdate();
+        entityManager.createNativeQuery("update option_stock set updated_at = " + ago
+                        + " where option_id in (select id from product_option where product_id = :id)")
+                .setParameter("id", productId).executeUpdate();
+    }
+
+    private List<String> afterSwitch() {
+        return indexPort.events.subList(indexPort.events.indexOf("switch"), indexPort.events.size());
+    }
+
+    @Test
     @DisplayName("복구 재색인: DB 검색 설정이면 아무것도 하지 않는다")
     void rebuildIfOutdatedDisabledWithJpa() {
         assertThat(productFacade.rebuildSearchIndexIfOutdated()).isEmpty();
@@ -303,7 +348,7 @@ class ProductSearchIndexTest {
         final List<ProductSearchDocument> upserted = new ArrayList<>();
         final List<Long> deleted = new ArrayList<>();
         final List<Long> bulkIndexed = new ArrayList<>();
-        /** create, switch, delete:{id} 순서 */
+        /** create, switch, upsert:{id}, delete:{id} 순서 */
         final List<String> events = new ArrayList<>();
         boolean current = true;
         /** triggerId가 든 묶음을 bulkIndex한 직후 한 번 실행한다 (재색인 중 변경 흉내) */
@@ -328,6 +373,7 @@ class ProductSearchIndexTest {
         @Override
         public void upsert(List<ProductSearchDocument> documents) {
             upserted.addAll(documents);
+            documents.forEach(doc -> events.add("upsert:" + doc.productId()));
         }
 
         @Override
