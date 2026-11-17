@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
@@ -222,6 +223,18 @@ public class SettlementPolicy {
     /** 이미 끝난 달인지. 월 정산은 끝난 달만 실행할 수 있다 */
     public static boolean isClosedMonth(YearMonth targetMonth, LocalDateTime now) {
         return targetMonth.isBefore(YearMonth.from(now));
+    }
+
+    /**
+     * 지급 예정일 = 확정한 날이 평일이면 그날, 주말이면 다음 월요일
+     * 공휴일은 아직 보지 않는다(공휴일 목록이 생기면 여기서 함께 건너뛴다)
+     */
+    public static LocalDate payableDateOf(LocalDate confirmedDate) {
+        LocalDate date = confirmedDate;
+        while (date.getDayOfWeek() == DayOfWeek.SATURDAY || date.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            date = date.plusDays(1);
+        }
+        return date;
     }
 
     /**

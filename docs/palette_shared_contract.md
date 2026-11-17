@@ -636,6 +636,8 @@ public record WalletSummaryDto(Long memberId, long balance, long heldAmount) { }
  * couponSubsidyAmount: 장바구니 쿠폰 지원금 = 주문의 장바구니 쿠폰 할인액(0 이상). 장바구니 쿠폰은 플랫폼 부담이다.
  * 결제는 배송비를 홀딩에 넣지 않고 플랫폼 지갑으로 옮기고(SHIPPING_FEE), 지원금을 플랫폼 지갑에서 홀딩으로 옮긴다(COUPON_SUBSIDY).
  * 홀딩 금액 = amount − shippingFee + couponSubsidyAmount. 정산은 이 홀딩에서 판매자·수수료를 지급한다(배송비는 정산 대상 아님).
+ * 금액 불변식: 주문별 홀딩 금액 = 그 주문의 정산 판매가 합(항목 금액 − 상품 쿠폰 할인액의 합) = 판매자 지급액 합 + 수수료 합.
+ *   상품 쿠폰 할인은 판매자 부담이라 홀딩과 정산 판매가 모두에서 빠지고, 장바구니 쿠폰 할인은 플랫폼 지원금으로 홀딩을 채워 정산 판매가에서 빠지지 않는다.
  * (두 필드의 처리는 결제 담당 구현 예정)
  * 두 필드 없이 부르던 6인자 생성자는 둘 다 0으로 남겨 둔다.
  * HTTP 본문에서 두 필드는 필수다. 값이 없으면 0을 보낸다. 빠지거나 null이면 400(Jackson 3 기본 설정).
@@ -691,6 +693,17 @@ public record TransferResultDto(String idempotencyKey, Long walletTransactionId,
 | 주문 → 정산 (`OrderConfirmedEvent`) | 없음 (Kafka `order.events`) | 그대로 동작 |
 
 정산 스케줄러는 기본으로 켜져 있습니다(`SETTLEMENT_SCHEDULING_ENABLED` 기본 true). 개발 서버의 재시도 간격은 120분입니다(`SETTLEMENT_RETRY_INTERVAL_MINUTES`).
+
+정산 흐름은 수집, 사전 판별, 확정, 지급으로 나뉩니다.
+
+| 단계 | 언제 | 하는 일 |
+| --- | --- | --- |
+| 수집 | 구매 확정 이벤트를 받을 때 | 정산 후보 생성(금액 검사, 원본 이벤트 ID `source_event_id` 기록) |
+| 사전 판별 | 매월 1~9일 02:30 | 지난달 정산 대상을 판별 규칙으로 미리 판별해 이력만 남김(상태는 바꾸지 않음) |
+| 확정 (월 정산 Job, 확정 Step 하나) | 매월 10일 00:00, 관리자 수동 실행 | 판매자마다 후보를 잠그고 그 후보로 판별 → READY 또는 HOLD 정산서, 지급 예정일(`payable_on`, 확정한 날 또는 다음 평일) |
+| 지급 | 10분마다 지급 스케줄러 | 지급 예정일이 된 READY + 재시도 시각이 된 FAILED를 지급. 한 회차에 대상이 없을 때까지(최대 8분) 이어서 지급 |
+
+관리자 수동 실행(`POST /api/v1/admin/settlements/runs`)은 실행할 수 있는지만 확인하고 202로 바로 돌아옵니다. 결과는 실행 기록(`GET /api/v1/admin/settlements/runs`)으로 봅니다.
 
 ### SettlementApi
 

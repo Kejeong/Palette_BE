@@ -64,6 +64,6 @@ public class SettlementEventListener {
         EventEnvelope<DomainEvent> envelope = eventMessages.read(record.value());
         if (!(envelope.payload() instanceof OrderConfirmedEvent event)) return;           // 타입 이름과 payload가 다르면 무시
         if (!processedEvents.markProcessed(envelope.eventId(), CONSUMER)) return;       // 이미 처리한 이벤트
-        settlementFacade.createCandidates(event.orderId(), event.confirmedAt(), event.items());
+        settlementFacade.createCandidates(event.orderId(), event.confirmedAt(), event.items(), envelope.eventId());
     }
 }
