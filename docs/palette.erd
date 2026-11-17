@@ -694,15 +694,16 @@
       "kZarr8RTpMycN_Jo3mGeq": {
         "id": "kZarr8RTpMycN_Jo3mGeq",
         "name": "payment_refund",
-        "comment": "환불",
+        "comment": "반품 환불 (주문당 1건)",
         "columnIds": [
           "sksZl-hwgxK98No4yQ-fx",
-          "C4eZVegoMxCMhou7_gA-K",
           "WWhM5JKiCostz_52oz8GU",
+          "C4eZVegoMxCMhou7_gA-K",
+          "b75TQER4TrJL0JgSl4tWq",
           "iNJEMiZe_kwCGxF5XePQm",
-          "bGBogumPpsV7mBmGZmjDc",
-          "kdAyJ5uiGZCTVQAljL6o1",
+          "GiYNNmLnJo-9YUB0KdboU",
           "4p_6rA0yzvqT9icg3vyaQ",
+          "kdAyJ5uiGZCTVQAljL6o1",
           "sWddU0XXQeJC6H1wR15Uh",
           "BdPlOakNsyFwHekrWTqTc",
           "R2WENERtbHORjeaAuApnL",
@@ -719,7 +720,7 @@
           "color": ""
         },
         "meta": {
-          "updateAt": 1791793118726,
+          "updateAt": 1794897662802,
           "createAt": 1791793118726
         }
       },
@@ -4594,8 +4595,8 @@
         "id": "4p_6rA0yzvqT9icg3vyaQ",
         "tableId": "kZarr8RTpMycN_Jo3mGeq",
         "name": "reason",
-        "comment": "사유",
-        "dataType": "VARCHAR(300)",
+        "comment": "반품 사유 - CHANGE_OF_MIND / DEFECTIVE / OTHER (사유 없으면 null)",
+        "dataType": "VARCHAR(30)",
         "default": "",
         "options": 0,
         "ui": {
@@ -4606,7 +4607,7 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1791793118727,
+          "updateAt": 1794897662802,
           "createAt": 1791793118727
         }
       },
@@ -4634,10 +4635,10 @@
         "id": "C4eZVegoMxCMhou7_gA-K",
         "tableId": "kZarr8RTpMycN_Jo3mGeq",
         "name": "payment_id",
-        "comment": "결제 ID",
+        "comment": "결제 ID (처리할 때 채움, 결제를 못 찾으면 비어 있음)",
         "dataType": "BIGINT",
         "default": "",
-        "options": 12,
+        "options": 0,
         "ui": {
           "keys": 2,
           "widthName": 68,
@@ -4646,7 +4647,7 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1791793118727,
+          "updateAt": 1794897662802,
           "createAt": 1791793118727
         }
       },
@@ -4674,10 +4675,10 @@
         "id": "WWhM5JKiCostz_52oz8GU",
         "tableId": "kZarr8RTpMycN_Jo3mGeq",
         "name": "order_id",
-        "comment": "주문 ID",
+        "comment": "주문 ID (주문당 환불 1건, 유니크)",
         "dataType": "BIGINT",
         "default": "",
-        "options": 8,
+        "options": 12,
         "ui": {
           "keys": 2,
           "widthName": 60,
@@ -4686,7 +4687,7 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1791793118727,
+          "updateAt": 1794897662802,
           "createAt": 1791793118727
         }
       },
@@ -4710,33 +4711,13 @@
           "createAt": 1791793118727
         }
       },
-      "bGBogumPpsV7mBmGZmjDc": {
-        "id": "bGBogumPpsV7mBmGZmjDc",
-        "tableId": "kZarr8RTpMycN_Jo3mGeq",
-        "name": "type",
-        "comment": "유형 - RETURN(사용) / CANCEL(향후 결제 후 취소 대비)",
-        "dataType": "VARCHAR(20)",
-        "default": "'RETURN'",
-        "options": 8,
-        "ui": {
-          "keys": 0,
-          "widthName": 60,
-          "widthComment": 288,
-          "widthDataType": 83,
-          "widthDefault": 60
-        },
-        "meta": {
-          "updateAt": 1791793118727,
-          "createAt": 1791793118727
-        }
-      },
       "iNJEMiZe_kwCGxF5XePQm": {
         "id": "iNJEMiZe_kwCGxF5XePQm",
         "tableId": "kZarr8RTpMycN_Jo3mGeq",
         "name": "amount",
-        "comment": "금액",
+        "comment": "구매자가 받은 금액 (완료 때 채움. 단순 변심은 상품값만)",
         "dataType": "BIGINT",
-        "default": "",
+        "default": "0",
         "options": 8,
         "ui": {
           "keys": 0,
@@ -4746,7 +4727,7 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1791793118727,
+          "updateAt": 1794897662802,
           "createAt": 1791793118727
         }
       },
@@ -4754,8 +4735,8 @@
         "id": "kdAyJ5uiGZCTVQAljL6o1",
         "tableId": "kZarr8RTpMycN_Jo3mGeq",
         "name": "status",
-        "comment": "상태",
-        "dataType": "VARCHAR(20)",
+        "comment": "상태 - REQUESTED / PICKUP_FEE_REQUIRED / COMPLETED / FAILED_사유",
+        "dataType": "VARCHAR(40)",
         "default": "'REQUESTED'",
         "options": 8,
         "ui": {
@@ -4766,7 +4747,7 @@
           "widthDefault": 80
         },
         "meta": {
-          "updateAt": 1791793118727,
+          "updateAt": 1794897662802,
           "createAt": 1791793118727
         }
       },
@@ -4794,7 +4775,7 @@
         "id": "sWddU0XXQeJC6H1wR15Uh",
         "tableId": "kZarr8RTpMycN_Jo3mGeq",
         "name": "retry_count",
-        "comment": "재시도 횟수",
+        "comment": "시스템 오류로 실패한 횟수 (5번이면 재시도 멈춤)",
         "dataType": "INT",
         "default": "0",
         "options": 8,
@@ -4806,7 +4787,7 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1791793118727,
+          "updateAt": 1794897662802,
           "createAt": 1791793118727
         }
       },
@@ -6688,6 +6669,46 @@
         "meta": {
           "updateAt": 1794470503193,
           "createAt": 1794470503193
+        }
+      },
+      "b75TQER4TrJL0JgSl4tWq": {
+        "id": "b75TQER4TrJL0JgSl4tWq",
+        "tableId": "kZarr8RTpMycN_Jo3mGeq",
+        "name": "requested_amount",
+        "comment": "이벤트 환불 금액 (결제 금액 대조용)",
+        "dataType": "BIGINT",
+        "default": "",
+        "options": 8,
+        "ui": {
+          "keys": 0,
+          "widthName": 112,
+          "widthComment": 60,
+          "widthDataType": 60,
+          "widthDefault": 60
+        },
+        "meta": {
+          "updateAt": 1794897662802,
+          "createAt": 1794897662802
+        }
+      },
+      "GiYNNmLnJo-9YUB0KdboU": {
+        "id": "GiYNNmLnJo-9YUB0KdboU",
+        "tableId": "kZarr8RTpMycN_Jo3mGeq",
+        "name": "return_pickup_fee",
+        "comment": "구매자가 결제한 반품 회수 택배비 (단순 변심만)",
+        "dataType": "BIGINT",
+        "default": "0",
+        "options": 8,
+        "ui": {
+          "keys": 0,
+          "widthName": 119,
+          "widthComment": 60,
+          "widthDataType": 60,
+          "widthDefault": 60
+        },
+        "meta": {
+          "updateAt": 1794897662802,
+          "createAt": 1794897662802
         }
       }
     },

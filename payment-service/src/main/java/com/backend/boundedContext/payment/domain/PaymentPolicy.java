@@ -17,6 +17,7 @@ public class PaymentPolicy {
     private final int topupReconcileBatchSize;
     private final Duration topupStuckWarnAfter;
     private final Long adminMemberId;
+    private final long returnPickupFee;
 
     public PaymentPolicy(
             @Value("${custom.payment.topupUnit}") long topupUnit,
@@ -25,7 +26,8 @@ public class PaymentPolicy {
             @Value("${custom.payment.topupReconcileDelayMinutes}") long topupReconcileDelayMinutes,
             @Value("${custom.payment.topupReconcileBatchSize}") int topupReconcileBatchSize,
             @Value("${custom.payment.topupStuckWarnMinutes}") long topupStuckWarnMinutes,
-            @Value("${custom.payment.adminMemberId}") Long adminMemberId
+            @Value("${custom.payment.adminMemberId}") Long adminMemberId,
+            @Value("${custom.payment.returnPickupFee}") long returnPickupFee
     ) {
         this.topupUnit = topupUnit;
         this.topupMax = topupMax;
@@ -34,6 +36,7 @@ public class PaymentPolicy {
         this.topupReconcileBatchSize = topupReconcileBatchSize;
         this.topupStuckWarnAfter = Duration.ofMinutes(topupStuckWarnMinutes);
         this.adminMemberId = adminMemberId;
+        this.returnPickupFee = returnPickupFee;
     }
 
     // 충전 금액: 충전 단위의 배수이면서 충전 단위 이상, 최대 금액 이하
@@ -73,5 +76,10 @@ public class PaymentPolicy {
     // 정산 수수료(FEE)를 받는 관리자 회원 ID
     public Long adminMemberId() {
         return adminMemberId;
+    }
+
+    // 단순 변심 반품 때 구매자가 내는 반품 배송비(원). 무료 배송 주문도 같은 금액
+    public long returnPickupFee() {
+        return returnPickupFee;
     }
 }

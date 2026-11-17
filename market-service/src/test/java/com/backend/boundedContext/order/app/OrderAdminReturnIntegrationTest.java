@@ -6,7 +6,7 @@ import com.backend.boundedContext.order.domain.OrderItem;
 import com.backend.boundedContext.order.domain.OrderItemSpec;
 import com.backend.boundedContext.order.domain.ReturnFilter;
 import com.backend.boundedContext.order.domain.ReturnItemDecision;
-import com.backend.boundedContext.order.domain.ReturnReasonCode;
+import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.boundedContext.order.domain.ShippingAddress;
 import com.backend.boundedContext.order.in.dto.AdminReturnSummaryResponse;
 import com.backend.boundedContext.order.in.dto.ReturnResultResponse;
@@ -275,6 +275,11 @@ class OrderAdminReturnIntegrationTest {
                 .containsEntry("status", "PAID")
                 .containsEntry("return_reject_reason", "사용 흔적이 있어 반품할 수 없습니다")
                 .containsEntry("confirmed_at", null);
+        // 관리자 반품 목록(거절 탭)에도 거절 사유가 보인다
+        assertThat(page(ReturnFilter.REJECTED).items()).filteredOn(r -> r.orderId() == orderId)
+                .singleElement()
+                .extracting(AdminReturnSummaryResponse::returnRejectReason)
+                .isEqualTo("사용 흔적이 있어 반품할 수 없습니다");
         assertThat(outboxCount(orderId)).isZero();
         assertThat(stock(optionA)).isEqualTo(INITIAL_STOCK - 2);   // 거절은 재고를 건드리지 않는다
 

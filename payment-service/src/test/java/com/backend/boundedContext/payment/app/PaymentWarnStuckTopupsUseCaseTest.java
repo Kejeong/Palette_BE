@@ -22,7 +22,7 @@ class PaymentWarnStuckTopupsUseCaseTest {
     private static final LocalDateTime CUTOFF = LocalDateTime.of(2026, 11, 14, 9, 0);
     private static final EnumSet<TopupStatus> UNSETTLED = EnumSet.of(TopupStatus.PROCESSING, TopupStatus.CANCELING, TopupStatus.METHOD_CANCELING);
 
-    private final PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 60, 1L);
+    private final PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 60, 1L, 2_500);
     private final TopupRepository topupRepository = mock(TopupRepository.class);
     private final PaymentWarnStuckTopupsUseCase useCase = new PaymentWarnStuckTopupsUseCase(paymentPolicy, topupRepository);
 

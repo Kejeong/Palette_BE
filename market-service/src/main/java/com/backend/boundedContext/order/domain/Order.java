@@ -1,5 +1,6 @@
 package com.backend.boundedContext.order.domain;
 
+import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.global.exception.DomainException;
 import com.backend.global.jpa.entity.BaseIdAndTime;
 import com.backend.shared.order.dto.ConfirmType;

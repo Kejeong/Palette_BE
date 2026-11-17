@@ -28,7 +28,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.backend.boundedContext.order.app.OrderFacade;
 import com.backend.boundedContext.order.domain.OrderErrorCode;
-import com.backend.boundedContext.order.domain.ReturnReasonCode;
+import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.boundedContext.order.in.dto.OrderDetailResponse;
 import com.backend.boundedContext.order.in.dto.RefundStatus;
 import com.backend.boundedContext.order.in.dto.ReturnRequestResponse;
