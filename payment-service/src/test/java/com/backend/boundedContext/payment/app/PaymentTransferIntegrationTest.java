@@ -7,7 +7,12 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +20,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.backend.boundedContext.payment.support.TestPayments;
 import com.backend.boundedContext.payment.domain.Payment;
@@ -56,6 +63,12 @@ class PaymentTransferIntegrationTest {
 
     @Autowired
     private WalletTransactionRepository walletTransactionRepository;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     // 다른 테스트·시드와 겹치지 않는 회원·주문·정산서 ID
     private final long buyerMemberId = randomId();
@@ -143,6 +156,42 @@ class PaymentTransferIntegrationTest {
         assertThat(second.feeAmount()).isEqualTo(2_500);
         assertThat(balance(sellerMemberId)).isEqualTo(22_500);
         assertThat(holding(orderId1).getSettledAmount()).isEqualTo(25_000);
+    }
+
+    @Test
+    @DisplayName("같은 키 요청이 겹치면 뒤 요청은 홀딩 잠금을 기다렸다가 앞 요청의 결과를 그대로 받는다 (404가 아님)")
+    void transfer_concurrentSameKey() throws Exception {
+        SettlementTransferCommand command = command(22_500, 2_500, new SettledOrderAmountDto(orderId1, 25_000));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        AtomicReference<Future<TransferResultDto>> secondRequest = new AtomicReference<>();
+        try {
+            // 앞 요청을 테스트 트랜잭션 안에서 끝내고 커밋을 미룬다: 홀딩은 잠긴 채, 원장은 아직 남에게 안 보임.
+            // 이때 들어온 뒤 요청은 첫 지급 내역 확인을 "없음"으로 통과하고 홀딩 잠금에서 기다린다 (실제로 겹친 상황과 같음)
+            TransferResultDto first = transactionTemplate.execute(status -> {
+                TransferResultDto result = paymentFacade.transfer(command);
+                secondRequest.set(executor.submit(() -> paymentFacade.transfer(command)));
+                waitUntilHoldingLockWaited();
+                return result;
+            });
+
+            TransferResultDto second = secondRequest.get().get(10, TimeUnit.SECONDS);
+            assertThat(second.walletTransactionId()).isEqualTo(first.walletTransactionId());
+            assertThat(second.payoutAmount()).isEqualTo(22_500);
+            assertThat(second.feeAmount()).isEqualTo(2_500);
+            assertThat(balance(sellerMemberId)).isEqualTo(22_500);
+            assertThat(holding(orderId1).getSettledAmount()).isEqualTo(25_000);
+        } finally {
+            // 중간에 실패해도 뒤 요청이 끝난 뒤에 정리(@AfterEach)가 돌게 한다. 안 그러면 정리 뒤에 지급이 커밋돼 데이터가 남는다
+            Future<TransferResultDto> pending = secondRequest.get();
+            if (pending != null) {
+                try {
+                    pending.get(10, TimeUnit.SECONDS);
+                } catch (Exception ignored) {
+                    // 결과 검증은 위에서 한다. 여기서는 끝나기만 기다린다
+                }
+            }
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -257,6 +306,19 @@ class PaymentTransferIntegrationTest {
                 .filter(h -> h.getOrderId() == orderId)
                 .map(h -> walletHoldingRepository.findById(h.getId()).orElseThrow())
                 .findFirst().orElseThrow();
+    }
+
+    // 뒤 요청이 홀딩 행 잠금을 기다리기 시작할 때까지 기다린다 (최대 5초).
+    // pg_stat_activity는 한 트랜잭션 안에서 처음 읽은 값으로 고정되므로, 매번 지금 상태를 보여 주는 pg_locks를 본다
+    private void waitUntilHoldingLockWaited() {
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (System.currentTimeMillis() < deadline) {
+            Integer waiting = jdbcTemplate.queryForObject(
+                    "select count(*) from pg_locks where not granted", Integer.class);
+            if (waiting != null && waiting > 0) return;
+            Thread.onSpinWait();
+        }
+        throw new AssertionError("뒤 요청이 홀딩 잠금을 기다리지 않음");
     }
 
     private long balance(long memberId) {
