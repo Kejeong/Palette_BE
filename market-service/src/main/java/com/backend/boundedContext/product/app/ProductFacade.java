@@ -42,6 +42,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.Optional;
 import java.util.Set;
 
@@ -434,5 +435,11 @@ public class ProductFacade {
     @Transactional(readOnly = true)
     public int rebuildSearchIndex() {
         return productSearchIndexSupport.rebuildIndex();
+    }
+
+    /** 검색 alias가 없으면 전체 재색인하고 색인한 상품 수를, 있으면 빈 값을 돌려준다 (기동할 때) */
+    @Transactional(readOnly = true)
+    public OptionalInt rebuildSearchIndexIfMissing() {
+        return productSearchIndexSupport.rebuildIndexIfMissing();
     }
 }

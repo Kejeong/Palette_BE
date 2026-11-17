@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 
 /**
@@ -82,15 +83,31 @@ public class ProductSearchIndexSupport {
     }
 
     /**
+     * 검색 alias가 없으면 전체 재색인하고 색인한 상품 수를, 있으면 빈 값을 돌려준다 (기동할 때).
+     * 첫 배포·ES 데이터 재구성 뒤 사람이 재색인을 부르지 않아도 검색이 채워지게 한다.
+     */
+    public OptionalInt rebuildIndexIfMissing() {
+        if (!productSearchIndexPort.isEnabled() || productSearchIndexPort.aliasExists()) {
+            return OptionalInt.empty();
+        }
+        return OptionalInt.of(rebuildIndex());
+    }
+
+    /**
      * 판매 중인 상품 전체를 새 인덱스에 색인하고 검색 alias를 옮긴다. 색인한 상품 수를 돌려준다.
-     * 매핑을 바꿨거나, 색인이 어긋났거나, 검색을 처음 켤 때 관리자가 부른다.
-     * 재색인 중에 바뀐 상품은 이전 인덱스에만 반영될 수 있으므로 상품 변경이 적은 시간에 부른다.
+     * 매핑을 바꿨거나, 색인이 어긋났을 때 관리자가 부르고, 기동할 때 alias가 없으면 자동으로 부른다.
+     * <p>
+     * 재색인 중에 바뀐 상품은 이전 인덱스에만 반영되거나(alias가 있을 때), 쓰지 못하고 버려진다(alias가 없을 때).
+     * 그래서 alias를 옮긴 뒤 시작 시각 이후 바뀐 상품과 할인 경계를 지난 상품을 새 인덱스에 한 번 더 반영한다.
+     * 커밋 지연을 고려해 할인 경계와 같은 겹침(discountBoundaryOverlapSeconds)만큼 앞에서부터 찾는다.
+     * 보정이 끝나기 전 잠깐은 이전 값이 보일 수 있지만, 그 뒤의 변경은 alias(새 인덱스)로 들어가므로 어긋나지 않는다.
      */
     public int rebuildIndex() {
         if (!productSearchIndexPort.isEnabled()) {
             throw new DomainException(ProductErrorCode.SEARCH_INDEX_DISABLED);
         }
 
+        LocalDateTime startedAt = LocalDateTime.now();
         String indexName = productSearchIndexPort.createIndex();
         int batchSize = productPolicy.getSearchIndexBatchSize();
         long afterId = 0L;
@@ -106,7 +123,13 @@ public class ProductSearchIndexSupport {
             if (ids.size() < batchSize) break;
         }
         productSearchIndexPort.switchAlias(indexName);
-        log.info("상품 검색 전체 재색인을 마쳤습니다. index={}, 상품 {}개", indexName, indexed);
+
+        Set<Long> changed = new HashSet<>(productRepository.findIdsChangedSince(
+                startedAt.minusSeconds(productPolicy.getDiscountBoundaryOverlapSeconds())));
+        changed.addAll(findDiscountBoundaryProductIds(startedAt, LocalDateTime.now()));   // 안에서 같은 겹침을 뺀다
+        indexProducts(changed);
+        log.info("상품 검색 전체 재색인을 마쳤습니다. index={}, 상품 {}개, 재색인 중 바뀌어 다시 반영한 상품 {}개",
+                indexName, indexed, changed.size());
         return indexed;
     }
 

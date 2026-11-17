@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -49,4 +50,18 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     /** 이 상태 상품의 ID를 afterId 다음부터 ID 순으로 limit개 (검색 전체 재색인용) */
     @Query("select p.id from Product p where p.status = :status and p.id > :afterId order by p.id")
     List<Long> findIdsByStatusAfter(ProductSaleStatus status, Long afterId, Limit limit);
+
+    /**
+     * since 이후 색인 문서 값이 바뀌었을 수 있는 상품 ID (전체 재색인 중 바뀐 상품을 새 인덱스에 다시 반영할 때).
+     * 상품·옵션·재고·할인 엔티티는 모두 updated_at이 자동으로 갱신되고(@LastModifiedDate), 이 테이블들에는 벌크 UPDATE가 없다.
+     */
+    @Query(value = """
+            select p.id from product p where p.updated_at >= :since
+            union
+            select o.product_id from product_option o join option_stock s on s.option_id = o.id
+            where o.updated_at >= :since or s.updated_at >= :since
+            union
+            select d.product_id from product_discount d where d.updated_at >= :since
+            """, nativeQuery = true)
+    List<Long> findIdsChangedSince(LocalDateTime since);
 }
