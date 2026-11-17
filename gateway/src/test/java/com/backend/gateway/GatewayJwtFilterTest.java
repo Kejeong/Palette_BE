@@ -35,14 +35,17 @@ import reactor.netty.http.server.HttpServer;
 @SpringBootTest
 class GatewayJwtFilterTest {
 
-    // 가짜 서비스: 받은 요청 수와 Authorization 헤더를 기록하고 200을 돌려준다
+    // nginx가 넣어 보내는 값. 실제 요청에는 Host가 항상 있다
+    private static final String PUBLIC_HOST = "palette-shop.example";
+
+    // 가짜 서비스: 받은 요청 수와 헤더를 기록하고 200을 돌려준다
     private static final AtomicInteger serviceHits = new AtomicInteger();
-    private static final AtomicReference<String> receivedAuthorization = new AtomicReference<>();
+    private static final AtomicReference<io.netty.handler.codec.http.HttpHeaders> receivedHeaders = new AtomicReference<>();
     private static final DisposableServer fakeService = HttpServer.create()
             .port(0)
             .handle((request, response) -> {
                 serviceHits.incrementAndGet();
-                receivedAuthorization.set(request.requestHeaders().get(HttpHeaders.AUTHORIZATION));
+                receivedHeaders.set(request.requestHeaders().copy());
                 return response.sendString(Mono.just("ok"));
             })
             .bindNow();
@@ -70,9 +73,11 @@ class GatewayJwtFilterTest {
 
     @BeforeEach
     void setUp() {
-        client = WebTestClient.bindToApplicationContext(context).build();
+        client = WebTestClient.bindToApplicationContext(context).configureClient()
+                .defaultHeader(HttpHeaders.HOST, PUBLIC_HOST)
+                .build();
         serviceHits.set(0);
-        receivedAuthorization.set(null);
+        receivedHeaders.set(null);
     }
 
     @Test
@@ -135,7 +140,22 @@ class GatewayJwtFilterTest {
                 .exchange()
                 .expectStatus().isOk();
 
-        assertThat(receivedAuthorization).hasValue(bearer(token));
+        assertThat(receivedHeaders.get().get(HttpHeaders.AUTHORIZATION)).isEqualTo(bearer(token));
+    }
+
+    // 서비스가 보는 도메인·사용자 IP·https 여부가 nginx만 있을 때와 같아야 한다
+    @Test
+    void nginx가_보낸_Host와_X_Forwarded_헤더를_그대로_넘긴다() {
+        client.get().uri("/api/v1/products")
+                .header("X-Forwarded-For", "203.0.113.7")
+                .header("X-Forwarded-Proto", "https")
+                .exchange()
+                .expectStatus().isOk();
+
+        var headers = receivedHeaders.get();
+        assertThat(headers.get(HttpHeaders.HOST)).isEqualTo(PUBLIC_HOST);
+        assertThat(headers.get("X-Forwarded-For")).isEqualTo("203.0.113.7");
+        assertThat(headers.get("X-Forwarded-Proto")).isEqualTo("https");
     }
 
     @Test

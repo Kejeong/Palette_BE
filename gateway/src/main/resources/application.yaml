@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: 8000
 
 spring:
   application:
@@ -14,6 +14,21 @@ spring:
           httpclient:
             connect-timeout: 3000   # ms. 서비스 컨테이너가 꺼져 있으면 오래 붙잡지 않고 실패시킨다
             response-timeout: 60s   # 토스 응답 대기(30초)보다 길게. 지금 nginx proxy_read_timeout과 같다
+          # nginx가 보낸 Host·X-Forwarded-For·X-Forwarded-Proto를 바꾸지 않고 그대로 서비스로 넘긴다.
+          # 서비스가 보는 도메인·사용자 IP·https 여부가 nginx만 있을 때와 같아야 하기 때문이다.
+          #   - 기본값이면 Host를 각 서비스 주소로 바꾼다 → PreserveHostHeader로 그대로 둔다
+          #   - 믿을 프록시(trusted-proxies)를 정하지 않으면 X-Forwarded-*를 전부 지운다(밖에서 지어낸 값을 막는 기본값)
+          #     → Docker 내부망 주소(nginx)만 믿는다. gateway 포트는 밖에 열지 않으므로 nginx가 넣은 값만 들어온다
+          #   - 믿는 프록시에서 온 요청이면 gateway가 자기 값을 덧붙인다 → 덧붙이기를 모두 꺼서 nginx 값만 남긴다
+          trusted-proxies: 10\..*|172\.(1[6-9]|2[0-9]|3[01])\..*|192\.168\..*|127\..*|0:0:0:0:0:0:0:1
+          x-forwarded:
+            for-enabled: false
+            proto-enabled: false
+            host-enabled: false
+            port-enabled: false
+            prefix-enabled: false
+          default-filters:
+            - PreserveHostHeader
           # 서비스별 경로 규칙. nginx(infra/nginx/default.conf)가 하던 경로 나누기를 옮겼다.
           # 위에서부터 고르므로 더 좁은 경로를 위에 둔다. 서비스는 포트 순서(member 8081 → … → ai 8087)로 적는다.
           # `/x/**`는 `/x` 자체와 그 아래를 모두 고른다.
@@ -90,3 +105,14 @@ custom:
   jwt:
     # 서비스와 같은 서명 키. 기본값 없이 환경변수(.env)로만 주입한다
     secret: ${JWT_SECRET}
+
+# 상태 확인·지표. 서비스(common observability-defaults.properties)와 같은 값.
+# 서버에선 Dockerfile의 MANAGEMENT_SERVER_PORT=9091에 따로 뜬다(nginx가 넘기지 않음). 로컬은 앱 포트 8000에 뜬다
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}

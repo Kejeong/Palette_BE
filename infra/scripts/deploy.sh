@@ -10,9 +10,14 @@
 
 set -euo pipefail
 
-# 앱 서비스 목록. compose.prod.yaml의 서비스 이름이고, 소스 폴더는 <이름>-service, 컨테이너는 palette-<이름>이다.
+# 앱 서비스 목록. compose.prod.yaml의 서비스 이름이고, 소스 폴더는 module_dir(gateway만 gateway, 나머지는 <이름>-service), 컨테이너는 palette-<이름>이다.
 # 서비스가 분리되면 여기에 추가한다.
-APP_SERVICES=(member market payment settlement delivery notification ai)
+APP_SERVICES=(gateway member market payment settlement delivery notification ai)
+
+# 서비스 이름 → 소스 폴더(Gradle 모듈) 이름
+module_dir() {
+    if [ "$1" = gateway ]; then echo gateway; else echo "$1-service"; fi
+}
 
 # 모니터링 서비스 목록. infra/monitoring/<이름>/ 설정 파일을 bind mount하는 compose 서비스다.
 # 첫 배포·DEPLOY_ALL=1이면 전부 재시작해 설정을 다시 읽게 한다.
@@ -68,8 +73,10 @@ main() {
     DEPLOY_STAGE="빌드·재시작"
     if [ "${#BUILD_SERVICES[@]}" -gt 0 ]; then
         echo "▶ 빌드: ${BUILD_SERVICES[*]}"
-        # Dockerfile의 공통 빌드 단계가 바뀐 앱 jar만 만들게 한다(기본은 jar 전부). 예: "market-service"
-        "${compose[@]}" build --build-arg SERVICES="$(printf '%s-service ' "${BUILD_SERVICES[@]}")" "${BUILD_SERVICES[@]}"
+        # Dockerfile의 공통 빌드 단계가 바뀐 앱 jar만 만들게 한다(기본은 jar 전부). 예: "gateway market-service"
+        local modules="" s
+        for s in "${BUILD_SERVICES[@]}"; do modules+="$(module_dir "$s") "; done
+        "${compose[@]}" build --build-arg SERVICES="$modules" "${BUILD_SERVICES[@]}"
     else
         echo "▶ 빌드: 바뀐 앱이 없어 건너뜁니다"
     fi
@@ -148,7 +155,7 @@ main() {
 # 재시작할 모니터링 컨테이너(RESTART_MONITORING)를 정한다.
 #   - 기록이 없거나(첫 배포) 비교할 수 없으면, 또는 DEPLOY_ALL=1이면 → 앱 전부, nginx·모니터링 재시작
 #   - 공통 파일(SHARED_PATHS)이 바뀌면 → 앱 전부
-#   - <이름>-service/ 아래가 바뀌면 → 그 앱만
+#   - 그 앱 소스 폴더(module_dir, 예: gateway/, market-service/) 아래가 바뀌면 → 그 앱만
 #   - infra/nginx/ 아래가 바뀌면 → nginx 재시작
 #   - infra/monitoring/<이름>/ 아래가 바뀌면 → 같은 이름의 compose 서비스 재시작(alloy·grafana·loki·prometheus)
 pick_changed_apps() {
@@ -183,7 +190,7 @@ pick_changed_apps() {
         BUILD_SERVICES=("${APP_SERVICES[@]}")
     else
         for service in "${APP_SERVICES[@]}"; do
-            grep -q "^${service}-service/" <<< "$changed" && BUILD_SERVICES+=("$service")
+            grep -q "^$(module_dir "$service")/" <<< "$changed" && BUILD_SERVICES+=("$service")
         done
     fi
     grep -q '^infra/nginx/' <<< "$changed" && RESTART_NGINX=true

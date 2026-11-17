@@ -81,7 +81,7 @@ class GatewayRouteTest {
             "/webhooks/delivery-tracker/secret-token, delivery",
             // notification
             "/api/v1/notifications/unread-count, notification",
-            // ai (admin/faqs는 nginx에 규칙이 없어 payment로 잘못 가던 경로)
+            // ai (관리자 FAQ는 admin/ 아래지만 ai)
             "/api/v1/ai/recommendations, ai",
             "/api/v1/ai/faqs, ai",
             "/api/v1/admin/faqs, ai",

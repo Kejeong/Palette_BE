@@ -12,6 +12,9 @@ dependencies {
 	implementation("io.jsonwebtoken:jjwt-api:0.12.6")
 	runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
 	runtimeOnly("io.jsonwebtoken:jjwt-gson:0.12.6")
+	// 상태 확인(/actuator/health)과 지표(/actuator/prometheus). 서버에선 관리 포트 9091에 뜨고, Alloy가 다른 앱처럼 수집한다
+	implementation("org.springframework.boot:spring-boot-starter-actuator")
+	implementation("io.micrometer:micrometer-registry-prometheus")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-webflux-test")   // WebTestClient

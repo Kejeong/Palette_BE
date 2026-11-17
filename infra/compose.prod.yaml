@@ -13,7 +13,7 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "5"
 
-# Spring 앱(payment·member·market·settlement·delivery)이 제대로 실행됐는지 확인한다. scripts/deploy.sh는 이 상태(healthy)를 보고 배포 성공을 판단한다.
+# Spring 앱(gateway·payment·member·market·settlement·delivery·notification·ai)이 제대로 실행됐는지 확인한다. scripts/deploy.sh는 이 상태(healthy)를 보고 배포 성공을 판단한다.
 # 앱마다 컨테이너 안에서 로그인 없이 열리는 Swagger 문서(/v3/api-docs)가 200인지 본다.
 #   정산처럼 로그인 없이 열리는 API가 없는 앱도 같은 방식으로 확인하려고 nginx를 거치지 않는다.
 # 실행 이미지에 curl이 없어도 되게 bash로 HTTP 요청을 직접 보낸다. 포트만 앱마다 다르다(각 서비스의 test).
@@ -72,6 +72,40 @@ services:
         {"name":"notification","url":"/v3/api-docs/notification"},
         {"name":"ai","url":"/v3/api-docs/ai"}]
     mem_limit: 64m
+
+  # API 게이트웨이(gateway 모듈). nginx가 백엔드 요청(/api/, /webhooks/, /v3/api-docs, 상품 이미지)을 모두 여기로 넘기고,
+  # gateway가 로그인 필요 경로의 JWT를 먼저 검사한 뒤 서비스별로 나눠 보낸다(gateway/src/main/resources/application.yaml).
+  # 같은 Dockerfile에서 MODULE만 바꿔 빌드한다. DB·Redis·Kafka는 쓰지 않는다.
+  gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        MODULE: gateway
+        # 배포 커밋(deploy.sh가 넘김). 이미지에 넣어 로그 service.version으로 남긴다(Dockerfile 참고)
+        APP_VERSION: ${APP_VERSION:-unknown}
+    image: palette-gateway
+    container_name: palette-gateway
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: .env   # JWT_SECRET (서비스와 같은 값)
+    environment:
+      # 경로를 나눠 보낼 서비스 주소. Docker 내부망 이름으로 부른다
+      MEMBER_SERVICE_URL: http://member:8081
+      MARKET_SERVICE_URL: http://market:8082
+      PAYMENT_SERVICE_URL: http://payment:8083
+      SETTLEMENT_SERVICE_URL: http://settlement:8084
+      DELIVERY_SERVICE_URL: http://delivery:8085
+      NOTIFICATION_SERVICE_URL: http://notification:8086
+      AI_SERVICE_URL: http://ai:8087
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+    # 모든 요청이 거쳐 가 네트워크 버퍼(힙 밖)를 더 쓴다. 다른 앱과 같은 1g(힙 768MB)
+    mem_limit: 1g
+    # 다른 앱처럼 /v3/api-docs를 부르면 gateway가 payment로 넘겨 버리므로, gateway 자신의 상태(관리 포트 9091)를 본다
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9091 && printf 'GET /actuator/health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && read -r status <&3 && cat <&3 >/dev/null && [[ $$status =~ ^HTTP/[0-9.]+\\ 200 ]]"]
+    # 서비스에 depends_on을 걸지 않는다. 서비스가 꺼져 있어도 gateway는 뜨고 그 서비스 경로만 실패한다(nginx와 같은 방식)
 
   # 회원·인증·판매자(member-service). 같은 Dockerfile에서 MODULE만 바꿔 빌드한다.
   # DB는 member 스키마에 member_user로 접속한다(DB_USERNAME과 다른 계정).
