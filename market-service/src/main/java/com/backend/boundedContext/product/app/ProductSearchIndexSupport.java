@@ -144,6 +144,9 @@ public class ProductSearchIndexSupport {
 
             List<ProductSearchDocument> documents = toDocuments(productRepository.findAllById(ids));
             productSearchIndexPort.bulkIndex(indexName, documents);
+            // 읽은 상품·재고를 1차 캐시에서 비운다. 남겨 두면 묶음마다 쌓여 상품 수만큼 메모리를 쓰고,
+            // 뒤의 보정이 재색인 중 다른 트랜잭션이 커밋한 변경 대신 이 옛 값을 돌려받는다
+            entityManager.clear();
             indexed += documents.size();
             afterId = ids.get(ids.size() - 1);
             if (ids.size() < batchSize) break;
@@ -153,9 +156,7 @@ public class ProductSearchIndexSupport {
         Set<Long> changed = new HashSet<>(productRepository.findIdsChangedSince(
                 startedAt.minusSeconds(productPolicy.getDiscountBoundaryOverlapSeconds())));
         changed.addAll(findDiscountBoundaryProductIds(startedAt, LocalDateTime.now()));   // 안에서 같은 겹침을 뺀다
-        // 재색인 배치가 읽은 상품·재고가 1차 캐시에 남아 있어, 그대로 읽으면 재색인 중 다른 트랜잭션이 커밋한 변경 대신 옛 값을 돌려준다
-        entityManager.clear();
-        indexProducts(changed);
+        indexProducts(changed);   // 묶음마다 1차 캐시를 비웠으므로 DB의 최신 값을 읽는다
         log.info("상품 검색 전체 재색인을 마쳤습니다. index={}, 상품 {}개, 재색인 중 바뀌어 다시 반영한 상품 {}개",
                 indexName, indexed, changed.size());
         return indexed;
