@@ -1,6 +1,7 @@
 package com.backend.global.security;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.DisplayName;
@@ -13,11 +14,13 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
  * actuator 경로 권한 (SecurityConfig)
- * - /actuator/** : 인증 없이 통과(Alloy 스크랩·헬스체크는 헤더를 보내지 않는다)
+ * - GET /actuator/health(/**)·/actuator/prometheus : 인증 없이 통과(Alloy 스크랩·헬스체크는 헤더를 보내지 않는다)
+ * - 그 밖의 actuator 경로·POST : 인증 필요(노출 설정이 넓어져도 env·heapdump 등이 무인증으로 열리지 않게)
  * - 다른 경로·내부 체인(/internal/**)은 그대로
  * 경로 규칙만 보려고 테스트 전용 컨트롤러를 쓴다. 실제 actuator 응답(노출 엔드포인트·지표 내용)은
  * 로컬 bootRun·컨테이너에서 확인한다(설계 명세 4.1 테스트 6·7).
@@ -38,6 +41,7 @@ class ActuatorAccessTest {
     private static final String HEALTH_URL = "/actuator/health/x";
     private static final String USER_API_URL = "/api/v1/orders/ping";
     private static final String INTERNAL_API_URL = "/internal/v1/ping";
+    private static final String ENV_URL = "/actuator/env";   // 허용 목록에 없는 actuator 경로
 
     @Autowired
     private MockMvc mockMvc;
@@ -68,6 +72,16 @@ class ActuatorAccessTest {
 
         @GetMapping(INTERNAL_API_URL)
         String internalApi() {
+            return "ok";
+        }
+
+        @GetMapping(ENV_URL)
+        String env() {
+            return "ok";
+        }
+
+        @PostMapping(PROMETHEUS_URL)
+        String prometheusPost() {
             return "ok";
         }
     }
@@ -104,6 +118,20 @@ class ActuatorAccessTest {
     @DisplayName("회귀: 내부 API는 내부 키 없이 401(내부 체인 그대로)")
     void internalApi_withoutKey_unauthorized() throws Exception {
         mockMvc.perform(get(INTERNAL_API_URL))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("허용 목록에 없는 actuator 경로(/actuator/env)는 토큰 없이 401(노출 설정이 넓어져도 무인증으로 열리지 않는다)")
+    void otherActuator_anonymous_unauthorized() throws Exception {
+        mockMvc.perform(get(ENV_URL))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("actuator는 GET만 허용한다: POST /actuator/prometheus는 토큰 없이 401")
+    void prometheus_post_unauthorized() throws Exception {
+        mockMvc.perform(post(PROMETHEUS_URL))
                 .andExpect(status().isUnauthorized());
     }
 }

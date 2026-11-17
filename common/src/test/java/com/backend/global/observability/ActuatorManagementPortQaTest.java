@@ -33,8 +33,9 @@ import com.backend.global.security.SecurityErrorResponseWriter;
 /**
  * [QA] 컨테이너와 같은 구성(관리 포트를 따로 띄움, Dockerfile의 MANAGEMENT_SERVER_PORT)을 실제 Tomcat으로 띄워 본다.
  * 경로 규칙만 보는 ActuatorAccessTest와 달리 실제 actuator·Prometheus 레지스트리·기본값 파일·SecurityConfig가 함께 동작한다.
- * - 관리 포트: health·prometheus만 200(토큰 없이, 잘못된 토큰이어도), 나머지 엔드포인트는 404
- * - 앱 포트: actuator 없음(404), 일반 API 인증은 그대로(401)
+ * - 관리 포트: health·prometheus만 200(토큰 없이, 잘못된 토큰이어도), 나머지 엔드포인트는 토큰 없이 401
+ *   (SecurityConfig가 GET health·prometheus만 허용해, 노출되지 않은 경로도 인증 단계에서 먼저 막는다)
+ * - 앱 포트: actuator 없음(health·prometheus 404, 그 밖의 /actuator 경로는 인증 단계에서 401), 일반 API 인증은 그대로(401)
  * - 지표: application 태그, JVM 지표, http.server.requests SLO 버킷
  */
 @SpringBootTest(
@@ -136,18 +137,24 @@ class ActuatorManagementPortQaTest {
         assertThat(get(managementPort, "/actuator/prometheus", "Bearer invalid.token.value").statusCode()).isEqualTo(200);
     }
 
-    @ParameterizedTest(name = "관리 포트: {0} 는 노출하지 않는다(404)")
+    @ParameterizedTest(name = "관리 포트: {0} 는 토큰 없이 닿지 않는다(401)")
     @ValueSource(strings = {"/actuator/env", "/actuator/heapdump", "/actuator/threaddump", "/actuator/beans",
             "/actuator/configprops", "/actuator/mappings", "/actuator/loggers", "/actuator/metrics",
             "/actuator/shutdown", "/actuator/info", "/actuator/scheduledtasks", "/actuator/conditions"})
     void managementPort_otherEndpoints_notExposed(String path) throws Exception {
-        assertThat(get(managementPort, path, null).statusCode()).isEqualTo(404);
+        assertThat(get(managementPort, path, null).statusCode()).isEqualTo(401);
     }
 
     @ParameterizedTest(name = "앱 포트: {0} 에는 actuator가 없다(404)")
-    @ValueSource(strings = {"/actuator/prometheus", "/actuator/health", "/actuator"})
+    @ValueSource(strings = {"/actuator/prometheus", "/actuator/health"})
     void appPort_noActuator(String path) throws Exception {
         assertThat(get(appPort, path, null).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    @DisplayName("앱 포트: 허용 목록 밖의 /actuator 경로는 토큰 없이 401")
+    void appPort_actuatorRoot_unauthorized() throws Exception {
+        assertThat(get(appPort, "/actuator", null).statusCode()).isEqualTo(401);
     }
 
     @Test
