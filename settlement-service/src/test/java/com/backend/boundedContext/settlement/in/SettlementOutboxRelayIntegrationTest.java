@@ -154,7 +154,7 @@ class SettlementOutboxRelayIntegrationTest {
         await().atMost(WAIT).until(() -> findCandidates(markerOrderId).size() == 2);
 
         // order_item_id 유니크로 건너뛴 것이 아니라, 처리 기록으로 걸러 후보 생성 자체를 다시 부르지 않았다
-        verify(settlementCreateCandidatesUseCase, times(1)).createCandidates(eq(orderId), any(), anyList());
+        verify(settlementCreateCandidatesUseCase, times(1)).createCandidates(eq(orderId), any(), anyList(), any(UUID.class));
         assertThat(findCandidates(orderId)).hasSize(2);
         assertThat(processedCount(eventId)).isEqualTo(1);
     }
@@ -164,14 +164,14 @@ class SettlementOutboxRelayIntegrationTest {
     void failedProcessingIsRedelivered() {
         willThrow(new IllegalStateException("후보 생성 일시 실패"))
                 .willCallRealMethod()
-                .given(settlementCreateCandidatesUseCase).createCandidates(eq(orderId), any(), anyList());   // 이 테스트의 주문만 첫 호출 실패
+                .given(settlementCreateCandidatesUseCase).createCandidates(eq(orderId), any(), anyList(), any(UUID.class));   // 이 테스트의 주문만 첫 호출 실패
         UUID eventId = publish();
 
         relayUntilPublished(eventId);
 
         // 첫 처리가 실패해도 기록이 롤백되므로 재전달 때 다시 처리한다(기록이 남았다면 건너뛰어 후보가 영영 생기지 않는다)
         await().atMost(WAIT).until(() -> findCandidates(orderId).size() == 2);
-        verify(settlementCreateCandidatesUseCase, times(2)).createCandidates(eq(orderId), any(), anyList());
+        verify(settlementCreateCandidatesUseCase, times(2)).createCandidates(eq(orderId), any(), anyList(), any(UUID.class));
         assertThat(processedCount(eventId)).isEqualTo(1);
     }
 
@@ -179,7 +179,7 @@ class SettlementOutboxRelayIntegrationTest {
     @DisplayName("후보 생성이 계속 실패하면 1·2·4·8초 간격으로 총 5번 처리한 뒤 DLT로 보내고, 처리 기록은 남기지 않는다")
     void repeatedFailureGoesToDeadLetterTopic() {
         willThrow(new IllegalStateException("후보 생성 계속 실패"))
-                .given(settlementCreateCandidatesUseCase).createCandidates(eq(orderId), any(), anyList());   // 이 테스트의 주문만 매번 실패
+                .given(settlementCreateCandidatesUseCase).createCandidates(eq(orderId), any(), anyList(), any(UUID.class));   // 이 테스트의 주문만 매번 실패
         UUID eventId = publish();
 
         relayUntilPublished(eventId);
@@ -187,7 +187,7 @@ class SettlementOutboxRelayIntegrationTest {
         ConsumerRecord<String, String> dead = findDeadLetter(eventId.toString());
         assertThat(dead.key()).isEqualTo(String.valueOf(orderId));
         assertThat(header(dead, KafkaHeaders.DLT_EXCEPTION_MESSAGE)).contains("후보 생성 계속 실패");
-        verify(settlementCreateCandidatesUseCase, times(5)).createCandidates(eq(orderId), any(), anyList());
+        verify(settlementCreateCandidatesUseCase, times(5)).createCandidates(eq(orderId), any(), anyList(), any(UUID.class));
         assertThat(findCandidates(orderId)).isEmpty();
         assertThat(processedCount(eventId)).isZero();
     }
@@ -203,7 +203,7 @@ class SettlementOutboxRelayIntegrationTest {
         assertThat(dead.value()).isEqualTo(broken);
         verify(eventMessages, times(1)).eventTypeOf(broken);   // 헤더가 없어 타입을 읽다가 실패(봉투 전체는 읽지 않음)
         verify(eventMessages, never()).read(broken);
-        verify(settlementCreateCandidatesUseCase, never()).createCandidates(eq(orderId), any(), anyList());
+        verify(settlementCreateCandidatesUseCase, never()).createCandidates(eq(orderId), any(), anyList(), any(UUID.class));
     }
 
     @Test
@@ -219,7 +219,7 @@ class SettlementOutboxRelayIntegrationTest {
         await().atMost(WAIT).until(() -> findCandidates(markerOrderId).size() == 2);
 
         verify(eventMessages, never()).read(unknown);
-        verify(settlementCreateCandidatesUseCase, never()).createCandidates(eq(orderId), any(), anyList());
+        verify(settlementCreateCandidatesUseCase, never()).createCandidates(eq(orderId), any(), anyList(), any(UUID.class));
     }
 
     @Test

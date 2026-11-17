@@ -10,6 +10,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * 정산 후보
@@ -78,8 +79,12 @@ public class SettlementCandidate extends BaseIdAndTime {
     @JoinColumn(name = "settlement_id")
     private Settlement settlement;
 
-    /** Outbox 도입 전이라 항상 null */
+    /** 예전 설계에서 남은 컬럼. 쓰지 않는다(항상 null). 원본 이벤트는 sourceEventId에 남긴다 */
     private Long outboxEventId;
+
+    /** 이 후보를 만든 구매 확정 이벤트의 ID(봉투 eventId). 어떤 이벤트에서 왔는지 이력을 따라가는 데 쓴다. 이전 후보는 null */
+    @Column(updatable = false)
+    private UUID sourceEventId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -138,6 +143,11 @@ public class SettlementCandidate extends BaseIdAndTime {
         }
         return new SettlementCandidate(orderId, orderItemId, sellerId, salePrice, productCouponDiscount, productName,
                 optionName, feeRate, confirmedAt);
+    }
+
+    /** 이 후보를 만든 구매 확정 이벤트 ID를 남긴다. 저장 전에 한 번만 정한다 */
+    public void recordSourceEvent(UUID sourceEventId) {
+        if (this.sourceEventId == null) this.sourceEventId = sourceEventId;
     }
 
     /** 정산서에 묶는다. READY 후보만 가능하다 */

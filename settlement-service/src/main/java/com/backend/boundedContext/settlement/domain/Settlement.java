@@ -10,6 +10,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
@@ -88,6 +89,12 @@ public class Settlement extends BaseIdAndTime {
 
     private LocalDateTime paidAt;
 
+    /**
+     * 지급 예정일. 월 정산(확정)이 정산서를 만들 때 정한다(확정한 날 또는 그다음 첫 평일)
+     * 지급은 월 정산 Job 밖의 지급 스케줄러가 이 날짜가 지난 READY 정산서를 지급한다. null이면 바로 지급할 수 있다(이전 정산서)
+     */
+    private LocalDate payableOn;
+
     /** 지급 요청을 시작한 시각(PROCESSING으로 바꾼 시각). 재확인 스케줄러가 이 시각 + processingRecheckMinutes가 지난 건을 확정한다 */
     private LocalDateTime processingStartedAt;
 
@@ -126,6 +133,11 @@ public class Settlement extends BaseIdAndTime {
             throw new IllegalArgumentException("정산서 필수 값이 비어 있습니다.");
         }
         return new Settlement(sellerId, settlementMonth, holdType, holdReason);
+    }
+
+    /** 지급 예정일을 정한다. 이미 정해져 있으면 바꾸지 않는다(같은 정산서에 후보를 더 담아도 처음 정한 날짜 유지) */
+    public void schedulePayout(LocalDate payableOn) {
+        if (this.payableOn == null) this.payableOn = payableOn;
     }
 
     /**

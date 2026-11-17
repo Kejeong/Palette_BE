@@ -9,33 +9,32 @@ import com.backend.boundedContext.settlement.domain.SettlementJudgement;
 import com.backend.boundedContext.settlement.domain.judge.LedgerMismatchRule;
 import com.backend.boundedContext.settlement.domain.SettlementHoldType;
 import com.backend.boundedContext.settlement.domain.SettlementProcessHistory;
-import com.backend.boundedContext.settlement.domain.judge.CandidateAmountIntegrityRule;
 import com.backend.boundedContext.settlement.domain.judge.SellerStatusRule;
 import com.backend.boundedContext.settlement.domain.judge.SettlementJudgeContext;
 import com.backend.boundedContext.settlement.out.SettlementCandidateRepository;
-import com.backend.boundedContext.settlement.out.SettlementMemberPort;
 import com.backend.boundedContext.settlement.out.SettlementProcessHistoryRepository;
 import com.backend.boundedContext.settlement.out.SettlementRepository;
-import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
+import com.backend.boundedContext.settlement.domain.judge.SettlementJudgeChain;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * 월 정산 Job 2단계(확정): 판매자 1명의 READY 후보(정산월 ≤ 대상월)를 그 판매자의 대상월 정산서에 묶는다
+ * 월 정산 Job의 확정 Step: 판매자 1명의 READY 후보(정산월 ≤ 대상월)를 잠그고, 그 후보로 판별 규칙을 실행한 뒤 정산서를 만든다
  * 판매자 1명 = 트랜잭션 1개라서 한 판매자가 실패해도 다른 판매자 확정은 그대로 커밋된다
  *
- * 판별 단계의 판정을 따른다: BLOCK → 확정하지 않음(후보 READY 유지), HOLD → 정산서를 HOLD로, PASS → 보통 정산서
- * 판정이 없으면(판별 중 오류, 판별 이후 새로 후보가 생긴 판매자, 판별 Step이 없던 실행의 재시작)
- * 후보 금액 확인(CandidateAmountIntegrityRule)을 여기서 직접 하고, 어긋나면 BLOCK과 같이 확정하지 않는다.
- * 금액이 맞으면 예전처럼 제재 여부만 보고 HOLD를 정한다(원장 불일치는 지급 직전에 SettlementPayoutUseCase가 본다).
- * 지급 단계의 합계 확인(matchesCandidateTotals)은 정산서 합계를 같은 후보 금액으로 만들므로 금액 변조를 잡지 못한다.
+ * 판별은 확정 안에서, 실제로 묶을(잠근) 후보로 한다. 그래서 판별과 확정 사이에 들어온 후보, 재시작으로 며칠 뒤 확정하는 경우도
+ * 따로 처리할 것이 없다(예전처럼 판정을 Step 사이로 넘기지 않는다).
+ * 판매자 상태(제재 여부)는 Tasklet이 묶음마다 트랜잭션 밖에서 한 번에 조회해 넘긴다(후보 행을 잠근 채 회원 HTTP를 부르지 않는다)
+ *   판별 결과 BLOCK → 확정하지 않음(후보 READY 유지, 다음 실행에서 다시 판별), HOLD → HOLD 정산서, PASS → READY 정산서
+ * 지급은 Job에서 하지 않는다. 정산서에 지급 예정일(payableOn)을 정해 두면 지급 스케줄러가 그날부터 지급한다
  */
 @Slf4j
 @Component
@@ -48,42 +47,36 @@ public class SettlementAggregateUseCase {
     private final SettlementRepository settlementRepository;
     private final SettlementCandidateRepository settlementCandidateRepository;
     private final SettlementProcessHistoryRepository settlementProcessHistoryRepository;
-    private final SettlementMemberPort settlementMemberPort;
-    private final CandidateAmountIntegrityRule candidateAmountIntegrityRule;
-
-    /** 판정 없이 확정 (판별 Step이 없던 실행·테스트용). 제재 여부만 보고 HOLD를 정한다 */
-    public int aggregateSeller(Long sellerId, YearMonth targetMonth, Long batchExecutionId, SettlementTrigger trigger) {
-        return aggregateSeller(sellerId, targetMonth, batchExecutionId, trigger, null);
-    }
+    private final SettlementJudgeChain settlementJudgeChain;
 
     /**
-     * @param judgement 판별 단계 판정. null이면 판정이 없는 것
-     * @return 정산서에 묶은 후보 수 (이월·BLOCK이거나 대상이 없으면 0)
+     * 판매자 1명 확정
+     *
+     * @param sellerStatus   판매자 상태(묶음마다 트랜잭션 밖에서 조회). 판매자 행이 없으면 null(지급 단계의 SELLER_NOT_FOUND에 맡긴다)
+     * @param ledgerMismatch 원장 재대조 불일치가 풀리지 않은 판매자인지
+     * @param payableOn      새로 만드는 정산서의 지급 예정일
      */
-    public int aggregateSeller(Long sellerId, YearMonth targetMonth, Long batchExecutionId, SettlementTrigger trigger,
-                               SettlementJudgement judgement) {
+    public SettlementConfirmResult confirmSeller(Long sellerId, YearMonth targetMonth, Long batchExecutionId,
+                                                 SettlementTrigger trigger, SellerStatus sellerStatus,
+                                                 boolean ledgerMismatch, LocalDate payableOn) {
         LocalDateTime now = LocalDateTime.now();
         String month = targetMonth.toString();
-        if (judgement != null && judgement.type() == SettlementJudgement.Type.BLOCK) {
-            // 판별에서 사람 확인이 필요하다고 본 판매자. 후보는 READY로 남고 다음 실행에서 다시 판별한다
+        List<SettlementCandidate> candidates =
+                settlementCandidateRepository.findWithLockReadyBySellerIdUntilMonth(sellerId, month);
+        if (candidates.isEmpty()) return SettlementConfirmResult.none();
+
+        SettlementJudgement judgement = settlementJudgeChain.judge(
+                new SettlementJudgeContext(sellerId, candidates, sellerStatus, ledgerMismatch));
+        recordJudgement(sellerId, judgement, trigger, batchExecutionId, now);
+        if (judgement.type() == SettlementJudgement.Type.BLOCK) {
+            // 사람 확인이 필요한 판매자(후보 금액, 수수료율 불일치). 후보는 READY로 남고 다음 실행에서 다시 판별한다
             settlementProcessHistoryRepository.save(SettlementProcessHistory.aggregateFailed(trigger,
                     judgement.errorCode(), "sellerId=%d month=%s 판별 BLOCK으로 확정하지 않음: %s".formatted(
                             sellerId, month, judgement.reason()), batchExecutionId, now));
-            return 0;
+            log.warn("정산 확정 막음 sellerId={} month={} reason={}", sellerId, month, judgement.reason());
+            return SettlementConfirmResult.of(0, judgement.type());
         }
-        List<SettlementCandidate> candidates =
-                settlementCandidateRepository.findWithLockReadyBySellerIdUntilMonth(sellerId, month);
-        if (candidates.isEmpty()) return 0;
-        // 판정이 있든 없든, 지금 잠근(실제로 묶을) 후보로 금액을 다시 확인한다.
-        // 판별은 잠금 없이 읽은 후보를 봤으므로 판별 뒤 새로 들어온 후보나 재시작으로 며칠 뒤 확정하는 경우도 여기서 걸러진다
-        if (blockedByCandidateAmounts(sellerId, month, candidates, judgement, batchExecutionId, trigger, now)) {
-            return 0;
-        }
-        // 알려진 한계: 제재 여부는 판별 단계 판정(잠금 없이 미리 읽음, 재시작이면 며칠 전일 수도 있음)을 그대로 쓴다.
-        // 판정 뒤 확정 전에 제재 해지 이벤트가 처리되면(그때는 보류된 정산서가 없어 0건 해제) 여기서 만든 SANCTION 보류는
-        // 자동으로 풀리지 않고 남는다. 드물고 HOLD로 멈출 뿐이라 관리자 보류 해제(SettlementReleaseUseCase)로 푼다.
-        // 실제로 자주 일어나면 정리 스케줄러를 추가한다(SettlementReleaseSanctionHoldsUseCase 주석 참고)
-        String holdReason = holdReasonOf(sellerId, judgement);
+        String holdReason = judgement.type() == SettlementJudgement.Type.HOLD ? judgement.reason() : null;
         SettlementHoldType holdType = holdTypeOf(holdReason);
 
         Optional<Settlement> existing = settlementRepository.findWithLockBySellerIdAndSettlementMonth(sellerId, month);
@@ -95,52 +88,41 @@ public class SettlementAggregateUseCase {
                 settlementProcessHistoryRepository.save(SettlementProcessHistory.aggregated(settlement.getId(),
                         trigger, SettlementHistoryResult.SKIPPED, "정산서가 %s 상태라 후보 %d건을 다음 달로 이월".formatted(
                                 settlement.getStatus(), candidates.size()), batchExecutionId, now));
-                return 0;
+                return SettlementConfirmResult.of(0, judgement.type());
             }
         } else {
             settlement = settlementRepository.save(Settlement.create(sellerId, month, holdType, holdReason));
             settlement.assignIdempotencyKey();   // IDENTITY라 save()에서 INSERT가 끝나 id가 있다. 같은 Tx에서 키 확정
         }
+        settlement.schedulePayout(payableOn);
 
         candidates.forEach(settlement::addCandidate);
         if (holdReason != null && settlement.getStatus() == SettlementStatus.READY) {
-            // 이미 있던 READY 정산서에 후보를 더 담는데 이번 판정이 HOLD면 함께 보류한다
+            // 이미 있던 READY 정산서에 후보를 더 담는데 이번 판별이 HOLD면 함께 보류한다
             settlement.hold(holdType, holdReason);
             settlementProcessHistoryRepository.save(
                     SettlementProcessHistory.held(settlement.getId(), holdReason, trigger, now));
         }
         settlementProcessHistoryRepository.save(SettlementProcessHistory.aggregated(settlement.getId(),
                 trigger, SettlementHistoryResult.SUCCEEDED, null, batchExecutionId, now));
-        log.info("정산 집계 sellerId={} month={} settlementId={} status={} items={} payout={}",
+        log.info("정산 확정 sellerId={} month={} settlementId={} status={} items={} payout={} payableOn={}",
                 sellerId, month, settlement.getId(), settlement.getStatus(), candidates.size(),
-                settlement.getPayoutAmount());
-        return candidates.size();
+                settlement.getPayoutAmount(), payableOn);
+        return SettlementConfirmResult.of(candidates.size(), judgement.type());
     }
 
-    /**
-     * 확정 직전, 잠근 후보의 금액 스냅샷을 확인한다(판정 유무와 상관없이). 어긋나면 판별 BLOCK과 같은 이력을 남기고 true(확정하지 않음)
-     * 후보는 READY로 남아 다음 실행의 판별 단계에서 다시 본다. 메모리 계산이라 비용이 거의 없다
-     */
-    private boolean blockedByCandidateAmounts(Long sellerId, String month, List<SettlementCandidate> candidates,
-                                              SettlementJudgement judgement, Long batchExecutionId,
-                                              SettlementTrigger trigger, LocalDateTime now) {
-        SettlementJudgement amountCheck = candidateAmountIntegrityRule.judge(
-                new SettlementJudgeContext(sellerId, candidates, null, false));
-        if (amountCheck.isPass()) return false;
-        for (Long candidateId : amountCheck.rejectedCandidateIds()) {
+    /** 판별 결과를 이력에 남긴다(막힌 후보마다 + 판매자 판정) */
+    private void recordJudgement(Long sellerId, SettlementJudgement judgement, SettlementTrigger trigger,
+                                 Long batchExecutionId, LocalDateTime now) {
+        for (Long candidateId : judgement.rejectedCandidateIds()) {
             settlementProcessHistoryRepository.save(SettlementProcessHistory.candidateBlocked(candidateId,
-                    amountCheck.errorCode(), amountCheck.reason(), trigger, batchExecutionId, now));
+                    judgement.errorCode(), judgement.reason(), trigger, batchExecutionId, now));
         }
-        settlementProcessHistoryRepository.save(SettlementProcessHistory.aggregateFailed(trigger,
-                amountCheck.errorCode(), "sellerId=%d month=%s 확정 직전 후보 금액 확인에서 막음(판정 %s): %s".formatted(
-                        sellerId, month, judgement == null ? "없음" : judgement.type(), amountCheck.reason()),
-                batchExecutionId, now));
-        log.warn("정산 집계 후보 금액 불일치로 확정하지 않음 sellerId={} month={} reason={}", sellerId, month,
-                amountCheck.reason());
-        return true;
+        settlementProcessHistoryRepository.save(
+                SettlementProcessHistory.sellerJudged(sellerId, judgement, trigger, batchExecutionId, now));
     }
 
-    /** 판매자 집계가 예외로 실패했을 때 별도 트랜잭션에서 실패 이력만 남긴다(후보는 READY로 남아 다음 실행에서 다시 집계) */
+    /** 판매자 확정이 예외로 실패했을 때 별도 트랜잭션에서 실패 이력만 남긴다(후보는 READY로 남아 다음 실행에서 다시 확정) */
     public void recordFailure(Long sellerId, YearMonth targetMonth, Long batchExecutionId, SettlementTrigger trigger,
                               String errorCode, String reason) {
         settlementProcessHistoryRepository.save(SettlementProcessHistory.aggregateFailed(trigger, errorCode,
@@ -148,30 +130,18 @@ public class SettlementAggregateUseCase {
                 LocalDateTime.now()));
     }
 
-    /**
-     * 관리자 제재(SANCTIONED)된 판매자면 정산서를 처음부터 HOLD로 만든다.
-     * (SettlementApi.holdSeller의 "이후 만들어지는 정산서도 HOLD" 약속을 여기서 지킨다)
-     * 판매자 행이 없으면(아직 회원 시드에 판매자 행이 없음 등) 제재 여부만 모르는 것이므로 보통 정산서로 만들고,
-     * 지급 단계에서 판매자 조회 실패(404-SELLER_NOT_FOUND)로 재시도 불가 처리된다.
-     */
-    /**
-     * 확정 단계 보류 사유 → 보류 종류. 확정 단계 보류는 판별 규칙 두 가지(원장 불일치, 판매자 제재)에서만 나온다
-     */
+    /** 묶음 전체를 확정하지 못하고 Step을 멈췄을 때 실패 이력 1건(판매자 ID 범위). 후보는 READY로 남아 같은 달 재실행에서 다시 확정 */
+    public void recordChunkFailure(Long fromSellerId, Long toSellerId, YearMonth targetMonth, Long batchExecutionId,
+                                   SettlementTrigger trigger, String errorCode, String reason) {
+        settlementProcessHistoryRepository.save(SettlementProcessHistory.aggregateFailed(trigger, errorCode,
+                "sellerId=%d..%d month=%s %s".formatted(fromSellerId, toSellerId, targetMonth, reason), batchExecutionId,
+                LocalDateTime.now()));
+    }
+
+    /** 확정 단계 보류 사유 → 보류 종류. 확정 단계 보류는 판별 규칙 두 가지(원장 불일치, 판매자 제재)에서만 나온다 */
     private static SettlementHoldType holdTypeOf(String holdReason) {
         if (holdReason == null) return null;
         return LedgerMismatchRule.REASON.equals(holdReason)
                 ? SettlementHoldType.LEDGER_MISMATCH : SettlementHoldType.SANCTION;
-    }
-
-    private String holdReasonOf(Long sellerId, SettlementJudgement judgement) {
-        if (judgement != null) return judgement.type() == SettlementJudgement.Type.HOLD ? judgement.reason() : null;
-        return sanctionedHoldReasonOf(sellerId);
-    }
-
-    private String sanctionedHoldReasonOf(Long sellerId) {
-        boolean sanctioned = settlementMemberPort.getSellers(List.of(sellerId)).stream()
-                .map(SellerDto::status)
-                .anyMatch(status -> status == SellerStatus.SANCTIONED);
-        return sanctioned ? SANCTIONED_HOLD_REASON : null;
     }
 }

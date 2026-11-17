@@ -283,6 +283,18 @@ public class ProductSupport {
                 .toList();
     }
 
+    /**
+     * 판매자 본인 상품(삭제 안 됨)의 옵션을 쓰기 잠금하고 읽는다 (추가금 수정·옵션 삭제용).
+     * 같은 옵션을 다른 트랜잭션이 수정·삭제 중이면 커밋을 기다린 뒤 최신 값(삭제 여부 포함)을 읽는다.
+     * 잠그지 않으면 삭제와 수정이 둘 다 "삭제 안 됨"을 읽고, 모든 컬럼을 UPDATE하는 수정이 삭제(deleted_at)를 덮어써 지운 옵션이 되살아난다.
+     * 상품이 없거나 남의 것이거나, 옵션이 그 상품의 것이 아니면 404.
+     */
+    public ProductOption lockSellerOption(Long sellerId, Long productId, Long optionId) {
+        Product product = getSellerProduct(sellerId, productId);
+        return productOptionRepository.findByIdAndProductIdForUpdate(optionId, product.getId())
+                .orElseThrow(() -> new DomainException(ProductErrorCode.PRODUCT_NOT_FOUND));
+    }
+
     /** 판매자 본인 상품(삭제 안 됨)의 옵션. 상품이 없거나 남의 것이거나, 옵션이 그 상품의 것이 아니면 404. */
     public ProductOption getSellerOption(Long sellerId, Long productId, Long optionId) {
         Product product = getSellerProduct(sellerId, productId);

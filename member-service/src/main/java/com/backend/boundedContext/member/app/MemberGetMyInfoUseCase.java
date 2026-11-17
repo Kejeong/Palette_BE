@@ -30,7 +30,7 @@ public class MemberGetMyInfoUseCase {
 
         return MyInfoDto.of(
                 member,
-                memberSocialAccountRepository.existsByMemberIdAndProvider(memberId, SocialProvider.KAKAO),
+                memberSocialAccountRepository.findByMemberIdAndProvider(memberId, SocialProvider.KAKAO).orElse(null),   // 연결 여부와 프로필 이미지를 함께 채움
                 influencerRepository.findByMemberId(memberId).map(Influencer::getStatus).orElse(null)
         );
     }

@@ -23,6 +23,7 @@ import com.backend.global.outbox.EventMessages;
 import com.backend.shared.event.DomainEvent;
 import com.backend.shared.event.EventEnvelope;
 import com.backend.shared.member.event.SellerSanctionedEvent;
+import com.backend.shared.member.event.SellerUnsanctionedEvent;
 import com.backend.shared.member.event.SellerWithdrawalRejectedEvent;
 import com.backend.shared.member.event.SellerWithdrawalRequestedEvent;
 
@@ -63,6 +64,14 @@ class ProductSellerEventListenerTest {
     @DisplayName("철회 거절 이벤트를 받으면 철회로 중지된 상품을 다시 판매 중으로 되돌린다")
     void withdrawalRejected_resumesProducts() {
         receive(new SellerWithdrawalRejectedEvent(SELLER_ID), true);
+
+        verify(productFacade).resumeAllBySeller(SELLER_ID);
+    }
+
+    @Test
+    @DisplayName("제재 해지 이벤트를 받으면 제재로 중지된 상품을 다시 판매 중으로 되돌린다")
+    void unsanctioned_resumesProducts() {
+        receive(new SellerUnsanctionedEvent(SELLER_ID, "소명 확인"), true);
 
         verify(productFacade).resumeAllBySeller(SELLER_ID);
     }

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Slf4j
 @Component
@@ -36,6 +37,12 @@ public class SettlementCreateCandidatesUseCase {
      * @return 새로 만든 후보 수
      */
     public int createCandidates(Long orderId, LocalDateTime confirmedAt, List<ConfirmedOrderItemDto> items) {
+        return createCandidates(orderId, confirmedAt, items, null);
+    }
+
+    /** @param sourceEventId 후보를 만든 구매 확정 이벤트 ID(봉투 eventId). 후보에 남겨 어떤 이벤트에서 왔는지 따라갈 수 있게 한다 */
+    public int createCandidates(Long orderId, LocalDateTime confirmedAt, List<ConfirmedOrderItemDto> items,
+                                UUID sourceEventId) {
         LocalDateTime now = LocalDateTime.now();
         int created = 0;
         for (ConfirmedOrderItemDto item : items) {
@@ -62,9 +69,11 @@ public class SettlementCreateCandidatesUseCase {
             }
             // 10/14 리뷰 반영: 수수료율은 주입받은 정책 빈 값을 엔티티에 인자로 넘긴다(엔티티는 정적 값을 읽지 않는다)
             // 판매가 = 항목 금액 - 상품 쿠폰 할인액. 수수료와 지급액은 할인 뒤 판매가로 계산한다
-            SettlementCandidate candidate = settlementCandidateRepository.save(SettlementCandidate.create(orderId,
-                    item.orderItemId(), item.sellerId(), item.lineAmount() - discount, discount, item.productName(),
-                    item.optionName(), settlementPolicy.getFeeRate(), confirmedAt));
+            SettlementCandidate newCandidate = SettlementCandidate.create(orderId, item.orderItemId(), item.sellerId(),
+                    item.lineAmount() - discount, discount, item.productName(), item.optionName(),
+                    settlementPolicy.getFeeRate(), confirmedAt);
+            newCandidate.recordSourceEvent(sourceEventId);
+            SettlementCandidate candidate = settlementCandidateRepository.save(newCandidate);
             settlementProcessHistoryRepository.save(SettlementProcessHistory.candidateCreated(candidate.getId(), now));
             created++;
         }
