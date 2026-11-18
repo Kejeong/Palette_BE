@@ -647,7 +647,9 @@ public interface PaymentApi {
      * 주문 쪽은 결과가 PAID가 아니면 주문을 PAYMENT_FAILED로 커밋한 뒤 DomainException(402 INSUFFICIENT_BALANCE 등)을 던진다.
      * 같은 idempotencyKey로 다시 호출하면 처음 결과를 그대로 반환한다. 아직 처리하지 않은 키면 그때 처리한다(키 UNIQUE·지갑 잠금으로 직렬화).
      * 주문 쪽 재확인 스케줄러가 결과를 모르는 결제를 같은 키·같은 내용으로 다시 부르므로 이 동작에 기댄다.
+     * PAID 결과에는 payment가 기록한 결제 완료 시각(paidAt)을 담고, 주문 쪽은 이 값을 주문의 paidAt으로 쓴다(없으면 반영 시각).
      * 오류: 4xx RsData는 주문 쪽이 "결제 없음"으로 보고 PAYMENT_FAILED로 반영한다(단 409 LOCK_CONFLICT·CONCURRENT_UPDATE·DATA_CONFLICT, 429는 결과 불명).
+     *      401·403(내부 키 오류)은 주문 쪽 클라이언트가 503-INTERNAL_API_AUTH_FAILED + ERROR 로그로 바꾸고, 결제가 없었으므로 PAYMENT_FAILED로 반영한다.
      *      접속 실패·응답 시간 초과·5xx는 결과 불명으로 보고 주문을 PAYING으로 둔다.
      */
     PayResultDto pay(PayCommand command);
@@ -702,8 +704,12 @@ public record WalletSummaryDto(Long memberId, long balance, long heldAmount) { }
 public record PayCommand(Long orderId, String orderNumber, Long buyerId, long amount, long shippingFee,
                          long couponSubsidyAmount, LocalDateTime orderExpiresAt, String idempotencyKey) { }
 
-/** shortage: 잔액 부족일 때 모자란 금액, chargeAmount: 1만 원 단위로 올린 충전 권장 금액 */
-public record PayResultDto(Long paymentId, PayResultStatus status, long shortage, long chargeAmount) {
+/**
+ * shortage: 잔액 부족일 때 모자란 금액, chargeAmount: 1만 원 단위로 올린 충전 권장 금액
+ * paidAt: 결제 완료 시각(Payment.paidAt). PAID만 있고 그 밖의 상태·이전 버전 payment 응답은 null (TRSS-307)
+ */
+public record PayResultDto(Long paymentId, PayResultStatus status, long shortage, long chargeAmount, LocalDateTime paidAt) {
+    public PayResultDto(Long paymentId, PayResultStatus status, long shortage, long chargeAmount) { this(..., null); }
     public boolean isPaid() { return status == PayResultStatus.PAID; }
 }
 

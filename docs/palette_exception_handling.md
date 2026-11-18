@@ -143,6 +143,7 @@ catch (RestClientException e) {
 | 409-IDEMPOTENCY_KEY_REUSED | 결제 멱등 키(`PayCommand.idempotencyKey`)가 다른 주문·구매자·금액에 다시 쓰임 (`Idempotency-Key` 헤더는 미구현) |
 | 429-TOO_MANY_REQUESTS | 인증코드 재발송 제한 등 |
 | 502-EXTERNAL_SERVICE_ERROR | 토스·헥토·카카오·메일 서버가 오류로 응답하거나 응답이 없음 (`cause`와 함께) |
+| 503-INTERNAL_API_AUTH_FAILED | 내부 API 호출이 상대 서비스의 내부 키 검사(401·403)에서 막힘. 설정 오류라 ERROR 로그를 남긴다 (지금은 market `PaymentApiClient`) |
 | 500-INTERNAL_ERROR | 잡은 예외를 감싸 다시 던질 때 (`cause`와 함께) |
 
 ## 5. 레이어별 책임
