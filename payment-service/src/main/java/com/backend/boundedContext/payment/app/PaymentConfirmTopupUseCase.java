@@ -3,6 +3,7 @@ package com.backend.boundedContext.payment.app;
 import java.util.Map;
 import java.util.Objects;
 
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.stereotype.Component;
 
 import com.backend.boundedContext.payment.app.dto.TopupConfirmDto;
@@ -11,8 +12,11 @@ import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.out.PaymentMemberPort;
 import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgDeclinedException;
+import com.backend.boundedContext.payment.out.pg.PgPaymentNotFoundException;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.PgResultUnknownException;
+import com.backend.boundedContext.payment.out.pg.TopupGatewayPort;
 import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
 
@@ -29,7 +33,11 @@ import lombok.extern.slf4j.Slf4j;
  * - 승인 성공 → 예치금 반영(DONE)
  * - 거절(카드 거절·한도 초과 등) → FAILED_PG_DECLINED 기록 후 400 TOPUP_PAYMENT_DECLINED
  * - 설정 오류(API 키 등) → 우리 설정 문제이므로 FAILED_SYSTEM_ERROR 기록 후 502 EXTERNAL_SERVICE_ERROR
- * - 결과 모름(응답 없음·5xx·이미 처리된 결제) → 승인 여부를 알 수 없으므로 PROCESSING 유지, 200 + status PROCESSING
+ * - 결과 모름(응답 없음·5xx·이미 처리된 결제) → 그 자리에서 PG에 조회 (confirmOrRecover)
+ *   - 승인됨 → 승인 성공과 같게 반영
+ *   - 거래 없음(처리되지 않음)이고 PG가 두 번째 승인을 거절하는 PG(헥토) → 승인을 한 번만 다시 보냄
+ *   - 그 밖(조회도 결과 모름, 진행 중 등) → 승인 여부를 알 수 없으므로 PROCESSING 유지, 200 + status PROCESSING (대사가 정리)
+ *   대사는 인증만 된 건을 다시 승인하지 않음. 여기서는 승인 요청 직후 처리되지 않은 것을 조회로 확인한 경우에만 한 번 다시 보냄
  * - 승인됐지만 허용하지 않은 결제 수단 → 예치금에 반영하지 않고 PG 전액 취소, 400 TOPUP_METHOD_NOT_ALLOWED
  *   (취소 결과를 모르거나 실패하면 METHOD_CANCELING으로 남겨 대사가 다시 취소)
  */
@@ -58,10 +66,10 @@ public class PaymentConfirmTopupUseCase {
         }
         Long topupId = start.topupId();
 
-        // 트랜잭션 밖: 충전 건의 PG로 승인 호출
+        // 트랜잭션 밖: 충전 건의 PG로 승인 호출. 결과를 모르면 바로 조회하고, 처리되지 않았으면 한 번 다시 승인
         PgPaymentResult result;
         try {
-            result = topupGateways.get(start.pgProvider()).confirm(paymentKey, orderId, amount);
+            result = confirmOrRecover(topupGateways.get(start.pgProvider()), start.payment(), topupId, paymentKey, orderId, amount);
         } catch (PgResultUnknownException e) {
             log.warn("PG 승인 결과를 알 수 없어 결과 확인 대기로 둡니다. topupId={}", topupId, e);
             return TopupConfirmDto.processing(topupId, orderId, amount);
@@ -88,6 +96,32 @@ public class PaymentConfirmTopupUseCase {
         } catch (RuntimeException e) {
             log.error("PG 승인 후 예치금 반영에 실패해 결과 확인 대기로 둡니다. topupId={}", topupId, e);
             return TopupConfirmDto.processing(topupId, orderId, amount);
+        }
+    }
+
+    /**
+     * PG 승인. 결과를 모르면(응답 없음·연결 끊김 등) 그 자리에서 조회해 결과를 정함
+     * - 조회가 승인됨이면 그 결과로 반영
+     * - 거래 없음이고 재승인할 수 있는 PG면 승인을 한 번 다시 보냄 (거절이면 PgDeclinedException, 다시 결과 모름이면 PgResultUnknownException)
+     * - 그 밖이면 처음의 결과 모름을 다시 던져 PROCESSING으로 둠
+     */
+    private PgPaymentResult confirmOrRecover(TopupGatewayPort gateway, PgPaymentRef payment, Long topupId, String paymentKey, String orderId, long amount) {
+        try {
+            return gateway.confirm(paymentKey, orderId, amount);
+        } catch (PgResultUnknownException unknown) {
+            log.warn("PG 승인 결과를 알 수 없어 바로 조회합니다. topupId={}, 원인={}", topupId, NestedExceptionUtils.getMostSpecificCause(unknown).getMessage());
+            try {
+                PgPaymentResult found = gateway.getPayment(payment);
+                if (found.isApproved()) return found;
+                throw unknown;
+            } catch (PgPaymentNotFoundException notFound) {
+                if (!gateway.canRetryConfirm()) throw unknown;
+                log.warn("PG에 승인 요청이 처리되지 않은 것을 확인해 한 번 다시 승인합니다. topupId={}", topupId);
+                return gateway.confirm(paymentKey, orderId, amount);
+            } catch (PgConfigurationException e) {
+                // 조회만 설정 오류로 실패해도 승인은 됐을 수 있어 실패로 기록하지 않고 PROCESSING으로 둠
+                throw unknown;
+            }
         }
     }
 }

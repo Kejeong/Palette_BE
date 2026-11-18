@@ -55,6 +55,9 @@ public class Topup extends BaseIdAndTime {
     @Column(nullable = false)
     private LocalDateTime requestedAt;
 
+    // 승인 요청 시각. PROCESSING 선점 때 정함. 헥토 조회에서 결제 요청 날짜로 못 찾으면 이 날짜로 한 번 더 찾음 (자정을 넘긴 충전 건)
+    private LocalDateTime confirmRequestedAt;
+
     // 결제에 쓰이고 남은 금액. DONE이면 이 금액 전부를 PG에 취소할 수 있음
     @Column(nullable = false)
     private long remainingAmount;
@@ -96,10 +99,11 @@ public class Topup extends BaseIdAndTime {
         return topup;
     }
 
-    // PG 승인 호출 전: READY → PROCESSING, 결제키 저장
-    public void markProcessing(String paymentKey) {
+    // PG 승인 호출 전: READY → PROCESSING, 결제키·승인 요청 시각 저장
+    public void markProcessing(String paymentKey, LocalDateTime confirmRequestedAt) {
         if (status != TopupStatus.READY) throw new DomainException(PaymentErrorCode.TOPUP_ALREADY_PROCESSED);
         this.paymentKey = paymentKey;
+        this.confirmRequestedAt = confirmRequestedAt;
         this.status = TopupStatus.PROCESSING;
     }
 

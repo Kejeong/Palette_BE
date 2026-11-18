@@ -60,6 +60,9 @@ public class HectoTopupGatewayAdapter implements TopupGatewayPort {
     // 조회했는데 헥토에 거래가 없을 때 주는 코드
     private static final String NOT_FOUND = "ST06";
 
+    // 같은 인증 거래번호로 승인을 다시 보냈을 때 주는 코드(중복결제). 앞선 승인이 처리됐다는 뜻이라 결과 모름으로 봄
+    private static final String DUPLICATE_PAYMENT = "ST50";
+
     // 이미 전액 취소된 거래를 취소하려 할 때 주는 코드
     private static final String ALREADY_CANCELED = "ST25";
 
@@ -98,15 +101,33 @@ public class HectoTopupGatewayAdapter implements TopupGatewayPort {
         HectoResponse response = call(() -> hectoClient.approve(orderId, paymentKey, amount, LocalDateTime.now()));
 
         if (!response.isSuccess()) {
+            // 중복결제는 거절이 아님. 앞선 승인이 처리돼 카드는 결제됐으므로 거절로 기록하면 돈만 빠지고 충전은 실패로 끝남
+            if (DUPLICATE_PAYMENT.equals(response.outRsltCd())) {
+                throw new PgResultUnknownException(failure(response));
+            }
             throw declined(response);
         }
         return new PgPaymentResult(response.trdNo(), orderId, PgPaymentStatus.APPROVED, response.outRsltCd(),
                 response.amount(), 0, PgPaymentMethod.CARD, response.transactedAt());
     }
 
+    /**
+     * 거래 조회. 원거래 일자는 결제 요청 날짜로 보냄
+     * 거래가 없고(ST06) 승인 요청 날짜가 다르면(자정을 넘긴 충전 건) 그 날짜로 한 번 더 조회한 뒤에 거래 없음으로 봄
+     * (테스트베드는 원거래 일자 ±1일까지 찾아 주지만 문서에 없는 동작이라 기대지 않음)
+     */
+    // 같은 인증 거래번호의 두 번째 승인은 헥토가 ST50으로 거절해(테스트베드 확인) 다시 보내도 이중 결제가 생기지 않음
+    @Override
+    public boolean canRetryConfirm() {
+        return true;
+    }
+
     @Override
     public PgPaymentResult getPayment(PgPaymentRef payment) {
-        HectoResponse response = call(() -> hectoClient.inquiry(payment.orderId(), payment.paymentKey(), payment.amount(), payment.requestedAt(), LocalDateTime.now()));
+        HectoResponse response = inquiry(payment, payment.requestedAt());
+        if (NOT_FOUND.equals(response.outRsltCd()) && isOtherDay(payment.requestedAt(), payment.confirmRequestedAt())) {
+            response = inquiry(payment, payment.confirmRequestedAt());
+        }
 
         if (!response.isSuccess()) {
             if (NOT_FOUND.equals(response.outRsltCd())) {
@@ -142,6 +163,14 @@ public class HectoTopupGatewayAdapter implements TopupGatewayPort {
 
         return new PgPaymentResult(payment.paymentKey(), payment.orderId(), status, response.outRsltCd(),
                 payment.amount(), payment.amount() - balanceAmount, PgPaymentMethod.CARD, null);
+    }
+
+    private HectoResponse inquiry(PgPaymentRef payment, LocalDateTime orgTradeAt) {
+        return call(() -> hectoClient.inquiry(payment.orderId(), payment.paymentKey(), payment.amount(), orgTradeAt, LocalDateTime.now()));
+    }
+
+    private static boolean isOtherDay(LocalDateTime requestedAt, LocalDateTime confirmRequestedAt) {
+        return confirmRequestedAt != null && !confirmRequestedAt.toLocalDate().equals(requestedAt.toLocalDate());
     }
 
     // 조회 결과 코드 → PG 결제 상태. 알 수 없는 코드는 원래 값을 로그로 남기고 PENDING

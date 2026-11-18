@@ -552,6 +552,7 @@
           "DVAIeL2Vw6TkMS8vcJfl_",
           "SXSDLTN9napMHLvxAmARW",
           "zY70nBPp09j4F-s0Bbddp",
+          "cR7aQe2Zt9WkLm4XpVb1n",
           "XXy1QXYB-B9_aZ7fMyL6b",
           "WkX-Jwc1bfoYO8T2dLtoR",
           "YirPgdIRbGT_Rj6NYkHcI",
@@ -3809,6 +3810,26 @@
         "meta": {
           "updateAt": 1794671686635,
           "createAt": 1794671686635
+        }
+      },
+      "cR7aQe2Zt9WkLm4XpVb1n": {
+        "id": "cR7aQe2Zt9WkLm4XpVb1n",
+        "tableId": "Sp7yQwzWyiW9dDjvQZRTW",
+        "name": "confirm_requested_at",
+        "comment": "승인 요청 일시 - PROCESSING 선점 때 정함. 헥토 조회에서 결제 요청 날짜로 못 찾으면 이 날짜로 다시 조회",
+        "dataType": "TIMESTAMP",
+        "default": "",
+        "options": 0,
+        "ui": {
+          "keys": 0,
+          "widthName": 128,
+          "widthComment": 60,
+          "widthDataType": 71,
+          "widthDefault": 60
+        },
+        "meta": {
+          "updateAt": 1794972927317,
+          "createAt": 1794972927317
         }
       },
       "XXy1QXYB-B9_aZ7fMyL6b": {

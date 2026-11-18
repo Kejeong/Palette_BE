@@ -10,9 +10,11 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -27,6 +29,8 @@ import com.backend.boundedContext.payment.out.PaymentMemberPort;
 import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgDeclinedException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
+import com.backend.boundedContext.payment.out.pg.PgPaymentNotFoundException;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.PgPaymentStatus;
 import com.backend.boundedContext.payment.out.pg.PgResultUnknownException;
@@ -42,6 +46,7 @@ class PaymentConfirmTopupUseCaseTest {
     private static final String PAYMENT_KEY = "pk_1";
     private static final String ORDER_ID = "TOPUP-123e4567-e89b-12d3-a456-426614174000";
     private static final long AMOUNT = 20_000;
+    private static final PgPaymentRef PAYMENT = new PgPaymentRef(ORDER_ID, PAYMENT_KEY, AMOUNT, LocalDateTime.of(2026, 11, 18, 10, 0), LocalDateTime.of(2026, 11, 18, 10, 1));
 
     private final PaymentTopupConfirmProcessor processor = mock(PaymentTopupConfirmProcessor.class);
     private final TopupGateways topupGateways = mock(TopupGateways.class);
@@ -88,7 +93,7 @@ class PaymentConfirmTopupUseCaseTest {
     @DisplayName("금액 불일치: PG를 호출하지 않고 400 AMOUNT_MISMATCH")
     void confirm_amountMismatch() {
         given(processor.start(MEMBER_ID, ORDER_ID, PAYMENT_KEY, AMOUNT))
-                .willReturn(new TopupConfirmStartResult(TOPUP_ID, PgProvider.TOSS, TopupConfirmStartResult.Outcome.AMOUNT_MISMATCH, null));
+                .willReturn(new TopupConfirmStartResult(TOPUP_ID, PgProvider.TOSS, TopupConfirmStartResult.Outcome.AMOUNT_MISMATCH, null, null));
 
         assertThatThrownBy(() -> useCase.confirmTopup(MEMBER_ID, PAYMENT_KEY, ORDER_ID, AMOUNT))
                 .isInstanceOf(DomainException.class)
@@ -111,15 +116,103 @@ class PaymentConfirmTopupUseCaseTest {
     }
 
     @Test
-    @DisplayName("PG 결과 모름(응답 없음·5xx·이미 처리된 결제): 실패로 단정하지 않고 PROCESSING으로 응답한다")
+    @DisplayName("PG 결과 모름: 바로 조회해도 결과를 모르면 실패로 단정하지 않고 PROCESSING으로 응답한다")
     void confirm_resultUnknown() {
         started();
-        given(gateway.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
-                .willThrow(new PgResultUnknownException(new RuntimeException("Read timed out")));
+        given(gateway.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT)).willThrow(unknown());
+        given(gateway.getPayment(PAYMENT)).willThrow(unknown());
 
         TopupConfirmDto result = useCase.confirmTopup(MEMBER_ID, PAYMENT_KEY, ORDER_ID, AMOUNT);
 
         assertProcessing(result);
+        verify(gateway).getPayment(PAYMENT);
+    }
+
+    @Test
+    @DisplayName("PG 결과 모름 → 바로 조회해 승인됐으면 그 결과로 예치금에 반영한다")
+    void confirm_unknown_inquiryApproved() {
+        started();
+        given(gateway.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT)).willThrow(unknown());
+        given(gateway.getPayment(PAYMENT)).willReturn(approved);
+        TopupConfirmDto done = new TopupConfirmDto(TOPUP_ID, ORDER_ID, TopupStatus.DONE, AMOUNT, 20_000L);
+        given(processor.complete(TOPUP_ID, approved)).willReturn(done);
+
+        assertThat(useCase.confirmTopup(MEMBER_ID, PAYMENT_KEY, ORDER_ID, AMOUNT)).isEqualTo(done);
+        verify(gateway).confirm(PAYMENT_KEY, ORDER_ID, AMOUNT);
+    }
+
+    @Test
+    @DisplayName("PG 결과 모름 → 조회해 진행 중 등 승인이 아니면 PROCESSING으로 두고 대사에 맡긴다")
+    void confirm_unknown_inquiryPending() {
+        started();
+        given(gateway.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT)).willThrow(unknown());
+        given(gateway.getPayment(PAYMENT)).willReturn(new PgPaymentResult(PAYMENT_KEY, ORDER_ID, PgPaymentStatus.PENDING, "IN_PROGRESS", AMOUNT, 0, PgPaymentMethod.CARD, null));
+
+        assertProcessing(useCase.confirmTopup(MEMBER_ID, PAYMENT_KEY, ORDER_ID, AMOUNT));
+        verify(gateway).confirm(PAYMENT_KEY, ORDER_ID, AMOUNT);
+    }
+
+    @Test
+    @DisplayName("PG 결과 모름 → 거래 없음이고 재승인할 수 있는 PG(헥토)면 한 번 다시 승인해 반영한다")
+    void confirm_unknown_notFound_retryApproved() {
+        started();
+        given(gateway.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT)).willThrow(unknown()).willReturn(approved);
+        given(gateway.getPayment(PAYMENT)).willThrow(new PgPaymentNotFoundException(new RuntimeException("ST06")));
+        given(gateway.canRetryConfirm()).willReturn(true);
+        TopupConfirmDto done = new TopupConfirmDto(TOPUP_ID, ORDER_ID, TopupStatus.DONE, AMOUNT, 20_000L);
+        given(processor.complete(TOPUP_ID, approved)).willReturn(done);
+
+        assertThat(useCase.confirmTopup(MEMBER_ID, PAYMENT_KEY, ORDER_ID, AMOUNT)).isEqualTo(done);
+        verify(gateway, times(2)).confirm(PAYMENT_KEY, ORDER_ID, AMOUNT);
+    }
+
+    @Test
+    @DisplayName("PG 결과 모름 → 재승인도 결과 모름(헥토 ST50 중복결제 포함)이면 더 보내지 않고 PROCESSING")
+    void confirm_unknown_notFound_retryUnknown() {
+        started();
+        given(gateway.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT)).willThrow(unknown(), unknown());
+        given(gateway.getPayment(PAYMENT)).willThrow(new PgPaymentNotFoundException(new RuntimeException("ST06")));
+        given(gateway.canRetryConfirm()).willReturn(true);
+
+        assertProcessing(useCase.confirmTopup(MEMBER_ID, PAYMENT_KEY, ORDER_ID, AMOUNT));
+        verify(gateway, times(2)).confirm(PAYMENT_KEY, ORDER_ID, AMOUNT);
+    }
+
+    @Test
+    @DisplayName("PG 결과 모름 → 재승인이 거절되면 FAILED_PG_DECLINED로 기록하고 400 TOPUP_PAYMENT_DECLINED")
+    void confirm_unknown_notFound_retryDeclined() {
+        started();
+        given(gateway.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .willThrow(unknown(), new PgDeclinedException("ST09", "거래금액이 유효하지 않습니다.", null));
+        given(gateway.getPayment(PAYMENT)).willThrow(new PgPaymentNotFoundException(new RuntimeException("ST06")));
+        given(gateway.canRetryConfirm()).willReturn(true);
+
+        assertThatThrownBy(() -> useCase.confirmTopup(MEMBER_ID, PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("400-TOPUP_PAYMENT_DECLINED");
+        verify(processor).fail(TOPUP_ID, TopupStatus.FAILED_PG_DECLINED, "거래금액이 유효하지 않습니다.");
+    }
+
+    @Test
+    @DisplayName("PG 결과 모름 → 거래 없음이어도 재승인할 수 없는 PG(토스)면 다시 보내지 않고 PROCESSING")
+    void confirm_unknown_notFound_noRetry() {
+        started();
+        given(gateway.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT)).willThrow(unknown());
+        given(gateway.getPayment(PAYMENT)).willThrow(new PgPaymentNotFoundException(new RuntimeException("NOT_FOUND_PAYMENT")));
+        given(gateway.canRetryConfirm()).willReturn(false);
+
+        assertProcessing(useCase.confirmTopup(MEMBER_ID, PAYMENT_KEY, ORDER_ID, AMOUNT));
+        verify(gateway).confirm(PAYMENT_KEY, ORDER_ID, AMOUNT);
+    }
+
+    @Test
+    @DisplayName("PG 결과 모름 → 조회만 설정 오류로 실패해도 승인됐을 수 있어 실패로 기록하지 않고 PROCESSING")
+    void confirm_unknown_inquiryNotConfigured() {
+        started();
+        given(gateway.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT)).willThrow(unknown());
+        given(gateway.getPayment(PAYMENT)).willThrow(new PgConfigurationException("HECTO_CONFIGURATION_ERROR", new IllegalStateException()));
+
+        assertProcessing(useCase.confirmTopup(MEMBER_ID, PAYMENT_KEY, ORDER_ID, AMOUNT));
     }
 
     @Test
@@ -209,9 +302,13 @@ class PaymentConfirmTopupUseCaseTest {
     }
 
 
+    private static PgResultUnknownException unknown() {
+        return new PgResultUnknownException(new RuntimeException("Connection reset"));
+    }
+
     private void started() {
         given(processor.start(MEMBER_ID, ORDER_ID, PAYMENT_KEY, AMOUNT))
-                .willReturn(new TopupConfirmStartResult(TOPUP_ID, PgProvider.TOSS, TopupConfirmStartResult.Outcome.STARTED, null));
+                .willReturn(new TopupConfirmStartResult(TOPUP_ID, PgProvider.TOSS, TopupConfirmStartResult.Outcome.STARTED, null, PAYMENT));
     }
 
     // 결과 확인 대기: 실패 기록도 반영도 하지 않음

@@ -35,7 +35,7 @@ class TossTopupGatewayAdapterTest {
     private static final String PAYMENT_KEY = "pk_1";
     private static final String ORDER_ID = "TOPUP-123e4567-e89b-12d3-a456-426614174000";
     private static final long AMOUNT = 20_000;
-    private static final PgPaymentRef PAYMENT = new PgPaymentRef(ORDER_ID, PAYMENT_KEY, AMOUNT, LocalDateTime.of(2026, 11, 15, 10, 0));
+    private static final PgPaymentRef PAYMENT = new PgPaymentRef(ORDER_ID, PAYMENT_KEY, AMOUNT, LocalDateTime.of(2026, 11, 15, 10, 0), null);
     private static final String REASON = "충전 취소";
     private static final String CANCEL_KEY = "TOPUP-7-CANCEL-0";
     private static final PgCancelRequest CANCEL_REQUEST = new PgCancelRequest(PAYMENT, 15_000, REASON, 0, CANCEL_KEY);
@@ -50,6 +50,12 @@ class TossTopupGatewayAdapterTest {
     @DisplayName("토스는 SDK가 주문번호·금액으로 결제창을 띄워 서버가 만들 결제창 값이 없다")
     void checkout() {
         assertThat(adapter.checkout(PAYMENT)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("토스는 다시 승인해도 ALREADY_PROCESSED_PAYMENT(결과 모름)라 재승인하지 않는다")
+    void canRetryConfirm() {
+        assertThat(adapter.canRetryConfirm()).isFalse();
     }
 
     @Test

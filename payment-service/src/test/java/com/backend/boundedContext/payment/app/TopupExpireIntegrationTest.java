@@ -16,13 +16,14 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Topup;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.out.PaymentMemberPort;
 import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.WalletRepository;
+import com.backend.boundedContext.payment.support.TestPgCircuitBreakers;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 
 /**
  * READY 만료 조건부 UPDATE를 실제 DB로 확인한다.
@@ -31,6 +32,9 @@ import com.backend.boundedContext.payment.out.WalletRepository;
  */
 @SpringBootTest(properties = "custom.scheduling.enabled=false")   // 테스트 중 스케줄러가 테스트 데이터를 바꾸지 않게 끔
 class TopupExpireIntegrationTest {
+
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Autowired
     private PaymentFacade paymentFacade;
@@ -54,6 +58,7 @@ class TopupExpireIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        TestPgCircuitBreakers.resetAll(circuitBreakerRegistry);
         memberId = randomMemberId();
         wallet = walletRepository.save(Wallet.create(memberId));
     }
@@ -87,7 +92,7 @@ class TopupExpireIntegrationTest {
     }
 
     private Long prepare() {
-        Long topupId = paymentFacade.prepareTopup(memberId, 10_000, PgProvider.TOSS).topupId();
+        Long topupId = paymentFacade.prepareTopup(memberId, 10_000).topupId();
         topupIds.add(topupId);
         return topupId;
     }
