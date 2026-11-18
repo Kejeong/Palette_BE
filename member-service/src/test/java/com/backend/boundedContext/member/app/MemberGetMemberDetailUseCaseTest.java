@@ -21,13 +21,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.backend.boundedContext.member.app.dto.AdminMemberDetailDto;
+import com.backend.boundedContext.member.domain.Influencer;
 import com.backend.boundedContext.member.domain.Member;
 import com.backend.boundedContext.member.domain.MemberErrorCode;
+import com.backend.boundedContext.member.out.InfluencerRepository;
 import com.backend.boundedContext.member.out.MemberOrderPort;
 import com.backend.boundedContext.member.out.MemberPaymentPort;
 import com.backend.boundedContext.member.out.MemberPortUnavailableException;
 import com.backend.global.exception.DomainException;
 import com.backend.global.exception.ErrorCode;
+import com.backend.shared.member.dto.InfluencerStatus;
 import com.backend.shared.member.dto.MemberRole;
 import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
@@ -43,6 +46,9 @@ class MemberGetMemberDetailUseCaseTest {
 
     @Mock
     private MemberGetSellerUseCase memberGetSellerUseCase;
+
+    @Mock
+    private InfluencerRepository influencerRepository;
 
     @Mock
     private MemberPaymentPort memberPaymentPort;
@@ -65,11 +71,13 @@ class MemberGetMemberDetailUseCaseTest {
     }
 
     @Test
-    @DisplayName("회원 기본 정보, 판매자 상태, 지갑 잔액, 최근 주문 5건을 함께 돌려준다")
+    @DisplayName("회원 기본 정보, 판매자·인플루언서 상태, 지갑 잔액, 최근 주문 5건을 함께 돌려준다")
     void getMemberDetail_withSeller() {
         given(memberSupport.getMember(3L)).willReturn(member);
         given(memberGetSellerUseCase.findSellerByMemberId(3L))
                 .willReturn(Optional.of(new SellerDto(10L, 3L, "팔레트상점", SellerStatus.PENDING)));
+        given(influencerRepository.findByMemberId(3L))
+                .willReturn(Optional.of(Influencer.apply(member, "뷰티로그", "https://instagram.com/beautylog", "화장품 리뷰")));
         given(memberPaymentPort.getWallet(3L)).willReturn(new WalletSummaryDto(3L, 50_000L, 0L));
         given(memberOrderPort.getRecentOrders(3L, 5)).willReturn(List.of(
                 new OrderSummaryDto(101L, OrderStatus.PAID, 25_000L, LocalDateTime.of(2026, 10, 12, 10, 0))));
@@ -79,6 +87,7 @@ class MemberGetMemberDetailUseCaseTest {
         assertThat(detail.memberId()).isEqualTo(3L);
         assertThat(detail.role()).isEqualTo(MemberRole.USER);
         assertThat(detail.sellerStatus()).isEqualTo(SellerStatus.PENDING);
+        assertThat(detail.influencerStatus()).isEqualTo(InfluencerStatus.PENDING);
         assertThat(detail.wallet().balance()).isEqualTo(50_000L);
         assertThat(detail.wallet().heldAmount()).isZero();
         assertThat(detail.recentOrders()).singleElement().satisfies(order -> {
@@ -89,7 +98,7 @@ class MemberGetMemberDetailUseCaseTest {
     }
 
     @Test
-    @DisplayName("판매자 신청 이력이 없으면 판매자 상태는 null, 주문이 없으면 빈 목록")
+    @DisplayName("판매자·인플루언서 신청 이력이 없으면 각 상태는 null, 주문이 없으면 빈 목록")
     void getMemberDetail_noSeller() {
         given(memberSupport.getMember(3L)).willReturn(member);
         given(memberGetSellerUseCase.findSellerByMemberId(3L)).willReturn(Optional.empty());
@@ -98,6 +107,7 @@ class MemberGetMemberDetailUseCaseTest {
 
         AdminMemberDetailDto detail = memberGetMemberDetailUseCase.getMemberDetail(3L);
         assertThat(detail.sellerStatus()).isNull();
+        assertThat(detail.influencerStatus()).isNull();
         assertThat(detail.recentOrders()).isEmpty();
     }
 

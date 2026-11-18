@@ -29,7 +29,7 @@ public class ApiV1AdminMemberController {
 
     private final MemberFacade memberFacade;
 
-    @Operation(summary = "회원 목록 조회", description = "가입일 최신순으로 고정(sort 값은 무시). 탈퇴 회원도 포함합니다. page(0부터), size(기본 20, 최대 100)")
+    @Operation(summary = "회원 목록 조회", description = "가입일 최신순으로 고정(sort 값은 무시). 탈퇴 회원도 포함합니다. 판매자·인플루언서 상태는 신청 이력이 없으면 null. page(0부터), size(기본 20, 최대 100)")
     @GetMapping
     public RsData<PageResponse<AdminMemberDto>> getMembers(
             @Parameter(description = "이메일 부분 검색") @RequestParam(required = false) String email,
@@ -40,7 +40,7 @@ public class ApiV1AdminMemberController {
         return RsData.of("200-1", "회원 목록을 조회했습니다.", memberFacade.getMembers(email, status, memberType, pageable));
     }
 
-    @Operation(summary = "회원 상세 조회", description = "역할, 판매자 상태(신청 이력이 없으면 null), 지갑 잔액을 함께 반환합니다.")
+    @Operation(summary = "회원 상세 조회", description = "역할, 판매자·인플루언서 상태(신청 이력이 없으면 null), 지갑 잔액을 함께 반환합니다.")
     @GetMapping("/{userId}")
     public RsData<AdminMemberDetailDto> getMemberDetail(
             @PathVariable Long userId
