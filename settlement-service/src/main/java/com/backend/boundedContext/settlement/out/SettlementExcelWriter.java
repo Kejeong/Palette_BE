@@ -1,11 +1,14 @@
 package com.backend.boundedContext.settlement.out;
 
+import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.DataFormat;
 import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.streaming.SXSSFSheet;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.springframework.stereotype.Component;
@@ -26,7 +29,10 @@ import java.util.Map;
  * Apache POI SXSSF로 메모리에는 ROW_WINDOW(100)행만 두고 나머지는 임시 파일로 흘려 쓴다(행이 많아도 메모리를 적게 쓴다).
  * 시트·열·행을 쓰는 방법만 알고, 어떤 열을 넣을지는 UseCase가 정한다.
  * 한 시트는 엑셀 최대 행 수(1,048,576)를 넘길 수 없어 MAX_DATA_ROWS를 넘으면 TooManyRowsException을 던진다.
- * 열 너비는 열 형식(ColumnType)별 고정값으로 정한다. 자동 맞춤은 모든 셀의 글자 폭을 재서(행 수 × 열 수) 큰 파일에서 느리다.
+ * 열 너비는 열 형식(ColumnType)별 고정값으로 정한다(상호명, 상품명처럼 긴 글자 열은 Column에 너비를 따로 준다).
+ * 자동 맞춤은 모든 셀의 글자 폭을 재서(행 수 × 열 수) 큰 파일에서 느리다.
+ * 머리글 행은 고정하고, 데이터 행에만 자동 필터를 건다(맨 아래 합계 행은 필터와 정렬에 섞이지 않는다).
+ * 합계 행은 합계가 없는 앞쪽 열을 하나로 합쳐 라벨을 오른쪽 정렬로 쓰고, 위 테두리로 데이터와 구분한다.
  */
 @Component
 public class SettlementExcelWriter {
@@ -55,7 +61,25 @@ public class SettlementExcelWriter {
         BOOLEAN
     }
 
-    public record Column(String header, ColumnType type) {
+    /**
+     * @param width  열 너비(글자 수). 0이면 형식별 기본 너비
+     * @param strong 데이터 칸을 굵게 쓸지 (지급액처럼 가장 중요한 열)
+     */
+    public record Column(String header, ColumnType type, int width, boolean strong) {
+
+        public Column(String header, ColumnType type) {
+            this(header, type, 0, false);
+        }
+
+        /** 긴 글자 열(상호명, 상품명 등) */
+        public static Column wide(String header, ColumnType type, int width) {
+            return new Column(header, type, width, false);
+        }
+
+        /** 굵게 보이는 열 */
+        public static Column strong(String header, ColumnType type) {
+            return new Column(header, type, 0, true);
+        }
     }
 
     public static class TooManyRowsException extends RuntimeException {
@@ -74,6 +98,9 @@ public class SettlementExcelWriter {
         private final SXSSFWorkbook workbook = new SXSSFWorkbook(ROW_WINDOW);
         private final CellStyle headerStyle;
         private final CellStyle amountStyle;
+        private final CellStyle strongAmountStyle;
+        private final CellStyle totalLabelStyle;
+        private final CellStyle totalBlankStyle;
         private final CellStyle idStyle;
         private final CellStyle percentStyle;
         private final CellStyle dateTimeStyle;
@@ -94,9 +121,19 @@ public class SettlementExcelWriter {
             percentStyle.setDataFormat(format.getFormat("0\"%\""));
             dateTimeStyle = workbook.createCellStyle();
             dateTimeStyle.setDataFormat(format.getFormat("yyyy-mm-dd hh:mm:ss"));
+            strongAmountStyle = workbook.createCellStyle();
+            strongAmountStyle.setFont(bold);
+            strongAmountStyle.setDataFormat(format.getFormat("#,##0"));
             totalStyle = workbook.createCellStyle();
             totalStyle.setFont(bold);
             totalStyle.setDataFormat(format.getFormat("#,##0"));
+            totalStyle.setBorderTop(BorderStyle.THIN);
+            totalLabelStyle = workbook.createCellStyle();
+            totalLabelStyle.setFont(bold);
+            totalLabelStyle.setAlignment(HorizontalAlignment.RIGHT);
+            totalLabelStyle.setBorderTop(BorderStyle.THIN);
+            totalBlankStyle = workbook.createCellStyle();
+            totalBlankStyle.setBorderTop(BorderStyle.THIN);
         }
 
         /** 시트를 만들고 머리글 행을 쓴다. @return 시트 번호(addRow에 넘긴다) */
@@ -120,22 +157,39 @@ public class SettlementExcelWriter {
             if (state.dataRows >= MAX_DATA_ROWS) throw new TooManyRowsException();
             Row row = state.sheet.createRow(++state.dataRows);
             for (int i = 0; i < state.columns.size(); i++) {
-                writeCell(row.createCell(i), state.columns.get(i).type(), values.get(i));
+                writeCell(row.createCell(i), state.columns.get(i), values.get(i));
             }
         }
 
-        /** 마지막 합계 행. totals는 열 번호 → 합계 */
+        /**
+         * 마지막 합계 행. totals는 열 번호 → 합계
+         * 첫 합계 열 앞의 열들(ID, 정산월 등)을 하나로 합쳐 라벨을 오른쪽 정렬로 쓰고(라벨이 ID 칸에 붙어 보이지 않게),
+         * 행 전체에 위 테두리를 그린다. 자동 필터는 데이터 행까지만 걸어 합계 행이 정렬, 필터에 섞이지 않게 한다
+         */
         public void addTotalRow(int sheetIndex, String label, Map<Integer, Long> totals) {
             SheetState state = sheets.get(sheetIndex);
-            Row row = state.sheet.createRow(state.dataRows + 1);
-            Cell labelCell = row.createCell(0);
+            int rowIndex = state.dataRows + 1;
+            Row row = state.sheet.createRow(rowIndex);
+            int lastColumn = state.columns.size() - 1;
+            int labelEnd = Math.max(0, totals.keySet().stream().min(Integer::compare).orElse(lastColumn + 1) - 1);
+            for (int i = 0; i <= lastColumn; i++) {
+                row.createCell(i).setCellStyle(totalBlankStyle);
+            }
+            Cell labelCell = row.getCell(0);
             labelCell.setCellValue(label);
-            labelCell.setCellStyle(headerStyle);
+            labelCell.setCellStyle(totalLabelStyle);
+            for (int i = 1; i <= labelEnd; i++) {
+                row.getCell(i).setCellStyle(totalLabelStyle);
+            }
+            if (labelEnd > 0) {
+                state.sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex, 0, labelEnd));
+            }
             totals.forEach((column, total) -> {
-                Cell cell = row.createCell(column);
+                Cell cell = row.getCell(column);
                 cell.setCellValue(total);
                 cell.setCellStyle(totalStyle);
             });
+            state.sheet.setAutoFilter(new CellRangeAddress(0, state.dataRows, 0, lastColumn));
         }
 
         /** 완성된 파일을 file에 쓴다(파일 전체를 메모리에 올리지 않는다). 파일을 만들고 지우는 일은 호출한 쪽이 한다 */
@@ -157,8 +211,10 @@ public class SettlementExcelWriter {
             workbook.dispose();   // SXSSF 임시 파일 삭제
         }
 
-        /** 열 너비(글자 수). ID 12, AMOUNT 14, PERCENT 9, DATETIME 20, BOOLEAN 9, TEXT는 머리글 글자 수 × 2 + 2와 14 중 큰 값 */
+        /** 열 너비(글자 수). Column에 너비가 있으면 그 값, 없으면 ID 12, AMOUNT 14, PERCENT 9, DATETIME 20, BOOLEAN 9,
+         *  TEXT는 머리글 글자 수 × 2 + 2와 14 중 큰 값 */
         static int widthOf(Column column) {
+            if (column.width() > 0) return column.width();
             return switch (column.type()) {
                 case ID -> 12;
                 case AMOUNT -> 14;
@@ -168,8 +224,9 @@ public class SettlementExcelWriter {
             };
         }
 
-        private void writeCell(Cell cell, ColumnType type, Object value) {
+        private void writeCell(Cell cell, Column column, Object value) {
             if (value == null) return;
+            ColumnType type = column.type();
             switch (type) {
                 case TEXT -> cell.setCellValue(value.toString());
                 case BOOLEAN -> cell.setCellValue(Boolean.TRUE.equals(value) ? "예" : "아니오");
@@ -182,7 +239,7 @@ public class SettlementExcelWriter {
                     cell.setCellStyle(switch (type) {
                         case ID -> idStyle;
                         case PERCENT -> percentStyle;
-                        default -> amountStyle;
+                        default -> column.strong() ? strongAmountStyle : amountStyle;
                     });
                 }
             }

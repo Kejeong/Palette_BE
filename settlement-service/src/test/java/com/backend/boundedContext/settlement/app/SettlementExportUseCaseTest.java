@@ -87,19 +87,25 @@ class SettlementExportUseCaseTest {
         assertEquals(7L, exportQueries.get(0)[2]);   // sellerId 조건
         try (XSSFWorkbook read = read(file)) {
             Sheet statementSheet = read.getSheet("정산서");
+            // 정산월, 정산서 ID, 지급 일시, 품목 수, 판매 대금, 수수료, 지급액
             assertEquals(7, statementSheet.getRow(0).getLastCellNum());
-            assertEquals(27_000, (long) statementSheet.getRow(1).getCell(4).getNumericCellValue());   // 지급액
-            assertEquals(PAID_AT, statementSheet.getRow(1).getCell(6).getLocalDateTimeCellValue());
-            assertEquals(27_000, (long) statementSheet.getRow(2).getCell(4).getNumericCellValue());   // 합계 지급액
+            assertEquals("정산월", statementSheet.getRow(0).getCell(0).getStringCellValue());
+            assertEquals("지급액", statementSheet.getRow(0).getCell(6).getStringCellValue());
+            assertEquals(31, (long) statementSheet.getRow(1).getCell(1).getNumericCellValue());       // 정산서 ID
+            assertEquals(PAID_AT, statementSheet.getRow(1).getCell(2).getLocalDateTimeCellValue());   // 지급 일시
+            assertEquals(27_000, (long) statementSheet.getRow(1).getCell(6).getNumericCellValue());   // 지급액
+            assertEquals("합계 (1건)", statementSheet.getRow(2).getCell(0).getStringCellValue());
+            assertEquals(27_000, (long) statementSheet.getRow(2).getCell(6).getNumericCellValue());   // 합계 지급액
             Sheet itemSheet = read.getSheet("품목 내역");
             assertEquals(3, itemSheet.getLastRowNum());                                              // 머리글 + 품목 2 + 합계
-            assertEquals("티셔츠", itemSheet.getRow(1).getCell(4).getStringCellValue());              // 상품명
-            assertEquals("블랙 / M", itemSheet.getRow(1).getCell(5).getStringCellValue());            // 옵션명
-            assertEquals(2_000, (long) itemSheet.getRow(1).getCell(7).getNumericCellValue());        // 상품 쿠폰 할인액
-            assertEmptyCell(itemSheet.getRow(2).getCell(4));                                         // 이름이 실리기 전 후보
-            assertEquals(30_000, (long) itemSheet.getRow(3).getCell(6).getNumericCellValue());       // 합계 판매가
-            assertEquals(2_000, (long) itemSheet.getRow(3).getCell(7).getNumericCellValue());        // 합계 상품 쿠폰 할인액
-            assertEquals(27_000, (long) itemSheet.getRow(3).getCell(10).getNumericCellValue());      // 합계 지급액
+            assertEquals("티셔츠", itemSheet.getRow(1).getCell(7).getStringCellValue());              // 상품명
+            assertEquals("블랙 / M", itemSheet.getRow(1).getCell(8).getStringCellValue());            // 옵션명
+            assertEquals(2_000, (long) itemSheet.getRow(1).getCell(11).getNumericCellValue());       // 상품 쿠폰 할인액
+            assertEmptyCell(itemSheet.getRow(2).getCell(7));                                         // 이름이 실리기 전 후보
+            assertEquals("합계 (2건)", itemSheet.getRow(3).getCell(0).getStringCellValue());
+            assertEquals(30_000, (long) itemSheet.getRow(3).getCell(10).getNumericCellValue());      // 합계 판매가
+            assertEquals(2_000, (long) itemSheet.getRow(3).getCell(11).getNumericCellValue());       // 합계 상품 쿠폰 할인액
+            assertEquals(27_000, (long) itemSheet.getRow(3).getCell(13).getNumericCellValue());      // 합계 지급액
         }
     }
 
@@ -114,7 +120,7 @@ class SettlementExportUseCaseTest {
         assertEquals("palette-settlements-2026-08_2026-10.xlsx", file.fileName());
         assertTrue(exportQueries.isEmpty());
         try (XSSFWorkbook read = read(file)) {
-            assertEquals("합계", read.getSheet("정산서").getRow(1).getCell(0).getStringCellValue());
+            assertEquals("합계 (0건)", read.getSheet("정산서").getRow(1).getCell(0).getStringCellValue());
         }
     }
 
@@ -130,16 +136,20 @@ class SettlementExportUseCaseTest {
         assertNull(exportQueries.get(0)[2]);   // 판매자 조건 없음
         try (XSSFWorkbook read = read(file)) {
             Sheet statementSheet = read.getSheet("정산서");
+            // 정산월, 정산서 ID, 판매자 ID, 상호명, 지급 일시, 지급 원장 ID, 품목 수, 판매 대금, 수수료, 지급액
             assertEquals(10, statementSheet.getRow(0).getLastCellNum());
+            assertEquals("지급 원장 ID", statementSheet.getRow(0).getCell(5).getStringCellValue());
             assertEquals("팔레트상점", statementSheet.getRow(1).getCell(3).getStringCellValue());
-            assertEquals(501, (long) statementSheet.getRow(1).getCell(9).getNumericCellValue());
-            assertEquals(27_000, (long) statementSheet.getRow(2).getCell(6).getNumericCellValue());   // 합계 지급액
+            assertEquals(PAID_AT, statementSheet.getRow(1).getCell(4).getLocalDateTimeCellValue());   // 지급 일시
+            assertEquals(501, (long) statementSheet.getRow(1).getCell(5).getNumericCellValue());      // 지급 원장 ID
+            assertEquals(27_000, (long) statementSheet.getRow(2).getCell(9).getNumericCellValue());   // 합계 지급액
             Sheet itemSheet = read.getSheet("품목 내역");
-            assertEquals(15, itemSheet.getRow(0).getLastCellNum());
-            assertEquals(7, (long) itemSheet.getRow(1).getCell(2).getNumericCellValue());          // 판매자 ID 열
-            assertEquals("티셔츠", itemSheet.getRow(1).getCell(5).getStringCellValue());            // 상품명
-            assertEquals(30_000, (long) itemSheet.getRow(3).getCell(7).getNumericCellValue());     // 합계 판매가
-            assertEquals(2_000, (long) itemSheet.getRow(3).getCell(8).getNumericCellValue());      // 합계 상품 쿠폰 할인액
+            assertEquals(16, itemSheet.getRow(0).getLastCellNum());
+            assertEquals(7, (long) itemSheet.getRow(1).getCell(7).getNumericCellValue());          // 판매자 ID 열
+            assertEquals("팔레트상점", itemSheet.getRow(1).getCell(8).getStringCellValue());          // 상호명 열
+            assertEquals("티셔츠", itemSheet.getRow(1).getCell(9).getStringCellValue());            // 상품명
+            assertEquals(30_000, (long) itemSheet.getRow(3).getCell(12).getNumericCellValue());    // 합계 판매가
+            assertEquals(2_000, (long) itemSheet.getRow(3).getCell(13).getNumericCellValue());     // 합계 상품 쿠폰 할인액
         }
     }
 
@@ -174,7 +184,8 @@ class SettlementExportUseCaseTest {
         try (XSSFWorkbook read = read(file)) {
             Sheet statementSheet = read.getSheet("정산서");
             assertEquals("팔레트상점", statementSheet.getRow(2).getCell(3).getStringCellValue());
-            assertEquals(81_000, (long) statementSheet.getRow(4).getCell(6).getNumericCellValue());   // 합계 지급액 3건
+            assertEquals("합계 (3건)", statementSheet.getRow(4).getCell(0).getStringCellValue());
+            assertEquals(81_000, (long) statementSheet.getRow(4).getCell(9).getNumericCellValue());   // 합계 지급액 3건
         }
     }
 
