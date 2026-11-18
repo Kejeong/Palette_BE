@@ -8,12 +8,16 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 public interface InfluencerRepository extends JpaRepository<Influencer, Long> {
 
     Optional<Influencer> findByMemberId(Long memberId);
+
+    // 관리자 회원 목록: 한 페이지 회원들의 인플루언서를 한 번에 읽음 (회원마다 따로 조회하지 않게)
+    List<Influencer> findAllByMemberIdIn(Collection<Long> memberIds);
 
     Optional<Influencer> findByIdAndStatus(Long id, InfluencerStatus status);
 
