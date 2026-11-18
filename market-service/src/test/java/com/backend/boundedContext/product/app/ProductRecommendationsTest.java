@@ -110,6 +110,10 @@ class ProductRecommendationsTest {
         Product best = create(skincare, "추천될 크림", PRICE, 10);
         Product soldOut = create(skincare, "품절 크림", PRICE, 0);
         Product otherParent = create(top, "다른 대분류 셔츠", PRICE, 10);
+        // 섹션을 채울 후보. 로컬 시드 상품이 없는 DB(CI)에서도 forYou에 쓰이고 남는 후보가 있어야 섹션이 나온다
+        for (int i = 1; i <= 4; i++) {
+            create(skincare, "섹션 후보 크림 " + i, PRICE * 2, 10);
+        }
         LocalDateTime now = LocalDateTime.now();
         given(orderApi.getRecentPurchases(eq(memberId), any(), anyInt()))
                 .willReturn(List.of(new PurchasedProductDto(purchased.getId(), now.minusDays(1))));
