@@ -23,6 +23,7 @@ import lombok.extern.slf4j.Slf4j;
  * 충전 승인: Tx1(PROCESSING 선점) → PG 승인 호출(트랜잭션 밖) → Tx2(결과 반영)
  * 이 클래스는 트랜잭션 없이 흐름만 조립하고, 각 트랜잭션은 PaymentTopupConfirmProcessor에서 실행
  * 승인은 충전 건에 기록된 PG로 보냄 (TopupGateways)
+ * 이미 승인 중이거나 승인된 충전 건에 같은 요청이 다시 오면 PG를 부르지 않고 처음 결과를 돌려줌 (Tx1에서 판단)
  *
  * PG 결과별 처리
  * - 승인 성공 → 예치금 반영(DONE)
@@ -48,6 +49,10 @@ public class PaymentConfirmTopupUseCase {
 
         // Tx1: 금액 검증 후 PROCESSING 선점. 금액이 다르면 실패 기록이 커밋된 뒤 여기서 400
         TopupConfirmStartResult start = paymentTopupConfirmProcessor.start(memberId, orderId, paymentKey, amount);
+        if (start.isReplayed()) {
+            log.info("같은 충전 승인 요청이 다시 와 처음 결과를 돌려줍니다. topupId={}, status={}", start.topupId(), start.replay().status());
+            return start.replay();
+        }
         if (!start.isStarted()) {
             throw new DomainException(PaymentErrorCode.AMOUNT_MISMATCH);
         }

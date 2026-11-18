@@ -88,12 +88,26 @@ class PaymentConfirmTopupUseCaseTest {
     @DisplayName("금액 불일치: PG를 호출하지 않고 400 AMOUNT_MISMATCH")
     void confirm_amountMismatch() {
         given(processor.start(MEMBER_ID, ORDER_ID, PAYMENT_KEY, AMOUNT))
-                .willReturn(new TopupConfirmStartResult(TOPUP_ID, PgProvider.TOSS, TopupConfirmStartResult.Outcome.AMOUNT_MISMATCH));
+                .willReturn(new TopupConfirmStartResult(TOPUP_ID, PgProvider.TOSS, TopupConfirmStartResult.Outcome.AMOUNT_MISMATCH, null));
 
         assertThatThrownBy(() -> useCase.confirmTopup(MEMBER_ID, PAYMENT_KEY, ORDER_ID, AMOUNT))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("400-AMOUNT_MISMATCH");
         verify(gateway, never()).confirm(anyString(), anyString(), anyLong());
+    }
+
+    @Test
+    @DisplayName("승인 재요청: 이미 승인 중이거나 승인된 충전 건이면 PG를 부르지 않고 처음 결과를 그대로 돌려준다")
+    void confirm_replayed() {
+        TopupConfirmDto done = new TopupConfirmDto(TOPUP_ID, ORDER_ID, TopupStatus.DONE, AMOUNT, 25_000L);
+        given(processor.start(MEMBER_ID, ORDER_ID, PAYMENT_KEY, AMOUNT))
+                .willReturn(TopupConfirmStartResult.replayed(done, PgProvider.TOSS));
+
+        TopupConfirmDto result = useCase.confirmTopup(MEMBER_ID, PAYMENT_KEY, ORDER_ID, AMOUNT);
+
+        assertThat(result).isEqualTo(done);
+        verifyNoInteractions(gateway);
+        verify(processor, never()).complete(anyLong(), any());
     }
 
     @Test
@@ -197,7 +211,7 @@ class PaymentConfirmTopupUseCaseTest {
 
     private void started() {
         given(processor.start(MEMBER_ID, ORDER_ID, PAYMENT_KEY, AMOUNT))
-                .willReturn(new TopupConfirmStartResult(TOPUP_ID, PgProvider.TOSS, TopupConfirmStartResult.Outcome.STARTED));
+                .willReturn(new TopupConfirmStartResult(TOPUP_ID, PgProvider.TOSS, TopupConfirmStartResult.Outcome.STARTED, null));
     }
 
     // 결과 확인 대기: 실패 기록도 반영도 하지 않음

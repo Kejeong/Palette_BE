@@ -81,6 +81,17 @@ public interface TopupRepository extends JpaRepository<Topup, Long>, JpaSpecific
             """)
     List<TopupStuckCount> countStale(@Param("statuses") Collection<TopupStatus> statuses, @Param("cutoff") LocalDateTime cutoff);
 
+    // 관리자 실패 거래의 충전 확인 지연: 결과 확인 대기 상태로 기준 시각 이전부터 남은 건과 실패 상태인 건 중 지금 상태가 된 시각(updatedAt)이 기간 안인 것 (정렬·페이지는 Pageable)
+    @Query("""
+            select t from Topup t
+             where ((t.status in :pendingStatuses and t.updatedAt < :pendingCutoff) or t.status in :failedStatuses)
+               and t.updatedAt >= :from
+               and t.updatedAt < :to
+            """)
+    Page<Topup> findDelayed(@Param("pendingStatuses") Collection<TopupStatus> pendingStatuses, @Param("pendingCutoff") LocalDateTime pendingCutoff,
+                            @Param("failedStatuses") Collection<TopupStatus> failedStatuses,
+                            @Param("from") LocalDateTime from, @Param("to") LocalDateTime to, Pageable pageable);
+
     /**
      * READY 만료: 기준 시각 이전에 만든 READY 충전 건을 한 번에 만료 상태로 바꾸고 바뀐 건수를 반환
      * 조건부 UPDATE라 같은 순간 승인 요청이 PROCESSING으로 선점한 건은 바뀌지 않음

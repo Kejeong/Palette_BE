@@ -12,7 +12,6 @@ import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.Topup;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
-import com.backend.boundedContext.payment.domain.WalletTransaction;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
 import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.WalletRepository;
@@ -57,7 +56,7 @@ public class PaymentTopupCancelProcessor {
         topupGateways.checkSupported(topup.getPgProvider());
         topup.startCancel();
         String idempotencyKey = topup.cancelIdempotencyKey();
-        walletTransactionRepository.save(WalletTransaction.record(wallet, WalletTransactionType.CHARGE_CANCEL, topup.getCancelingAmount(), topup.getId(), idempotencyKey));
+        walletTransactionRepository.save(wallet.change(WalletTransactionType.CHARGE_CANCEL, topup.getCancelingAmount(), topup.getId(), idempotencyKey));
 
         return new TopupCancelStartResult(topup.getId(), topup.getPgProvider(), PgPaymentRef.from(topup), topup.getCancelingAmount(), topup.getCancelAttempts(), idempotencyKey);
     }
@@ -91,7 +90,7 @@ public class PaymentTopupCancelProcessor {
             return;
         }
         // failCancel()이 취소 중 금액을 0으로 만들기 전에 되돌릴 금액·키를 읽음
-        walletTransactionRepository.save(WalletTransaction.record(locked.wallet(), WalletTransactionType.CHARGE_CANCEL_RESTORE, topup.getCancelingAmount(), topup.getId(), topup.cancelRestoreIdempotencyKey()));
+        walletTransactionRepository.save(locked.wallet().change(WalletTransactionType.CHARGE_CANCEL_RESTORE, topup.getCancelingAmount(), topup.getId(), topup.cancelRestoreIdempotencyKey()));
         topup.failCancel();
     }
 

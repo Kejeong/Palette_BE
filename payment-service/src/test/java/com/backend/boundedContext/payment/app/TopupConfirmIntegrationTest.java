@@ -126,7 +126,7 @@ class TopupConfirmIntegrationTest {
     }
 
     @Test
-    @DisplayName("동시 승인: 같은 요청이 동시에 두 번 와도 토스는 한 번만 호출되고 잔액도 한 번만 늘어난다")
+    @DisplayName("동시 승인: 같은 요청이 동시에 두 번 와도 둘 다 200이고, 토스는 한 번만 호출되고 잔액도 한 번만 늘어난다")
     void confirm_concurrent() throws Exception {
         // 첫 요청이 토스 호출 중인 동안 두 번째 요청이 들어오도록 응답을 늦춘다
         given(tossPaymentsClient.confirm(paymentKey, orderId, AMOUNT)).willAnswer(invocation -> {
@@ -155,10 +155,27 @@ class TopupConfirmIntegrationTest {
         }
         executor.shutdown();
 
-        assertThat(results).filteredOn(TopupConfirmDto.class::isInstance).hasSize(1);
-        assertThat(results).filteredOn("409-TOPUP_ALREADY_PROCESSED"::equals).hasSize(1);
+        // 늦게 선점을 시도한 요청은 재요청으로 처리돼 PROCESSING(첫 요청이 토스 호출 중) 또는 DONE(첫 요청이 끝남)을 받음
+        assertThat(results).allMatch(TopupConfirmDto.class::isInstance);
+        assertThat(results).map(result -> ((TopupConfirmDto) result).status()).contains(TopupStatus.DONE)
+                .allMatch(status -> status == TopupStatus.DONE || status == TopupStatus.PROCESSING);
         verify(tossPaymentsClient, times(1)).confirm(anyString(), anyString(), anyLong());
         assertThat(walletRepository.findByMemberId(memberId).orElseThrow().getBalance()).isEqualTo(AMOUNT);
+        assertThat(transactionsOfWallet()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("승인 재요청: 승인이 끝난 뒤 같은 요청이 다시 오면 토스를 다시 부르지 않고 DONE과 지금 잔액을 돌려준다")
+    void confirm_replayAfterDone() {
+        given(tossPaymentsClient.confirm(paymentKey, orderId, AMOUNT)).willReturn(tossDone());
+        paymentFacade.confirmTopup(memberId, paymentKey, orderId, AMOUNT);
+
+        TopupConfirmDto replay = paymentFacade.confirmTopup(memberId, paymentKey, orderId, AMOUNT);
+
+        assertThat(replay.status()).isEqualTo(TopupStatus.DONE);
+        assertThat(replay.orderId()).isEqualTo(orderId);
+        assertThat(replay.balance()).isEqualTo(AMOUNT);
+        verify(tossPaymentsClient, times(1)).confirm(anyString(), anyString(), anyLong());
         assertThat(transactionsOfWallet()).hasSize(1);
     }
 
