@@ -1,5 +1,5 @@
 # 앱 ERROR 로그 알림 규칙. 1분마다 최근 5분의 ERROR 로그 수를 세고, 1건이라도 있으면 알린다.
-# 대상은 앱 컨테이너 전부(palette-*)에서 인프라 컨테이너(nginx·postgres·redis·kafka·모니터링)를 뺀 것이다(세 쿼리 모두).
+# 대상은 앱 컨테이너 전부(palette-*)에서 인프라 컨테이너(nginx·postgres·redis·kafka·elasticsearch·모니터링)를 뺀 것이다(세 쿼리 모두).
 #   서비스가 분리되어 앱이 늘면 따로 고치지 않아도 자동으로 들어간다. 인프라 컨테이너가 늘면 제외 목록에 추가한다.
 # 앱 로그는 운영에서 JSON(ECS)으로 찍히므로(compose.prod.yaml의 LOGGING_STRUCTURED_FORMAT_CONSOLE)
 # | json 으로 필요한 필드만 라벨로 꺼낸다.
@@ -36,7 +36,7 @@ groups:
               queryType: instant
               expr: >-
                 sum by (container, log_logger, error_type, root_cause, http_path, service_version) (
-                  count_over_time({container=~"palette-.+", container!~"palette-(nginx|postgres|redis|kafka|loki|alloy|grafana|prometheus)"}
+                  count_over_time({container=~"palette-.+", container!~"palette-(nginx|postgres|redis|kafka|elasticsearch|loki|alloy|grafana|prometheus)"}
                     |= `"level":"ERROR"` != `AsyncRequestNotUsableException`
                     | json log_level="log.level", log_logger="log.logger", error_type="error.type", stack="error.stack_trace", message="message", service_version="service.version"
                     | __error__="" | log_level="ERROR"
@@ -71,7 +71,7 @@ groups:
               queryType: instant
               expr: >-
                 sum by (container, log_logger, error_type, root_cause, http_path, service_version) (
-                  count_over_time({container=~"palette-.+", container!~"palette-(nginx|postgres|redis|kafka|loki|alloy|grafana|prometheus)"}
+                  count_over_time({container=~"palette-.+", container!~"palette-(nginx|postgres|redis|kafka|elasticsearch|loki|alloy|grafana|prometheus)"}
                     |= `"level":"ERROR"` != `AsyncRequestNotUsableException`
                     | json log_level="log.level", log_logger="log.logger", error_type="error.type", stack="error.stack_trace", message="message", service_version="service.version"
                     | __error__="" | log_level="ERROR"
@@ -96,7 +96,7 @@ groups:
               queryType: instant
               expr: >-
                 sum by (container, log_logger, error_type, root_cause, http_path, service_version) (
-                  count_over_time({container=~"palette-.+", container!~"palette-(nginx|postgres|redis|kafka|loki|alloy|grafana|prometheus)"}
+                  count_over_time({container=~"palette-.+", container!~"palette-(nginx|postgres|redis|kafka|elasticsearch|loki|alloy|grafana|prometheus)"}
                     |= `"level":"ERROR"` != `AsyncRequestNotUsableException`
                     | json log_level="log.level", log_logger="log.logger", error_type="error.type", stack="error.stack_trace", message="message", service_version="service.version"
                     | __error__="" | log_level="ERROR"

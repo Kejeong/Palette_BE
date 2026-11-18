@@ -558,6 +558,12 @@ services:
     logging: *default-logging
     # storage.path: 어디까지 보냈는지 기억해, 재시작해도 로그를 중복으로 보내지 않는다
     command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
+    # config.alloy는 데이터 서버와 같이 쓰는 파일이라 이 서버의 값을 여기서 넘긴다(config.alloy 머리말 참고)
+    environment:
+      COMPOSE_PROJECT: palette
+      SERVER_NAME: app
+      LOKI_URL: http://loki:3100/loki/api/v1/push
+      PROMETHEUS_URL: http://prometheus:9090/api/v1/write
     # 컨테이너 지표(cadvisor)는 호스트 cgroup·Docker 저장소를 읽어야 해서 privileged가 필요하다(Alloy 문서).
     # 이미 docker.sock을 갖고 있어(호스트 root와 같은 권한) 권한 차이는 작다. 마운트는 모두 읽기 전용
     privileged: true
