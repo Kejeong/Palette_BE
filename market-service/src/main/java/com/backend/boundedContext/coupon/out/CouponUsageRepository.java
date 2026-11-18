@@ -88,6 +88,21 @@ public interface CouponUsageRepository extends JpaRepository<CouponUsage, Long> 
             """)
     int markReleasedIfReserved(Long id, LocalDateTime now);
 
+    /**
+     * 판매자가 발행한 상품 쿠폰의 [from, to) 사용 합계 (판매자 쿠폰 화면의 이번 달 사용, 할인 총액)
+     * 사용 시각(usedAt)이 기간 안이고 USED인 것만 센다. 결제 전 취소, 만료로 해제된 예약은 들어가지 않는다
+     */
+    @Query("""
+            select new com.backend.boundedContext.coupon.out.CouponSellerMonthlyUsage(count(u), coalesce(sum(u.discountAmount), 0L))
+              from CouponUsage u
+             where u.coupon.issuerType = com.backend.boundedContext.coupon.domain.CouponIssuerType.SELLER
+               and u.coupon.issuerId = :sellerId
+               and u.status = com.backend.boundedContext.coupon.domain.CouponUsageStatus.USED
+               and u.usedAt >= :from
+               and u.usedAt < :to
+            """)
+    CouponSellerMonthlyUsage sumUsedBySellerBetween(Long sellerId, LocalDateTime from, LocalDateTime to);
+
     /** 쿠폰별 이 상태의 사용 수와 할인 합계 (관리자 목록, 상세) */
     @Query("""
             select new com.backend.boundedContext.coupon.out.CouponUsageStat(u.coupon.id, count(u), sum(u.discountAmount))

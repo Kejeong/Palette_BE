@@ -3,9 +3,12 @@ package com.backend.boundedContext.coupon.in;
 import com.backend.boundedContext.coupon.app.CouponFacade;
 import com.backend.boundedContext.coupon.app.dto.ProductCouponDto;
 import com.backend.boundedContext.coupon.app.dto.ProductCouponIssueResultDto;
+import com.backend.boundedContext.coupon.app.dto.SellerCouponMonthlyStatsDto;
 import com.backend.boundedContext.coupon.domain.CouponDisplayStatus;
 import com.backend.boundedContext.coupon.in.dto.ProductCouponIssueRequest;
 import com.backend.boundedContext.coupon.in.dto.ProductCouponUpdateRequest;
+import com.backend.global.exception.DomainException;
+import com.backend.global.exception.GlobalErrorCode;
 import com.backend.global.page.PageResponse;
 import com.backend.global.rsData.RsData;
 import com.backend.global.security.AuthMember;
@@ -26,6 +29,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
 
 @Tag(name = "판매자 쿠폰", description = "상품 쿠폰 발행, 조회, 수정, 중지 (승인된 판매자)")
 @RestController
@@ -64,6 +70,21 @@ public class ApiV1SellerCouponController {
                 couponFacade.getSellerCoupons(authMember.memberId(), status, pageable));
     }
 
+    @Operation(summary = "쿠폰 한 달 사용 집계",
+            description = "내 상품 쿠폰이 그 달에 사용(USED)된 횟수와 할인 합계. month(yyyy-MM, 한국 시간 기준)가 없으면 이번 달. "
+                    + "예약 중이거나 결제 전 취소, 만료로 해제된 것은 세지 않는다")
+    @ApiResponse(responseCode = "400", description = "400-INVALID_REQUEST month 형식이 yyyy-MM이 아님")
+    @ApiResponse(responseCode = "403", description = "403-SELLER_NOT_APPROVED")
+    @GetMapping("/stats")
+    public RsData<SellerCouponMonthlyStatsDto> getMonthlyStats(
+            @AuthenticationPrincipal AuthMember authMember,
+            @Parameter(description = "집계할 달(yyyy-MM). 없으면 이번 달", example = "2026-11")
+            @RequestParam(required = false) String month
+    ) {
+        return RsData.of("200-1", "쿠폰 사용 집계를 조회했습니다.",
+                couponFacade.getSellerCouponMonthlyStats(authMember.memberId(), parseMonth(month)));
+    }
+
     @Operation(summary = "쿠폰 상세", description = "코드, 대상 상품, 인플루언서, 사용 수, 할인 총액")
     @ApiResponse(responseCode = "403", description = "403-FORBIDDEN 내 쿠폰이 아님")
     @ApiResponse(responseCode = "404", description = "404-COUPON_NOT_FOUND")
@@ -97,5 +118,14 @@ public class ApiV1SellerCouponController {
     public RsData<Void> stop(@AuthenticationPrincipal AuthMember authMember, @PathVariable Long couponId) {
         couponFacade.stopCouponBySeller(authMember.memberId(), couponId);
         return RsData.of("200-1", "쿠폰을 중지했습니다.");
+    }
+
+    private static YearMonth parseMonth(String month) {
+        if (month == null || month.isBlank()) return YearMonth.now();
+        try {
+            return YearMonth.parse(month.trim());
+        } catch (DateTimeParseException e) {
+            throw new DomainException(GlobalErrorCode.INVALID_REQUEST);
+        }
     }
 }
