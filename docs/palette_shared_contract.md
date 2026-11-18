@@ -65,7 +65,7 @@ X-Internal-Key: <INTERNAL_API_KEY 값>
 | 회원 가입 | member | 회원 저장 → `MemberSignedUpEvent` → (커밋 뒤 Kafka `member.events`) 결제가 지갑 생성 | 이벤트, 별도 Tx (지갑 생성이 실패해도 가입은 성공) |
 | 장바구니 조회 | order | `ProductApi.getOptions(optionIds)` → 현재 가격·판매 가능 여부·대표 이미지로 예상 금액 계산 | 동기 조회 |
 | 장바구니 담기·주문 생성 시 본인 상품 검사 | order | `MemberApi.findSellerByMemberId(buyerId)` → 상품의 `sellerId`와 비교 | 동기 조회 |
-| 주문 생성 | order | 장바구니 잠금 → (같은 `Idempotency-Key`의 주문이 있으면 그 주문을 반환하고 끝, 취소된 주문이면 409) → `ProductApi.getOptions` → `MemberApi.getSellers`(판매자명 스냅샷) → 주문·주문 항목 저장 → `ProductApi.deductStock` | 동기, 같은 Tx |
+| 주문 생성 | order | 장바구니 잠금 → (같은 `Idempotency-Key`의 주문이 있으면 그 주문을 반환하고 끝, 취소된 주문이면 409) → `ProductApi.getOptions` → `MemberApi.getSellers`(판매자명 스냅샷) → 주문·주문 항목 저장 → `ProductApi.deductStock`. 응답에 주문 상태(`status`: 새 주문 CREATED, 같은 키 재요청은 그 주문의 지금 상태)를 담는다 | 동기, 같은 Tx |
 | 결제 | order | 판매 가능·만료·예약 쿠폰 확인 → 주문 PAYING(멱등키·시작 시각) 커밋 → `PaymentApi.pay(command)`(HTTP): 배송비는 구매자 지갑 → 플랫폼 지갑(SHIPPING_FEE), 나머지는 홀딩(PAYMENT), 장바구니 쿠폰 지원금은 플랫폼 지갑 → 홀딩(COUPON_SUBSIDY) → 주문을 다시 잠가 아직 PAYING이고 같은 키일 때만 결과 반영(PAID: 쿠폰 사용 처리·장바구니 삭제·`OrderPaidEvent` / FAILED_*: PAYMENT_FAILED). 결과를 모르면 PAYING으로 두고 재확인 스케줄러가 같은 키로 `pay`를 다시 불러 정리 (9.1) | 동기 HTTP, Tx 2개 |
 | 결제 후 배송 생성 | order | 결제 성공 + 배송지가 있는 주문이면 `OrderPaidEvent` → (커밋 뒤 Kafka `order.events`) delivery가 배송(READY) 생성, 알림이 구매자에게 주문 완료 알림 | 이벤트, 별도 Tx (주문 PAID 반영과 같은 트랜잭션에서 outbox에 저장) |
 | 배송 시작 | delivery | 물류 담당 송장 등록 → 배송 SHIPPED → `DeliveryShippedEvent` → (Kafka `delivery.events`) 알림이 구매자에게 배송 시작 알림 | 이벤트, 별도 Tx (송장 수정은 이벤트 없음) |
@@ -249,6 +249,7 @@ public interface ProductApi {
      * 실패: 409 PRODUCT_NOT_ON_SALE(판매 불가), 400 OUT_OF_STOCK(재고 부족), 404 PRODUCT_NOT_FOUND (하나라도 실패하면 전체 롤백)
      * 재고만 바꾸고 상품 상태는 바꾸지 않는다(품절은 재고로 계산).
      * 이미 차감한 주문 항목으로 다시 호출하면 아무것도 하지 않고 정상 종료한다.
+     * 호출한 쪽 트랜잭션에 참여만 한다(Propagation.MANDATORY). 트랜잭션 밖에서 부르면 IllegalTransactionStateException.
      */
     void deductStock(List<StockChangeDto> items);
 
@@ -259,6 +260,7 @@ public interface ProductApi {
      * (주문 컨텍스트가 반품 승인에서 삭제된 대상을 미리 거른다).
      * 이미 판 수량을 돌려놓는 것이라 옵션 최대 재고(1,000,000)를 넘어도 받는다(주문 취소·반품 승인이 재고 상한 때문에 실패하지 않게).
      * 같은 주문 항목·사유로 다시 호출하면 아무것도 하지 않고 정상 종료한다. 차감한 적 없는 항목이면 IllegalStateException.
+     * 주문 상태 변경과 같은 트랜잭션에서만 부른다(Propagation.MANDATORY). 트랜잭션 밖에서 부르면 IllegalTransactionStateException.
      */
     void restoreStock(List<StockChangeDto> items, StockRestoreReason reason);
 
@@ -369,9 +371,9 @@ public enum StockRestoreReason { ORDER_RESTORE, RETURN_RESTORE }
 
 | 이벤트 | 처리 | 멱등 기준 |
 | --- | --- | --- |
-| `SellerSanctionedEvent` | `stopAllBySeller(sellerId, reason)`와 같은 처리 | `processed_event`(eventId, `market`), 판매 중 상품만 바꾸므로 다시 와도 결과가 같다 |
+| `SellerSanctionedEvent` | `stopAllBySeller(sellerId, reason)`와 같은 처리 | `processed_event`(eventId, `market-product-seller`), 판매 중 상품만 바꾸므로 다시 와도 결과가 같다 |
 | `SellerWithdrawalRequestedEvent` | `stopAllBySeller(sellerId, reason)`와 같은 처리 | 위와 같음 |
-| `SellerWithdrawalRejectedEvent` | `resumeAllBySeller(sellerId)`와 같은 처리 | `processed_event`(eventId, `market`), 철회로 중지된 상품만 바꾸므로 다시 와도 결과가 같다 |
+| `SellerWithdrawalRejectedEvent` | `resumeAllBySeller(sellerId)`와 같은 처리 | `processed_event`(eventId, `market-product-seller`), 철회로 중지된 상품만 바꾸므로 다시 와도 결과가 같다 |
 
 - Kafka 토픽 `seller.events`를 market-service의 `ProductSellerEventListener`(`@KafkaListener` groupId `market`)로 받는다. 한 메시지를 한 트랜잭션에서 처리하고, 실패하면 재시도 후 `seller.events-dlt`로 보낸다.
 - 회원은 `stopAllBySeller`·`resumeAllBySeller`를 부르지 않는다(TRSS-160). 두 메서드는 market 안에서 컨슈머가 쓴다.
@@ -649,7 +651,9 @@ public interface PaymentApi {
      * 주문 쪽 재확인 스케줄러가 결과를 모르는 결제를 같은 키·같은 내용으로 다시 부르므로 이 동작에 기댄다.
      * PAID 결과에는 payment가 기록한 결제 완료 시각(paidAt)을 담고, 주문 쪽은 이 값을 주문의 paidAt으로 쓴다(없으면 반영 시각).
      * 오류: 4xx RsData는 주문 쪽이 "결제 없음"으로 보고 PAYMENT_FAILED로 반영한다(단 409 LOCK_CONFLICT·CONCURRENT_UPDATE·DATA_CONFLICT, 429는 결과 불명).
-     *      401·403(내부 키 오류)은 주문 쪽 클라이언트가 503-INTERNAL_API_AUTH_FAILED + ERROR 로그로 바꾸고, 결제가 없었으므로 PAYMENT_FAILED로 반영한다.
+     *      401·403(내부 키 오류)은 주문 쪽 클라이언트가 503-INTERNAL_API_AUTH_FAILED + ERROR 로그로 바꾼다.
+     *      첫 결제 요청이면 이 키로 결제한 적이 없으므로 PAYMENT_FAILED로 반영하고 503을 응답한다.
+     *      재확인 스케줄러의 재요청이면 결과 불명으로 보고 PAYING으로 둔다(앞선 요청이 결제됐을 수 있다. 키가 고쳐지면 다음 재확인이 정리).
      *      접속 실패·응답 시간 초과·5xx는 결과 불명으로 보고 주문을 PAYING으로 둔다.
      */
     PayResultDto pay(PayCommand command);
