@@ -15,7 +15,6 @@ import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.Topup;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
-import com.backend.boundedContext.payment.domain.WalletTransaction;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
 import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.WalletRepository;
@@ -109,7 +108,7 @@ public class PaymentTopupConfirmProcessor {
             log.warn("허용하지 않은 결제 수단으로 충전이 승인됐습니다. topupId={}, method={}", topupId, result.method());
         }
 
-        walletTransactionRepository.save(WalletTransaction.record(wallet, WalletTransactionType.CHARGE, topup.getAmount(), topup.getId(), topup.chargeIdempotencyKey()));
+        walletTransactionRepository.save(wallet.change(WalletTransactionType.CHARGE, topup.getAmount(), topup.getId(), topup.chargeIdempotencyKey()));
         topup.approve(result.approvedAt() != null ? result.approvedAt() : LocalDateTime.now());
 
         return TopupConfirmDto.of(topup, wallet.getBalance());
