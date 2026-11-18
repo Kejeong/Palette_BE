@@ -123,6 +123,12 @@ custom:
       metricsIntervalSeconds: 60   # 판매량이 바뀐 상품(결제·취소·반품, 집계 구간 밖으로 나간 판매)을 찾아 다시 색인을 요청하는 간격(초)
       metricsOverlapSeconds: 30    # 위 조회를 지난 실행 시각보다 이만큼 앞부터 한다. 주문 상태 변경은 자기 이벤트가 없어 커밋 지연으로 놓치지 않게 겹쳐 읽는다
       metricsLookbackMinutes: 1440 # 앱을 띄운 뒤 첫 실행만 이만큼(하루) 돌아본다. 재시작·배포·장애로 멈춘 동안 바뀐 판매량을 채운다. 더 오래 멈췄으면 관리자 재색인으로 맞춘다
+    similar:               # 비슷한 상품 점수 = textWeight·텍스트 + categoryWeight·같은 소분류 + priceWeight·가격 근접도 + behaviorWeight·행동 점수 (각 0~1)
+      textWeight: 0.35     # 상품명·설명의 형태소 유사도 (후보 중 최고 점수로 나눈다). 가중치 합은 1이어야 한다(기동할 때 검사)
+      categoryWeight: 0.2  # 같은 소분류면 1 (후보는 같은 대분류에서만 찾는다)
+      priceWeight: 0.15    # 작은 가격/큰 가격. 절반·두 배면 0.5
+      behaviorWeight: 0.3  # 색인한 행동 점수(찜·별점·판매량)
+      candidateSize: 50    # 텍스트 후보와 같은 소분류 인기 후보를 각각 이만큼까지 가져와 점수를 매긴다
     popularKeyword:
       windowHours: 168     # 인기 검색어 집계 구간(시간). 최근 이만큼의 시간 단위 키를 합친다
       halfLifeHours: 3    # 반감기(시간). 이만큼 지난 시간의 검색은 절반만 센다(가중치 2^(-지난 시간/반감기)). 작을수록 최근 검색에 민감하다
