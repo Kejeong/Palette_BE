@@ -77,13 +77,13 @@ templates:
       {{ if match `DeliveryTrackerUnauthenticated` . -}}
       Delivery Tracker 인증 키가 만료됐을 수 있습니다(무료 플랜 21일). 콘솔에서 재발급해 infra/.env의 DELIVERY_TRACKER_CLIENT_ID·SECRET을 바꾸고 `docker compose -f infra/compose.prod.yaml up -d delivery`
       {{- else if match `UnknownHostException` . -}}
-      다른 컨테이너 이름을 찾지 못했습니다. `docker compose -f infra/compose.prod.yaml ps -a`로 대상(postgres·kafka·market 등)이 떠 있는지 확인하세요
+      다른 컨테이너 이름을 찾지 못했습니다. `docker compose -f infra/compose.prod.yaml ps -a`로 대상(market 등)이 떠 있는지 확인하세요. postgres·kafka·redis는 데이터 서버(EC2-B)에 있습니다
       {{- else if match `Kafka|ConfigException` . -}}
-      Kafka 연결 문제입니다. `docker compose -f infra/compose.prod.yaml ps kafka`·`logs --tail 50 kafka`를 확인하고, 복구 뒤 outbox_event의 FAILED 이벤트를 다시 PENDING으로 돌리세요
+      Kafka 연결 문제입니다. 데이터 서버(EC2-B)에서 `docker compose -f infra/compose.data.yaml ps kafka`·`logs --tail 50 kafka`를 확인하고, 복구 뒤 outbox_event의 FAILED 이벤트를 다시 PENDING으로 돌리세요
       {{- else if match `SQLTransientConnection|PSQLException|JDBCConnection|CannotCreateTransaction|DataAccessResource` . -}}
-      DB 연결 문제입니다. `docker compose -f infra/compose.prod.yaml ps postgres`·`logs --tail 50 postgres`로 상태와 커넥션 수를 확인하세요
+      DB 연결 문제입니다. 데이터 서버(EC2-B)에서 `docker compose -f infra/compose.data.yaml ps postgres`·`logs --tail 50 postgres`로 상태와 커넥션 수를 확인하세요
       {{- else if match `RedisConnection|RedisSystem` . -}}
-      Redis 연결 문제입니다. `docker compose -f infra/compose.prod.yaml ps redis`·`logs --tail 50 redis`를 확인하세요
+      Redis 연결 문제입니다. 데이터 서버(EC2-B)에서 `docker compose -f infra/compose.data.yaml ps redis`·`logs --tail 50 redis`를 확인하세요
       {{- else if match `ResourceAccessException|ConnectException|HttpServerError|HttpClientError|SocketTimeout` . -}}
       다른 서비스 내부 API 호출이 실패했습니다. 호출 대상 서비스 컨테이너의 상태(`ps`)와 로그를 확인하세요
       {{- else if match `UnsupportedOperationException` . -}}
