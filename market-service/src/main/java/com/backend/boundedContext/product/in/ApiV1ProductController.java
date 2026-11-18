@@ -3,6 +3,7 @@ package com.backend.boundedContext.product.in;
 import com.backend.boundedContext.product.app.ProductFacade;
 import com.backend.boundedContext.product.app.dto.PopularKeywordDto;
 import com.backend.boundedContext.product.app.dto.ProductDetailDto;
+import com.backend.boundedContext.product.app.dto.MemberRecommendationsDto;
 import com.backend.boundedContext.product.app.dto.ProductSummaryDto;
 import com.backend.boundedContext.product.domain.ProductSort;
 import com.backend.global.page.PageResponse;
@@ -94,5 +95,37 @@ public class ApiV1ProductController {
             @RequestParam(defaultValue = "10") int size
     ) {
         return RsData.of("200-1", "비슷한 상품을 조회했습니다.", productFacade.getSimilarProducts(productId, size));
+    }
+
+    @Operation(
+            summary = "회원님을 위한 추천",
+            description = "내 구매·높게 평가한 상품(별점 4점 이상)·찜·장바구니와 비슷한 상품을 추천 이유와 함께 줍니다(forYou). "
+                    + "sections는 대표 기준 상품(최근 구매·높게 평가한 상품·최근 찜)마다 비슷한 상품입니다. "
+                    + "같은 상품은 한 번만 나오고, 이미 산·찜한·담은 상품과 1~2점을 준 상품, 품절 상품은 빠집니다. "
+                    + "로그인하지 않았거나 이력이 없으면 personalized=false이고 forYou는 인기순, sections는 빈 목록입니다. "
+                    + "찜·구매·리뷰 뒤 몇 초 안에 다시 계산하고, 장바구니·주문 취소는 최대 한 시간 늦게 반영됩니다. size는 1~50, 기본 20입니다.")
+    @GetMapping("/recommendations/me")
+    public RsData<MemberRecommendationsDto> getMemberRecommendations(
+            @AuthenticationPrincipal AuthMember authMember,   // 로그인하지 않았으면 null
+            @Parameter(description = "회원님을 위한 추천 개수 (1~50, 범위를 넘으면 가까운 값으로 맞춘다)")
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        Long memberId = authMember == null ? null : authMember.memberId();
+        return RsData.of("200-1", "추천 상품을 조회했습니다.", productFacade.getMemberRecommendations(memberId, size));
+    }
+
+    @Operation(
+            summary = "최근 본 상품 기반 추천",
+            description = "최근 본 상품과 비슷한 상품입니다. 프론트가 저장한 최근 본 상품 ID를 최근 순으로 보냅니다(앞의 20개만 씀). "
+                    + "없는 상품 ID는 무시하고, 최근 본 상품과 품절 상품은 빠집니다. 기준 상품이 없으면 빈 목록입니다. "
+                    + "로그인하지 않아도 됩니다. size는 1~50, 기본 20입니다.")
+    @GetMapping("/recommendations/recent")
+    public RsData<List<ProductSummaryDto>> getRecentRecommendations(
+            @Parameter(description = "최근 본 상품 ID, 최근 순 (예: 12,34,56)")
+            @RequestParam(required = false) List<Long> recentViewIds,
+            @Parameter(description = "개수 (1~50, 범위를 넘으면 가까운 값으로 맞춘다)")
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return RsData.of("200-1", "추천 상품을 조회했습니다.", productFacade.getRecentRecommendations(recentViewIds, size));
     }
 }
