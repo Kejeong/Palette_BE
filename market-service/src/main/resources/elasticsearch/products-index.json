@@ -19,7 +19,7 @@
     }
   },
   "mappings": {
-    "_meta": { "version": 3 },
+    "_meta": { "version": 4 },
     "dynamic": "strict",
     "properties": {
       "productId": { "type": "long" },
@@ -30,6 +30,7 @@
           "keyword": { "type": "keyword", "ignore_above": 256 }
         }
       },
+      "description": { "type": "text", "analyzer": "korean" },
       "categoryId": { "type": "long" },
       "status": { "type": "keyword" },
       "soldOut": { "type": "boolean" },

@@ -72,6 +72,7 @@ public class ProductFacade {
     private final ProductSearchProductsUseCase productSearchProductsUseCase;
     private final ProductGetPopularKeywordsUseCase productGetPopularKeywordsUseCase;
     private final ProductGetProductDetailUseCase productGetProductDetailUseCase;
+    private final ProductGetSimilarProductsUseCase productGetSimilarProductsUseCase;
     private final ProductGetSellerProductsUseCase productGetSellerProductsUseCase;
     private final ProductModifyProductUseCase productModifyProductUseCase;
     private final ProductGetAdminProductsUseCase productGetAdminProductsUseCase;
@@ -134,6 +135,11 @@ public class ProductFacade {
     /** 최근 24시간 인기 검색어와 한 시간 전 대비 순위 변동 (DB를 읽지 않는다) */
     public List<PopularKeywordDto> getPopularKeywords() {
         return productGetPopularKeywordsUseCase.getPopularKeywords(LocalDateTime.now());
+    }
+
+    /** 상품 상세의 비슷한 상품 (속성 + 행동 점수). ES 조회를 트랜잭션 밖에서 하려고 트랜잭션을 잡지 않는다 (유스케이스가 나눠 잡는다) */
+    public List<ProductSummaryDto> getSimilarProducts(Long productId, int size) {
+        return productGetSimilarProductsUseCase.getSimilarProducts(productId, size);
     }
 
     /** 로그인하지 않은 구매자의 상품 상세 (찜 여부는 false) */

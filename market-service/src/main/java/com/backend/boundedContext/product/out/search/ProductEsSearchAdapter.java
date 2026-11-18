@@ -1,14 +1,12 @@
 package com.backend.boundedContext.product.out.search;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
-import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.SortOrder;
 import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.core.search.TotalHits;
-import com.backend.boundedContext.product.domain.ProductSaleStatus;
 import com.backend.boundedContext.product.domain.ProductSort;
 import com.backend.boundedContext.product.out.ProductJpaSearchAdapter;
 import com.backend.boundedContext.product.out.ProductSearchPort;
@@ -83,9 +81,7 @@ public class ProductEsSearchAdapter implements ProductSearchPort {
     }
 
     private static BoolQuery.Builder toQuery(BoolQuery.Builder b, ProductSearchQuery query) {
-        b.filter(f -> f.term(t -> t.field("status").value(ProductSaleStatus.ON_SALE.name())));
-        b.filter(f -> f.terms(t -> t.field("categoryId").terms(v -> v.value(
-                query.categoryIds().stream().map(FieldValue::of).toList()))));
+        ProductEsQueries.displayable(b, query.categoryIds());
         if (query.excludeSoldOut()) {
             b.filter(f -> f.term(t -> t.field("soldOut").value(false)));
         }

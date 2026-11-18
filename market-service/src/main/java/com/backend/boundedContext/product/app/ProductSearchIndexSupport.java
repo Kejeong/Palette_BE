@@ -202,6 +202,7 @@ public class ProductSearchIndexSupport {
                     return new ProductSearchDocument(
                             product.getId(),
                             product.getName(),
+                            product.getDescription(),
                             product.getCategory().getId(),
                             product.getStatus().name(),
                             ProductSupport.isSoldOut(stocks.getOrDefault(product.getId(), List.of())),

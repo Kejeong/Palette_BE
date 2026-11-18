@@ -1,16 +1,10 @@
 package com.backend.boundedContext.product.app;
 
 import com.backend.boundedContext.product.app.dto.ProductSummaryDto;
-import com.backend.boundedContext.product.domain.Product;
-import com.backend.boundedContext.product.domain.ProductPrice;
-import com.backend.boundedContext.product.domain.OptionStock;
 import com.backend.boundedContext.product.domain.ProductSort;
-import com.backend.boundedContext.product.out.ProductRepository;
 import com.backend.boundedContext.product.out.ProductSearchPort;
 import com.backend.boundedContext.product.out.ProductSearchQuery;
 import com.backend.global.page.PageResponse;
-import com.backend.shared.review.dto.ProductRatingStatsDto;
-import com.backend.shared.review.out.ReviewApi;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -21,8 +15,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -31,12 +23,9 @@ public class ProductSearchProductsUseCase {
     static final int MAX_PAGE_SIZE = 50;
 
     private final ProductSupport productSupport;
-    private final ProductImageSupport productImageSupport;
-    private final ProductDiscountSupport productDiscountSupport;
+    private final ProductSummarySupport productSummarySupport;
     private final ProductSearchPort productSearchPort;
-    private final ProductRepository productRepository;
     private final ProductPopularKeywordSupport productPopularKeywordSupport;
-    private final ReviewApi reviewApi;
 
     /**
      * 판매 중이고 사용 중인 카테고리의 상품을 검색한다.
@@ -61,7 +50,7 @@ public class ProductSearchProductsUseCase {
                 ProductSort.resolve(sort, normalizedKeyword != null));
         Page<Long> productIds = productSearchPort.searchProductIds(query, page);
 
-        Map<Long, ProductSummaryDto> summaries = toSummaries(productIds.getContent());
+        Map<Long, ProductSummaryDto> summaries = productSummarySupport.toSummaries(productIds.getContent());
         List<ProductSummaryDto> items = productIds.getContent().stream()
                 .map(summaries::get)
                 .filter(Objects::nonNull)
@@ -71,40 +60,6 @@ public class ProductSearchProductsUseCase {
                 LocalDateTime.now());
         return new PageResponse<>(items, productIds.getNumber(), productIds.getSize(),
                 productIds.getTotalElements(), productIds.getTotalPages());
-    }
-
-    /** 검색 결과 ID 중 지금 구매자에게 보여 줄 수 있는 상품만 화면 값으로 만든다 */
-    private Map<Long, ProductSummaryDto> toSummaries(List<Long> foundIds) {
-        // 검색 구현(ES)의 판매 상태는 색인 시점 값이므로 DB의 현재 상태로 다시 거른다
-        List<Product> products = productRepository.findAllById(foundIds).stream()
-                .filter(Product::isDisplayable)
-                .toList();
-        if (products.isEmpty()) return Map.of();
-        List<Long> productIds = products.stream().map(Product::getId).toList();
-
-        Map<Long, List<OptionStock>> stocks = productSupport.getOptionStocksByProductId(productIds);
-        Map<Long, String> businessNames = productSupport.getBusinessNames(
-                products.stream().map(Product::getSellerId).collect(Collectors.toSet()));
-        Map<Long, String> thumbnailUrls = productImageSupport.getThumbnailUrls(productIds);
-        Map<Long, ProductPrice> prices = productDiscountSupport.getPrices(products);
-        // 리뷰 수·평균 별점은 색인 값이 아니라 지금 DB 값이다 (리뷰 직후에도 맞고, DB 검색으로 대신할 때도 같다)
-        Map<Long, ProductRatingStatsDto> ratings = reviewApi.getRatingStats(productIds);
-
-        return products.stream()
-                .map(product -> {
-                    List<OptionStock> optionStocks = stocks.getOrDefault(product.getId(), List.of());
-                    ProductPrice price = prices.get(product.getId());
-                    ProductRatingStatsDto rating = ratings.getOrDefault(product.getId(), ProductRatingStatsDto.empty(product.getId()));
-                    return new ProductSummaryDto(
-                            product.getId(), product.getName(), product.getPrice(), price.salePrice(), price.discountRate(),
-                            product.getCategory().getId(),
-                            product.getSellerId(), businessNames.get(product.getSellerId()),
-                            thumbnailUrls.get(product.getId()),
-                            ProductSupport.isSoldOut(optionStocks),
-                            ProductSupport.getLowStockRemaining(optionStocks),
-                            rating.reviewCount(), rating.averageRating());
-                })
-                .collect(Collectors.toMap(ProductSummaryDto::productId, Function.identity()));
     }
 
     /** 앞뒤 공백을 지우고, 비어 있으면 조건 없음(null) */

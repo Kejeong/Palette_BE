@@ -17,7 +17,6 @@ public record ProductSummaryDto(
         long price,
         Long salePrice,
         Integer discountRate,
-        Long categoryId,
         Long sellerId,
         String businessName,
         String thumbnailUrl,
