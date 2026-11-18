@@ -4,6 +4,7 @@ import com.backend.boundedContext.notification.app.NotificationFacade;
 import com.backend.boundedContext.notification.app.dto.NotificationListDto;
 import com.backend.boundedContext.notification.domain.NotificationErrorCode;
 import com.backend.boundedContext.notification.domain.NotificationType;
+import com.backend.boundedContext.notification.out.NotificationEmitters;
 import com.backend.global.exception.DomainException;
 import com.backend.global.security.JwtAccessDeniedHandler;
 import com.backend.global.security.JwtAuthenticationEntryPoint;
@@ -11,23 +12,29 @@ import com.backend.global.security.JwtTokenProvider;
 import com.backend.global.security.SecurityConfig;
 import com.backend.global.security.SecurityErrorResponseWriter;
 import com.backend.shared.member.dto.MemberRole;
+import jakarta.servlet.AsyncEvent;
+import jakarta.servlet.AsyncListener;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.mock.web.MockAsyncContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
@@ -160,6 +167,29 @@ class ApiV1NotificationControllerTest {
                 .andExpect(request().asyncStarted());
 
         verify(notificationFacade).subscribe(3L);
+    }
+
+    @Test
+    @DisplayName("구독: 연결 시간이 지나면 오류 없이 끝나고 저장소에서 지워짐")
+    void subscribe_timeout() throws Exception {
+        NotificationEmitters emitters = new NotificationEmitters();
+        SseEmitter emitter = new SseEmitter();
+        emitters.add(3L, emitter);
+        given(notificationFacade.subscribe(3L)).willReturn(emitter);
+
+        MvcResult result = mockMvc.perform(get("/api/v1/notifications/subscribe").header("Authorization", bearer(3L)))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        // 서블릿 컨테이너가 시간 초과를 알리는 것처럼 리스너를 직접 부름
+        MockAsyncContext asyncContext = (MockAsyncContext) result.getRequest().getAsyncContext();
+        for (AsyncListener listener : asyncContext.getListeners()) {
+            listener.onTimeout(new AsyncEvent(asyncContext));
+        }
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk());
+        assertThat(emitters.count(3L)).isZero();
     }
 
     @Test

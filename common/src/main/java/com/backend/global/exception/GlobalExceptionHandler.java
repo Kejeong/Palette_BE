@@ -16,6 +16,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
@@ -104,6 +105,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AsyncRequestNotUsableException.class)
     public void handleClientAbort(AsyncRequestNotUsableException e, HttpServletRequest req) {
         log.debug("Client aborted {} {}: {}", req.getMethod(), req.getRequestURI(), e.getMessage());
+    }
+
+    // 비동기 요청(SSE 등)이 정한 시간을 넘겨 끝난 경우. 의도된 종료라 ERROR·Slack 알림으로 남기지 않음
+    // 응답이 이미 나가는 중일 수 있어 본문은 쓰지 않음
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public void handleAsyncTimeout(AsyncRequestTimeoutException e, HttpServletRequest req) {
+        log.debug("Async request timed out {} {}", req.getMethod(), req.getRequestURI());
     }
 
     @ExceptionHandler(Exception.class)
