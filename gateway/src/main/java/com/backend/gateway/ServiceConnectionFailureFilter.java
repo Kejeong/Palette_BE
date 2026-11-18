@@ -41,13 +41,24 @@ public class ServiceConnectionFailureFilter implements GlobalFilter, Ordered {
         return chain.filter(exchange).onErrorResume(e -> webhook || e instanceof IOException || isTimeout(e), e -> {
             Route route = exchange.getAttribute(GATEWAY_ROUTE_ATTR);
             String routeId = route == null ? "-" : route.getId();
+            // 응답을 보내던 중 끊김(알림 구독 연결이 끊기거나 큰 응답을 받다 끊김). 서비스는 응답을 했으므로 '응답 실패' 알림 대상이 아니다.
+            // 이미 보낸 응답이라 상태 코드도 바꿀 수 없으니 그냥 끝낸다
+            if (exchange.getResponse().isCommitted()) {
+                log.debug("응답을 보내던 중 연결이 끊겼습니다 (route={}, {})", routeId, e.getClass().getSimpleName());
+                return Mono.empty();
+            }
             // 예외 메시지는 연결 대상(서비스 주소)·대기 시간만 담고 요청 주소는 담지 않는다. 스택은 남기지 않는다(Reactor가 요청 주소를 붙인다)
+            // WARN 두 가지만 알림 규칙 "gateway 서비스 응답 실패"가 센다(rules.yaml)
             HttpStatus status;
             if (isTimeout(e)) {
                 log.warn("서비스 응답 시간 초과 (route={}, {})", routeId, e.getMessage());
                 status = HttpStatus.GATEWAY_TIMEOUT;
-            } else {
+            } else if (e instanceof IOException) {
                 log.warn("서비스에 연결하지 못했습니다 (route={}, {}: {})", routeId, e.getClass().getSimpleName(), e.getMessage());
+                status = HttpStatus.BAD_GATEWAY;
+            } else {
+                // 배송 웹훅의 연결 문제가 아닌 오류(코드 버그 등). 진짜 오류라 ERROR로 남겨 "앱 ERROR 로그" 알림으로 보낸다
+                log.error("배송 웹훅 처리 중 오류 (route={}, {}: {})", routeId, e.getClass().getSimpleName(), e.getMessage());
                 status = HttpStatus.BAD_GATEWAY;
             }
             exchange.getResponse().setStatusCode(status);   // nginx만 있을 때와 같은 응답

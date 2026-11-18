@@ -151,8 +151,8 @@ groups:
               expr: >-
                 sum by (route) (
                   count_over_time({container="palette-gateway"}
-                    | json log_logger="log.logger", message="message"
-                    | __error__="" | log_logger="com.backend.gateway.ServiceConnectionFailureFilter"
+                    | json log_level="log.level", log_logger="log.logger", message="message"
+                    | __error__="" | log_logger="com.backend.gateway.ServiceConnectionFailureFilter" | log_level="WARN"
                     | line_format `{{ .message }}`
                     | regexp `route=(?P<route>[a-z-]+)`
                   [1m])
@@ -176,7 +176,9 @@ groups:
                     params: [0]
         for: 1m               # 2분 연속일 때만 알린다(위 설명)
         noDataState: OK       # 실패가 없으면 결과가 비어 있으므로 정상으로 본다
-        execErrState: Error   # Loki 조회 자체가 실패하면 그것도 알린다
+        # Loki 조회가 실패해도 직전 상태를 유지한다. 조회 실패는 위 "앱 ERROR 로그" 규칙이 이미 "검사 실패"로 알리고,
+        # 여기서 Error로 두면 kind 라벨 때문에 서비스 이름이 빈 "gateway 응답 실패" 메시지가 같이 간다
+        execErrState: KeepLast
         labels:
           severity: error
           kind: gateway-connection-failure   # templates.yaml이 이 값으로 응답 실패용 메시지를 고른다

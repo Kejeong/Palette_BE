@@ -16,6 +16,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.netty.DisposableServer;
 import reactor.netty.http.server.HttpServer;
@@ -28,7 +29,8 @@ import reactor.netty.http.server.HttpServer;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "DELIVERY_SERVICE_URL=http://localhost:1",
         "MARKET_SERVICE_URL=http://localhost:1",
-        "spring.cloud.gateway.server.webflux.httpclient.response-timeout=1s"
+        "spring.cloud.gateway.server.webflux.httpclient.response-timeout=1s",
+        "logging.level.com.backend.gateway.ServiceConnectionFailureFilter=DEBUG"
 })
 class ServiceConnectionFailureFilterTest {
 
@@ -40,14 +42,23 @@ class ServiceConnectionFailureFilterTest {
             .handle((request, response) -> response.sendString(Mono.just("late").delayElement(Duration.ofSeconds(3))))
             .bindNow();
 
+    // 응답을 조금 보내다가 연결을 끊는 가짜 notification (알림 구독이 도중에 끊기는 경우)
+    private static final DisposableServer cutNotification = HttpServer.create()
+            .port(0)
+            .handle((request, response) -> response.sendString(Flux.just("data: part\n\n")
+                    .concatWith(Mono.delay(Duration.ofMillis(500)).then(Mono.error(new IllegalStateException("cut"))))))
+            .bindNow();
+
     @DynamicPropertySource
-    static void routePaymentToSlowService(DynamicPropertyRegistry registry) {
+    static void routeToFakeServices(DynamicPropertyRegistry registry) {
         registry.add("PAYMENT_SERVICE_URL", () -> "http://localhost:" + slowPayment.port());
+        registry.add("NOTIFICATION_SERVICE_URL", () -> "http://localhost:" + cutNotification.port());
     }
 
     @AfterAll
-    static void stopSlowPayment() {
+    static void stopFakeServices() {
         slowPayment.disposeNow();
+        cutNotification.disposeNow();
     }
 
     @Value("${local.server.port}")
@@ -86,5 +97,19 @@ class ServiceConnectionFailureFilterTest {
                 .expectStatus().isEqualTo(HttpStatus.GATEWAY_TIMEOUT);
 
         assertThat(output).contains("서비스 응답 시간 초과 (route=payment");
+    }
+
+    // 서비스가 응답을 시작한 뒤 끊긴 건 "응답 실패"가 아니다. 알림용 WARN을 남기면 알림 구독이 끊길 때마다 Slack이 울린다
+    @Test
+    void 응답을_보내던_중_끊기면_알림용_WARN을_남기지_않는다(CapturedOutput output) {
+        client().get().uri("/v3/api-docs/notification")   // 로그인 없이 notification으로 가는 경로
+                .exchange()
+                .expectStatus().isOk()
+                .returnResult(String.class).getResponseBody()
+                .onErrorComplete()
+                .blockLast(Duration.ofSeconds(5));
+
+        assertThat(output).contains("응답을 보내던 중 연결이 끊겼습니다 (route=notification");
+        assertThat(output).doesNotContain("서비스에 연결하지 못했습니다 (route=notification");
     }
 }
