@@ -138,7 +138,7 @@ class ProductOptionStockConflictTest {
         // 주문: 수정 트랜잭션이 옵션을 읽은 뒤에 1개 차감하고 커밋한다
         Future<?> order = executor.submit(() -> {
             await(editRead);
-            productFacade.deductStock(List.of(new StockChangeDto(ORDER_ID, ORDER_ITEM_ID, optionId, 1)));
+            deductStock(List.of(new StockChangeDto(ORDER_ID, ORDER_ITEM_ID, optionId, 1)));
             deductCommitted.countDown();
             return null;
         });
@@ -172,7 +172,7 @@ class ProductOptionStockConflictTest {
         // 주문: 수정 트랜잭션이 옵션 행을 잠근(UPDATE) 뒤에 차감하고 커밋한다
         Future<?> order = executor.submit(() -> {
             await(editLocked);
-            productFacade.deductStock(List.of(new StockChangeDto(ORDER_ID, ORDER_ITEM_ID, optionId, 1)));
+            deductStock(List.of(new StockChangeDto(ORDER_ID, ORDER_ITEM_ID, optionId, 1)));
             deductCommitted.countDown();
             return null;
         });
@@ -303,5 +303,10 @@ class ProductOptionStockConflictTest {
         ProductOption option = productOptionRepository.save(ProductOption.createDefault(product));
         optionStockRepository.save(OptionStock.init(option, stock));
         return option;
+    }
+
+    // 재고 차감·복원은 호출한 쪽 트랜잭션 안에서만 부를 수 있다(Propagation.MANDATORY). 주문 트랜잭션처럼 감싸서 부른다
+    private void deductStock(List<StockChangeDto> items) {
+        transactionTemplate.executeWithoutResult(status -> productFacade.deductStock(items));
     }
 }

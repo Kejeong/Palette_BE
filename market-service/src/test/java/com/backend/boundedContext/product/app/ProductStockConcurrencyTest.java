@@ -122,7 +122,7 @@ class ProductStockConcurrencyTest {
         int requests = 15;
         AtomicInteger success = new AtomicInteger();
         runConcurrently(requests, i -> {
-            productFacade.deductStock(List.of(item(ORDER_ITEM_ID_BASE + i, 1)));
+            deductStock(List.of(item(ORDER_ITEM_ID_BASE + i, 1)));
             success.incrementAndGet();
         });
 
@@ -141,7 +141,7 @@ class ProductStockConcurrencyTest {
         AtomicInteger success = new AtomicInteger();
         runConcurrently(orders + 1, i -> {
             if (i == orders) productFacade.adjustStock(SELLER_MEMBER_ID, productId, optionId, 5);
-            else productFacade.deductStock(List.of(item(ORDER_ITEM_ID_BASE + i, 1)));
+            else deductStock(List.of(item(ORDER_ITEM_ID_BASE + i, 1)));
             success.incrementAndGet();
         });
 
@@ -154,11 +154,11 @@ class ProductStockConcurrencyTest {
     @Test
     @DisplayName("같은 주문 항목의 복원이 동시에 와도 예외 없이 한 번만 복원된다")
     void concurrentDuplicateRestore() throws Exception {
-        productFacade.deductStock(List.of(item(ORDER_ITEM_ID_BASE, 3)));
+        deductStock(List.of(item(ORDER_ITEM_ID_BASE, 3)));
 
         AtomicInteger success = new AtomicInteger();
         runConcurrently(5, i -> {
-            productFacade.restoreStock(List.of(item(ORDER_ITEM_ID_BASE, 3)), StockRestoreReason.ORDER_RESTORE);
+            restoreStock(List.of(item(ORDER_ITEM_ID_BASE, 3)), StockRestoreReason.ORDER_RESTORE);
             success.incrementAndGet();
         });
 
@@ -177,7 +177,7 @@ class ProductStockConcurrencyTest {
         // 다른 주문: 첫 번째 주문이 조회를 마친 뒤 4개를 차감하고 커밋한다
         Future<?> other = executor.submit(() -> {
             await(readDone);
-            productFacade.deductStock(List.of(item(ORDER_ITEM_ID_BASE + 1, 4)));
+            deductStock(List.of(item(ORDER_ITEM_ID_BASE + 1, 4)));
             otherDeductDone.countDown();
             return null;
         });
@@ -187,7 +187,7 @@ class ProductStockConcurrencyTest {
             assertThat(productFacade.getOptions(List.of(optionId)).getFirst().stock()).isEqualTo(10);
             readDone.countDown();
             await(otherDeductDone);
-            productFacade.deductStock(List.of(item(ORDER_ITEM_ID_BASE, 3)));
+            deductStock(List.of(item(ORDER_ITEM_ID_BASE, 3)));
         });
 
         other.get(10, TimeUnit.SECONDS);
@@ -205,7 +205,7 @@ class ProductStockConcurrencyTest {
         Future<Throwable> order = executor.submit(() -> {
             await(stopLocked);
             try {
-                productFacade.deductStock(List.of(item(ORDER_ITEM_ID_BASE, 1)));
+                deductStock(List.of(item(ORDER_ITEM_ID_BASE, 1)));
                 return null;
             } catch (Throwable e) {
                 return e;
@@ -237,7 +237,7 @@ class ProductStockConcurrencyTest {
         Future<Throwable> order = executor.submit(() -> {
             await(deleteLocked);
             try {
-                productFacade.deductStock(List.of(item(ORDER_ITEM_ID_BASE, 1)));
+                deductStock(List.of(item(ORDER_ITEM_ID_BASE, 1)));
                 return null;
             } catch (Throwable e) {
                 return e;
@@ -283,7 +283,7 @@ class ProductStockConcurrencyTest {
         Future<Throwable> order = executor.submit(() -> {
             await(stopLocked);
             try {
-                productFacade.deductStock(List.of(item(ORDER_ITEM_ID_BASE, 1)));
+                deductStock(List.of(item(ORDER_ITEM_ID_BASE, 1)));
                 return null;
             } catch (Throwable e) {
                 return e;
@@ -452,5 +452,24 @@ class ProductStockConcurrencyTest {
         ProductOption option = productOptionRepository.save(ProductOption.createDefault(product));
         optionStockRepository.save(OptionStock.init(option, stock));
         return option;
+    }
+
+    @Test
+    @DisplayName("재고 차감·복원을 트랜잭션 밖에서 부르면 IllegalTransactionStateException이고 재고는 그대로다 (Propagation.MANDATORY)")
+    void stockChangeRequiresTransaction() {
+        assertThatThrownBy(() -> productFacade.deductStock(List.of(item(ORDER_ITEM_ID_BASE, 1))))
+                .isInstanceOf(org.springframework.transaction.IllegalTransactionStateException.class);
+        assertThatThrownBy(() -> productFacade.restoreStock(List.of(item(ORDER_ITEM_ID_BASE, 1)), StockRestoreReason.ORDER_RESTORE))
+                .isInstanceOf(org.springframework.transaction.IllegalTransactionStateException.class);
+        assertThat(stock()).isEqualTo(10);
+    }
+
+    // 재고 차감·복원은 호출한 쪽 트랜잭션 안에서만 부를 수 있다(Propagation.MANDATORY). 주문 트랜잭션처럼 감싸서 부른다
+    private void deductStock(List<StockChangeDto> items) {
+        transactionTemplate.executeWithoutResult(status -> productFacade.deductStock(items));
+    }
+
+    private void restoreStock(List<StockChangeDto> items, StockRestoreReason reason) {
+        transactionTemplate.executeWithoutResult(status -> productFacade.restoreStock(items, reason));
     }
 }

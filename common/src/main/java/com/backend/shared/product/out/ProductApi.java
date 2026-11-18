@@ -49,6 +49,7 @@ public interface ProductApi {
      *   <li>하나라도 실패하면 전체가 롤백된다.</li>
      *   <li>재고만 바꾸고 상품 상태는 바꾸지 않는다. 품절은 재고로 계산한다.</li>
      *   <li>이미 차감한 주문 항목으로 다시 호출하면 아무것도 하지 않고 정상 종료한다.</li>
+     *   <li>호출한 쪽 트랜잭션 안에서만 부른다. 트랜잭션 밖에서 부르면 IllegalTransactionStateException.</li>
      * </ul>
      */
     void deductStock(List<StockChangeDto> items);
@@ -64,6 +65,7 @@ public interface ProductApi {
      *   <li>같은 주문 항목·사유로 다시 호출하면 아무것도 하지 않고 정상 종료한다.</li>
      *   <li>차감한 적 없는 주문 항목이면 IllegalStateException (호출 순서 오류).</li>
      *   <li>존재하지 않는 옵션 ID: 404-PRODUCT_NOT_FOUND</li>
+     *   <li>주문 취소·반품 승인과 같은 트랜잭션 안에서만 부른다. 트랜잭션 밖에서 부르면 IllegalTransactionStateException.</li>
      * </ul>
      */
     void restoreStock(List<StockChangeDto> items, StockRestoreReason reason);
