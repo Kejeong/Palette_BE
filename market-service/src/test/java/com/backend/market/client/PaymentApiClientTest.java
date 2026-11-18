@@ -10,8 +10,12 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.net.ConnectException;
+import java.net.InetSocketAddress;
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -25,6 +29,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import com.backend.global.exception.DomainException;
+import com.sun.net.httpserver.HttpServer;
 import com.backend.shared.payment.dto.PayCommand;
 import com.backend.shared.payment.dto.PayResultDto;
 import com.backend.shared.payment.dto.PayResultStatus;
@@ -188,6 +193,41 @@ class PaymentApiClientTest {
 
         assertThatThrownBy(() -> client.getPaymentAttempts(500L))
                 .extracting("resultCode").isEqualTo("502-EXTERNAL_SERVICE_ERROR");
+    }
+
+    @Test
+    @DisplayName("응답 대기 시간: 결제 내역 조회는 queryReadTimeoutMillis(짧게), 결제 요청은 readTimeoutMillis(길게)를 쓴다")
+    void readTimeout_queryShorterThanPay() throws IOException {
+        // 모든 요청에 600ms 뒤 응답하는 payment 서버. 조회 대기 300ms < 600ms < 결제 요청 대기 3000ms
+        HttpServer payment = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        payment.createContext("/", exchange -> {
+            try {
+                Thread.sleep(600);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            String body = exchange.getRequestURI().getPath().endsWith("/attempts")
+                    ? rsData("[]")
+                    : rsData("{\"paymentId\": 77, \"status\": \"PAID\", \"shortage\": 0, \"chargeAmount\": 0}");
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(bytes);
+            }
+        });
+        payment.start();
+        try {
+            PaymentApiClient realClient = new PaymentApiClient(
+                    "http://127.0.0.1:" + payment.getAddress().getPort(), INTERNAL_API_KEY, 1_000, 3_000, 300);
+
+            assertThatThrownBy(() -> realClient.getPaymentAttempts(500L))
+                    .isInstanceOfSatisfying(DomainException.class,
+                            e -> assertThat(e.getResultCode()).isEqualTo("502-EXTERNAL_SERVICE_ERROR"));
+            assertThat(realClient.pay(COMMAND).status()).isEqualTo(PayResultStatus.PAID);
+        } finally {
+            payment.stop(0);
+        }
     }
 
     private static String rsData(String dataJson) {

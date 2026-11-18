@@ -71,7 +71,7 @@ X-Internal-Key: <INTERNAL_API_KEY 값>
 | 배송 시작 | delivery | 물류 담당 송장 등록 → 배송 SHIPPED → `DeliveryShippedEvent` → (Kafka `delivery.events`) 알림이 구매자에게 배송 시작 알림 | 이벤트, 별도 Tx (송장 수정은 이벤트 없음) |
 | 배송 완료 | delivery | Delivery Tracker로 배송 완료 확인(또는 관리자 수동 완료 `POST /api/v1/admin/deliveries/{deliveryId}/complete`, 같은 이벤트) → 배송 DELIVERED → `DeliveryCompletedEvent` → (Kafka `delivery.events`) market이 주문 `deliveredAt` 기록, 알림이 구매자에게 배송 완료 알림 | 이벤트, 별도 Tx |
 | 주문 상세의 배송 정보 | order | `DeliveryApi.findByOrderId(orderId)` (배송지 있고 PAID 이후 주문만) | 동기 조회 (조회 실패 시 주문 상세는 200 + `deliveryUnavailable: true`) |
-| 주문 상세의 항목 이미지 | order | `ProductApi.getOptions(optionIds)` → 항목별 상품의 현재 대표 이미지(`items[].thumbnailUrl`, 판매 중지·삭제 상품 포함) (TRSS-242) | 동기 조회 (조회 실패 시 주문 상세는 200 + 이미지 null) |
+| 주문 상세의 항목 이미지 | order | `ProductApi.getOptions(optionIds)` → 항목별 상품의 현재 대표 이미지(`items[].thumbnailUrl`, 판매 중지·삭제 상품 포함) (TRSS-242) | 동기 조회 (같은 서비스 DB, 주문 조회와 같은 읽기 전용 트랜잭션. 조회 실패 시 주문 상세도 실패) |
 | 주문 취소·15분 만료 | order | `ProductApi.lockProductsForOrderChange(productIds)` → 주문 잠금·상태 다시 확인 → 주문 CANCELED → `ProductApi.restoreStock(ORDER_RESTORE)` | 동기, 같은 Tx |
 | 반품 승인 | order | 주문 RETURNED → 복원 선택 항목만 `ProductApi.restoreStock(RETURN_RESTORE)` → `OrderReturnedEvent` → (커밋 뒤 Kafka `order.events`) | 동기, 같은 Tx + 이벤트 (재고 복원과 outbox 저장이 승인과 같은 트랜잭션) |
 | 반품 환불 | payment | `OrderReturnedEvent` 수신(Kafka `order.events`). 반품 사유(`returnReasonCode`)로 나눈다. 상품불량·기타·사유 없음: 홀딩 → 구매자 지갑(결제 금액 전액, REFUND), 플랫폼 지갑에서 처음 배송비를 내놓음(SHIPPING_FEE_REFUND). 단순변심: 회수 택배비 결제 대기(`PICKUP_FEE_REQUIRED`) → 구매자가 반품 회수 택배비(2,500원)를 예치금으로 결제(`POST /api/v1/payments/refunds/{orderId}/pickup-fee`, 구매자 지갑 → 플랫폼 지갑, RETURN_PICKUP_FEE_PAYMENT·RETURN_PICKUP_FEE)하면 홀딩 → 구매자 지갑(상품값만, REFUND). 두 경우 모두 장바구니 쿠폰 지원금은 홀딩 → 플랫폼 지갑(COUPON_SUBSIDY_CANCEL) → 결제 REFUNDED, 홀딩 RELEASED | 이벤트, 별도 Tx (회수 택배비 결제는 구매자 API, 한 Tx) |
@@ -661,6 +661,7 @@ public interface PaymentApi {
     /**
      * 주문의 결제 시도 목록 (주문 상세의 결제 내역). 오래된 순, 실패 시도 포함.
      * 내 주문인지는 주문 쪽에서 확인하고 호출한다. 결제 시도가 없으면 빈 목록을 반환한다.
+     * 주문 쪽은 DB 트랜잭션 밖에서 부르고, 응답 대기는 결제 요청(readTimeoutMillis 5초)보다 짧은 queryReadTimeoutMillis(2초)를 쓴다.
      */
     List<PaymentAttemptDto> getPaymentAttempts(Long orderId);
 

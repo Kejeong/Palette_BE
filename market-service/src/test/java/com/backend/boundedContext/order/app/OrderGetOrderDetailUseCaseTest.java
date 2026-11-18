@@ -32,6 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -40,7 +41,10 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
@@ -54,6 +58,8 @@ class OrderGetOrderDetailUseCaseTest {
     DeliveryApi deliveryApi;
     @Mock
     ProductApi productApi;
+    @Mock
+    PlatformTransactionManager transactionManager;
     @InjectMocks
     OrderGetOrderDetailUseCase useCase;
 
@@ -107,17 +113,17 @@ class OrderGetOrderDetailUseCaseTest {
     }
 
     @Test
-    @DisplayName("상품 이미지 조회에 실패해도 주문 상세는 이미지 없이 응답한다")
-    void itemThumbnails_lookupFailed(CapturedOutput output) {
+    @DisplayName("상품 이미지 조회에 실패하면 주문 상세도 실패한다 (같은 예외 전파, 트랜잭션 롤백, 결제·배송은 부르지 않음)")
+    void itemThumbnails_lookupFailed() {
         given(orderRepository.findWithItemsByIdAndBuyerId(500L, BUYER_ID))
                 .willReturn(Optional.of(order(500L)));
-        given(productApi.getOptions(List.of(100L, 101L))).willThrow(new IllegalStateException("상품 조회 실패"));
+        IllegalStateException failure = new IllegalStateException("상품 조회 실패");
+        given(productApi.getOptions(List.of(100L, 101L))).willThrow(failure);
 
-        OrderDetailResponse response = useCase.getOrderDetail(BUYER_ID, 500L);
-
-        assertThat(response.items()).extracting(OrderItemResponse::thumbnailUrl).containsExactly(null, null);
-        assertThat(response.totalPrice()).isEqualTo(25_000);
-        assertThat(output).contains("상품 이미지 조회에 실패해 주문 상세를 이미지 없이 응답합니다");
+        assertThatThrownBy(() -> useCase.getOrderDetail(BUYER_ID, 500L)).isSameAs(failure);
+        verify(transactionManager).rollback(any());
+        verify(transactionManager, never()).commit(any());
+        verifyNoInteractions(paymentApi, deliveryApi);
     }
 
     @Test
