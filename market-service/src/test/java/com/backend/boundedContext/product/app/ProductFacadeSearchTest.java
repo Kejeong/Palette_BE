@@ -100,6 +100,9 @@ class ProductFacadeSearchTest {
     private ProductSearchPort productSearchPort;
 
     @Autowired
+    private ProductSummarySupport productSummarySupport;
+
+    @Autowired
     private ProductPolicy productPolicy;
 
     @MockitoBean
@@ -133,7 +136,6 @@ class ProductFacadeSearchTest {
         assertThat(result.items()).singleElement().satisfies(item -> {
             assertThat(item.productId()).isEqualTo(cream.getId());
             assertThat(item.price()).isEqualTo(25_000);
-            assertThat(item.categoryId()).isEqualTo(skincare.getId());
             assertThat(item.businessName()).isEqualTo("팔레트 상점");
             assertThat(item.soldOut()).isFalse();
         });
@@ -377,8 +379,7 @@ class ProductFacadeSearchTest {
         List<Long> staleIds = List.of(stopped.getId(), onSale.getId(), deleted.getId(), inactiveCategory.getId(), Long.MAX_VALUE);
         ProductSearchPort staleIndex = (query, pageable) -> new PageImpl<>(staleIds, pageable, staleIds.size());
         ProductSearchProductsUseCase useCase = new ProductSearchProductsUseCase(
-                productSupport, productImageSupport, productDiscountSupport, staleIndex, productRepository,
-                productPopularKeywordSupport, reviewApi);
+                productSupport, productSummarySupport, staleIndex, productPopularKeywordSupport);
 
         PageResponse<ProductSummaryDto> result = useCase.searchProducts(KEY, null, ProductSort.LATEST, true, false, PageRequest.of(0, 20));
 
@@ -403,8 +404,8 @@ class ProductFacadeSearchTest {
             }
         };
         ProductSearchProductsUseCase useCase = new ProductSearchProductsUseCase(
-                productSupport, productImageSupport, productDiscountSupport, productSearchPort, productRepository,
-                new ProductPopularKeywordSupport(recordingPort, productPolicy), reviewApi);
+                productSupport, productSummarySupport, productSearchPort,
+                new ProductPopularKeywordSupport(recordingPort, productPolicy));
 
         useCase.searchProducts("  " + KEY.toUpperCase() + " 크림 ", null, null, true, false, PageRequest.of(0, 20));   // 앞뒤 공백, 대문자
         useCase.searchProducts(KEY, null, null, true, false, PageRequest.of(1, 20));          // 다음 페이지
