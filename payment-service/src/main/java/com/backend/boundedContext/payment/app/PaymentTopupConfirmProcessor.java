@@ -50,7 +50,9 @@ public class PaymentTopupConfirmProcessor {
     /**
      * Tx1: PG 승인 호출 전 충전 건을 PROCESSING으로 선점
      * 1. 충전 건 행 잠금 조회 (조건에 memberId 포함, 남의 충전 건이면 404)
-     * 2. READY가 아니면 409 TOPUP_ALREADY_PROCESSED (상태는 그대로)
+     * 2. READY가 아니면 같은 요청의 재요청인지 확인 (상태는 그대로)
+     *    - 결제키·금액이 같고 DONE·PROCESSING이면 처음 결과를 REPLAYED로 반환 (PG를 다시 부르지 않음)
+     *    - 그 밖(결제키·금액이 다름, 실패·취소 상태)은 409 TOPUP_ALREADY_PROCESSED
      * 3. 이미 다른 충전 건에 쓰인 결제키면 409 TOPUP_ALREADY_PROCESSED
      * 4. 충전 건의 PG가 연동되지 않았으면 IllegalStateException (상태는 그대로)
      * 5. 저장 금액 ≠ 요청 금액이면 FAILED_AMOUNT_MISMATCH로 기록하고 결과로 반환 (예외를 던지지 않아 기록이 커밋됨)
@@ -61,7 +63,10 @@ public class PaymentTopupConfirmProcessor {
         Topup topup = topupRepository.findByOrderIdAndMemberIdForUpdate(orderId, memberId)
                 .orElseThrow(() -> new DomainException(PaymentErrorCode.TOPUP_NOT_FOUND));
 
-        if (topup.getStatus() != TopupStatus.READY || topupRepository.existsByPaymentKey(paymentKey)) {
+        if (topup.getStatus() != TopupStatus.READY) {
+            return replay(topup, paymentKey, amount);
+        }
+        if (topupRepository.existsByPaymentKey(paymentKey)) {
             throw new DomainException(PaymentErrorCode.TOPUP_ALREADY_PROCESSED);
         }
 
@@ -69,11 +74,28 @@ public class PaymentTopupConfirmProcessor {
 
         if (topup.getAmount() != amount) {
             topup.fail(TopupStatus.FAILED_AMOUNT_MISMATCH, "충전 준비 금액과 승인 요청 금액이 다릅니다. (준비 " + topup.getAmount() + "원, 요청 " + amount + "원)");
-            return new TopupConfirmStartResult(topup.getId(), topup.getPgProvider(), TopupConfirmStartResult.Outcome.AMOUNT_MISMATCH);
+            return new TopupConfirmStartResult(topup.getId(), topup.getPgProvider(), TopupConfirmStartResult.Outcome.AMOUNT_MISMATCH, null);
         }
 
         topup.markProcessing(paymentKey);
-        return new TopupConfirmStartResult(topup.getId(), topup.getPgProvider(), TopupConfirmStartResult.Outcome.STARTED);
+        return new TopupConfirmStartResult(topup.getId(), topup.getPgProvider(), TopupConfirmStartResult.Outcome.STARTED, null);
+    }
+
+    /**
+     * 승인 재요청: 새로고침·중복 클릭으로 같은 요청이 다시 오면 처음 결과를 돌려줌 (주문번호를 멱등 키로 씀)
+     * - DONE: 승인 완료. 잔액은 지금 지갑 잔액 (그사이 예치금을 썼으면 처음 응답과 다를 수 있음)
+     * - PROCESSING: 결과 확인 중
+     * 실패 상태는 처음 오류 응답을 다시 만들 수 없고, 취소가 시작된 건은 승인 완료로 답할 수 없어 409
+     */
+    private TopupConfirmStartResult replay(Topup topup, String paymentKey, long amount) {
+        boolean sameRequest = paymentKey.equals(topup.getPaymentKey()) && topup.getAmount() == amount;
+        if (sameRequest && topup.getStatus() == TopupStatus.DONE) {
+            return TopupConfirmStartResult.replayed(TopupConfirmDto.of(topup, topup.getWallet().getBalance()), topup.getPgProvider());
+        }
+        if (sameRequest && topup.getStatus() == TopupStatus.PROCESSING) {
+            return TopupConfirmStartResult.replayed(TopupConfirmDto.processing(topup.getId(), topup.getOrderId(), topup.getAmount()), topup.getPgProvider());
+        }
+        throw new DomainException(PaymentErrorCode.TOPUP_ALREADY_PROCESSED);
     }
 
     /**
