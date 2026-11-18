@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.support.TestPgCircuitBreakers;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+
 /**
  * PG별 서킷 브레이커: 결과 모름만 실패로 세고, 기준(최근 10회 중 50%, 최소 5회)을 넘으면 사용 불가
  */
@@ -60,6 +62,17 @@ class PgCircuitBreakersTest {
         repeat(5, () -> call(() -> { throw new PgConfigurationException("HECTO_CONFIGURATION_ERROR", new IllegalStateException()); }, PgConfigurationException.class));
 
         assertThat(circuitBreakers.isAvailable(PgProvider.TOSS)).isTrue();
+    }
+
+    @Test
+    @DisplayName("직접 강제로 연(FORCED_OPEN) PG도 사용 불가다")
+    void forcedOpen() {
+        CircuitBreakerRegistry registry = CircuitBreakerRegistry.ofDefaults();
+        PgCircuitBreakers forced = new PgCircuitBreakers(registry);
+        registry.circuitBreaker(PgCircuitBreakers.name(PgProvider.TOSS)).transitionToForcedOpenState();
+
+        assertThat(forced.isAvailable(PgProvider.TOSS)).isFalse();
+        assertThat(forced.isAvailable(PgProvider.HECTO)).isTrue();
     }
 
     @Test

@@ -41,9 +41,10 @@ public class PgCircuitBreakers {
         return "pg-" + provider.name();
     }
 
-    // 충전 준비에 쓸 수 있는 PG인지. OPEN만 사용 불가이고, HALF_OPEN은 시험 호출이 필요해 사용 가능으로 봄
+    // 충전 준비에 쓸 수 있는 PG인지. OPEN·FORCED_OPEN(직접 강제로 연 상태)은 사용 불가이고, HALF_OPEN은 시험 호출이 필요해 사용 가능으로 봄
     public boolean isAvailable(PgProvider provider) {
-        return breakers.get(provider).getState() != CircuitBreaker.State.OPEN;
+        CircuitBreaker.State state = breakers.get(provider).getState();
+        return state != CircuitBreaker.State.OPEN && state != CircuitBreaker.State.FORCED_OPEN;
     }
 
     // PG 호출을 실행하고 결과를 셈. 예외는 그대로 다시 던짐
