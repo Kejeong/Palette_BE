@@ -753,8 +753,24 @@ public record TransferResultDto(String idempotencyKey, Long walletTransactionId,
 | --- | --- | --- | --- |
 | SETTLEMENT_MANUAL_REQUIRED | settlement | `GET /api/v1/admin/settlements/failures` | 구현 |
 | PAYMENT_FAILED, REFUND_FAILED | payment (결제, 반품 환불) | `GET /api/v1/admin/payments/failures` (type 없으면 둘 다) | 구현 |
-| TOPUP_DELAYED | payment (충전) | `GET /api/v1/admin/topups/failures` | 요청 |
+| TOPUP_DELAYED | payment (충전) | `GET /api/v1/admin/topups/failures` | 구현 (TRSS-302) |
 | DELIVERY_TRACKING_FAILED | delivery | `GET /api/v1/admin/deliveries/failures` | 구현 (TRSS-291) |
+
+충전 확인 지연(payment 충전) 항목:
+
+- 대상
+  - 결과 확인 대기: `PROCESSING`·`CANCELING`·`METHOD_CANCELING`으로 결과 확인 대기 시간(`custom.payment.topupReconcileDelayMinutes`, 기본 5분)보다 오래 머문 충전 건
+  - 실패: `FAILED_SYSTEM_ERROR`, `FAILED_AMOUNT_MISMATCH`
+  - 사용자 취소(`FAILED_USER_CANCEL`)·만료(`FAILED_EXPIRED`)·카드 거절(`FAILED_PG_DECLINED`)·결제 수단 자동 취소(`FAILED_METHOD_NOT_ALLOWED`)는 정상 흐름이거나 이미 정리된 건이라 뺀다
+- `occurredAt` = 지금 상태가 된 시각(`updatedAt`), `from`·`to`도 이 날짜로 거른다
+- `targetType` = MEMBER, `targetId` = 회원 ID, `targetLabel` = 마스킹한 이메일
+- `amount` = 충전 금액, `refId` = 충전 ID, `orderId` = null
+- `reasonCode` = 충전 상태, `reasonLabel`
+  - `PROCESSING` "PG 승인 결과 확인 중", `CANCELING` "PG 취소 결과 확인 중", `METHOD_CANCELING` "허용하지 않은 결제 수단 취소 결과 확인 중"
+  - `FAILED_SYSTEM_ERROR` "시스템 오류", `FAILED_AMOUNT_MISMATCH` "금액 불일치". 저장된 실패 사유를 괄호로 붙인다(예: "시스템 오류 (PG 인증에 실패했습니다.)")
+- `handlingCode`
+  - 결과 확인 대기이고 오래 남은 건 경고 기준(`custom.payment.topupStuckWarnMinutes`, 기본 60분) 이하: `AUTO_RECHECK`("자동 확인 대기"). 결과 확인 스케줄러가 PG에 다시 확인한다
+  - 결과 확인 대기이고 60분 초과, 또는 실패: `CHECK_REQUIRED`("확인 필요"). 60분은 오류 로그 알림이 나가는 기준과 같다
 
 배송 추적 실패(delivery) 항목:
 

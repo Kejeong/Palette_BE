@@ -14,6 +14,7 @@ import com.backend.boundedContext.payment.app.PaymentFacade;
 import com.backend.boundedContext.payment.app.dto.AdminTopupDto;
 import com.backend.global.page.PageResponse;
 import com.backend.global.rsData.RsData;
+import com.backend.shared.admin.dto.AdminFailureItem;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -48,5 +49,25 @@ public class ApiV1AdminTopupController {
             @ParameterObject Pageable pageable
     ) {
         return RsData.of("200-1", "충전 내역을 조회했습니다.", paymentFacade.getAdminTopups(keyword, from, to, pageable));
+    }
+
+    @Operation(summary = "실패 거래: 충전 확인 지연", description = """
+            관리자 실패 거래 화면의 충전 행. 공통 형식(AdminFailureItem, type TOPUP_DELAYED), 지금 상태가 된 시각(occurredAt) 최신순(sort 무시).
+            기간(from~to, yyyy-MM-dd)은 그 시각의 날짜 기준이고 양 끝 날짜를 포함한다. page(0부터)·size
+            - 결과 확인 대기: PROCESSING·CANCELING·METHOD_CANCELING으로 5분(결과 확인 대기 시간)보다 오래 남은 건.
+              60분(오래 남은 건 경고 기준) 이하는 AUTO_RECHECK(자동 확인 대기), 넘으면 CHECK_REQUIRED(확인 필요)
+            - 실패: FAILED_SYSTEM_ERROR·FAILED_AMOUNT_MISMATCH, CHECK_REQUIRED. 원인 문구에 실패 사유를 붙인다
+            사용자 취소·만료·카드 거절·결제 수단 자동 취소는 정상 흐름이라 나오지 않는다. orderId는 null""")
+    @ApiResponse(responseCode = "200", description = "200-1 조회 성공")
+    @ApiResponse(responseCode = "403", description = "관리자가 아님")
+    @GetMapping("/failures")
+    public RsData<PageResponse<AdminFailureItem>> getFailures(
+            @Parameter(description = "시작 날짜 yyyy-MM-dd (포함)")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @Parameter(description = "끝 날짜 yyyy-MM-dd (포함)")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @ParameterObject Pageable pageable
+    ) {
+        return RsData.of("200-1", "실패 거래(충전 확인 지연)를 조회했습니다.", paymentFacade.getAdminTopupFailures(from, to, pageable));
     }
 }
