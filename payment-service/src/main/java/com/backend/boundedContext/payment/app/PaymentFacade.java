@@ -46,6 +46,7 @@ public class PaymentFacade {
     private final PaymentGetAdminPaymentsUseCase paymentGetAdminPaymentsUseCase;
     private final PaymentGetAdminTopupsUseCase paymentGetAdminTopupsUseCase;
     private final PaymentGetFailuresUseCase paymentGetFailuresUseCase;
+    private final PaymentGetTopupFailuresUseCase paymentGetTopupFailuresUseCase;
     private final PaymentPrepareTopupUseCase paymentPrepareTopupUseCase;
     private final PaymentConfirmTopupUseCase paymentConfirmTopupUseCase;
     private final PaymentCancelTopupUseCase paymentCancelTopupUseCase;
@@ -104,6 +105,12 @@ public class PaymentFacade {
     public PageResponse<AdminFailureItem> getAdminFailures(AdminFailureType type, LocalDate from, LocalDate to,
                                                            Pageable pageable) {
         return paymentGetFailuresUseCase.getFailures(type, from, to, pageable);
+    }
+
+    // 관리자 실패 거래의 충전 확인 지연 행 (공통 형식)
+    @Transactional(readOnly = true)
+    public PageResponse<AdminFailureItem> getAdminTopupFailures(LocalDate from, LocalDate to, Pageable pageable) {
+        return paymentGetTopupFailuresUseCase.getFailures(from, to, pageable, LocalDateTime.now());
     }
 
     // 관리자 결제 조회 충전 탭

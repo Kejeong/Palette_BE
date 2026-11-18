@@ -32,6 +32,9 @@ import com.backend.global.security.JwtAuthenticationEntryPoint;
 import com.backend.global.security.JwtTokenProvider;
 import com.backend.global.security.SecurityConfig;
 import com.backend.global.security.SecurityErrorResponseWriter;
+import com.backend.shared.admin.dto.AdminFailureItem;
+import com.backend.shared.admin.dto.AdminFailureTargetType;
+import com.backend.shared.admin.dto.AdminFailureType;
 import com.backend.shared.member.dto.MemberRole;
 
 @WebMvcTest(ApiV1AdminTopupController.class)
@@ -95,6 +98,36 @@ class ApiV1AdminTopupControllerTest {
     @DisplayName("충전 탭: 관리자가 아니면 403")
     void getTopups_forbidden() throws Exception {
         mockMvc.perform(get("/api/v1/admin/topups").header("Authorization", bearer(MemberRole.USER)))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(paymentFacade);
+    }
+
+    @Test
+    @DisplayName("실패 거래(충전 확인 지연): 관리자는 기간·페이지로 공통 형식 목록을 조회한다")
+    void getFailures_admin() throws Exception {
+        AdminFailureItem item = new AdminFailureItem(AdminFailureType.TOPUP_DELAYED, LocalDateTime.of(2026, 11, 18, 10, 0),
+                AdminFailureTargetType.MEMBER, 3L, "bu***@palette.test", 20_000L, "PROCESSING", "PG 승인 결과 확인 중",
+                "AUTO_RECHECK", "자동 확인 대기", 14L, null);
+        given(paymentFacade.getAdminTopupFailures(eq(LocalDate.of(2026, 11, 1)), eq(LocalDate.of(2026, 11, 18)), any(Pageable.class)))
+                .willReturn(new PageResponse<>(List.of(item), 0, 20, 1, 1));
+
+        mockMvc.perform(get("/api/v1/admin/topups/failures")
+                        .param("from", "2026-11-01")
+                        .param("to", "2026-11-18")
+                        .header("Authorization", bearer(MemberRole.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultCode").value("200-1"))
+                .andExpect(jsonPath("$.data.items[0].type").value("TOPUP_DELAYED"))
+                .andExpect(jsonPath("$.data.items[0].refId").value(14))
+                .andExpect(jsonPath("$.data.items[0].handlingCode").value("AUTO_RECHECK"))
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
+    @Test
+    @DisplayName("실패 거래(충전 확인 지연): 관리자가 아니면 403")
+    void getFailures_forbidden() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/topups/failures").header("Authorization", bearer(MemberRole.USER)))
                 .andExpect(status().isForbidden());
 
         verifyNoInteractions(paymentFacade);
