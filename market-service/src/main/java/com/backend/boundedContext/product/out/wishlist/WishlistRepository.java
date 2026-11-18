@@ -1,6 +1,7 @@
 package com.backend.boundedContext.product.out.wishlist;
 
 import com.backend.boundedContext.product.domain.wishlist.Wishlist;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -50,4 +51,13 @@ public interface WishlistRepository extends JpaRepository<Wishlist, Long> {
             group by w.product.id
             """)
     List<ProductWishCount> countByProductIdIn(Collection<Long> productIds);
+
+    /** 회원이 찜한 상품, 최근에 찜한 순 (개인화 추천 기준 상품) */
+    @Query("""
+            select new com.backend.boundedContext.product.out.wishlist.WishedProduct(w.product.id, w.createdAt)
+            from Wishlist w
+            where w.memberId = :memberId
+            order by w.createdAt desc
+            """)
+    List<WishedProduct> findRecentByMemberId(Long memberId, Limit limit);
 }
