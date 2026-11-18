@@ -2,7 +2,9 @@ package com.backend.boundedContext.payment.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
+import java.time.temporal.ChronoUnit;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -180,6 +182,8 @@ class PaymentPayIntegrationTest {
         assertThat(payment.getMemberId()).isEqualTo(buyerMemberId);
         assertThat(payment.getAmount()).isEqualTo(25_000);
         assertThat(payment.getPaidAt()).isNotNull();
+        // 결과의 paidAt = 저장된 결제 완료 시각 (DB는 마이크로초까지 저장, pgjdbc는 버림이 아니라 반올림하므로 1µs 이내)
+        assertThat(payment.getPaidAt()).isCloseTo(result.paidAt(), within(1, ChronoUnit.MICROS));
 
         // 원장: 결제 ID를 가리키는 PAYMENT -25,000, 거래 후 잔액 5,000
         WalletTransaction ledger = walletTransactionRepository.findByIdempotencyKey("PAYMENT-" + payment.getId()).orElseThrow();
@@ -210,6 +214,9 @@ class PaymentPayIntegrationTest {
 
         assertThat(second.paymentId()).isEqualTo(first.paymentId());
         assertThat(second.status()).isEqualTo(PayResultStatus.PAID);
+        // 처음 결제 시각 그대로 (재요청은 DB 값이라 첫 응답의 나노초 값과 반올림 1µs 이내)
+        assertThat(second.paidAt()).isCloseTo(first.paidAt(), within(1, ChronoUnit.MICROS));
+        assertThat(second.paidAt()).isEqualTo(paymentRepository.findById(first.paymentId()).orElseThrow().getPaidAt());
         assertThat(balance()).isEqualTo(5_000);
         assertThat(holdingCount()).isEqualTo(1);
     }
@@ -245,6 +252,7 @@ class PaymentPayIntegrationTest {
 
         assertThat(result.status()).isEqualTo(PayResultStatus.FAILED_INSUFFICIENT_BALANCE);
         assertThat(result.isPaid()).isFalse();
+        assertThat(result.paidAt()).isNull();   // PAID가 아니면 paidAt 없음
         // 잔액 30,000으로 48,000 결제 → 18,000 부족, 1만 원 단위로 올려 20,000 충전 권장
         assertThat(result.shortage()).isEqualTo(18_000);
         assertThat(result.chargeAmount()).isEqualTo(20_000);
