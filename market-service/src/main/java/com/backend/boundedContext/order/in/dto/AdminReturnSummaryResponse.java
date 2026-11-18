@@ -11,6 +11,7 @@ import java.util.List;
 /**
  * 관리자 반품 목록의 주문 한 건. 배송지·연락처는 넣지 않는다.
  *
+ * @param buyerName   구매자 이름. 회원 서비스 조회에 실패했거나 회원이 없으면(탈퇴 등) null
  * @param payAmount   결제 금액(배송비 포함). 승인하면 이 금액 전액을 환불한다
  * @param deliveredAt 배송 완료 시각 (배송지 없는 주문은 null)
  * @param returnRejectReason 관리자가 반품을 거절한 사유 (거절되지 않았으면 null)
@@ -19,6 +20,7 @@ public record AdminReturnSummaryResponse(
         Long orderId,
         String orderNumber,
         Long buyerId,
+        String buyerName,
         OrderStatus status,
         long payAmount,
         long shippingFee,
@@ -50,11 +52,12 @@ public record AdminReturnSummaryResponse(
         }
     }
 
-    public static AdminReturnSummaryResponse from(Order order) {
+    public static AdminReturnSummaryResponse of(Order order, String buyerName) {
         return new AdminReturnSummaryResponse(
                 order.getId(),
                 order.getOrderNumber(),
                 order.getBuyerId(),
+                buyerName,
                 order.getStatus(),
                 order.getPayAmount(),
                 order.getShippingFee(),

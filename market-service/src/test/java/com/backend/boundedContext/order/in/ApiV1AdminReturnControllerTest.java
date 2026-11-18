@@ -80,6 +80,7 @@ class ApiV1AdminReturnControllerTest {
                 .andExpect(jsonPath("$.data.items[0].orderId").value(9))
                 .andExpect(jsonPath("$.data.items[0].orderNumber").value("ORD-20261112-ABCDEFGH"))
                 .andExpect(jsonPath("$.data.items[0].buyerId").value(3))
+                .andExpect(jsonPath("$.data.items[0].buyerName").value("김구매"))
                 .andExpect(jsonPath("$.data.items[0].status").value("RETURN_REQUESTED"))
                 .andExpect(jsonPath("$.data.items[0].payAmount").value(27_500))
                 .andExpect(jsonPath("$.data.items[0].shippingFee").value(2_500))
@@ -271,7 +272,7 @@ class ApiV1AdminReturnControllerTest {
     }
 
     private static AdminReturnSummaryResponse summary() {
-        return new AdminReturnSummaryResponse(9L, "ORD-20261112-ABCDEFGH", 3L, OrderStatus.RETURN_REQUESTED,
+        return new AdminReturnSummaryResponse(9L, "ORD-20261112-ABCDEFGH", 3L, "김구매", OrderStatus.RETURN_REQUESTED,
                 27_500, 2_500, AT, AT.plusDays(1), ReturnReasonCode.DEFECTIVE, "깨짐", null, null, null,
                 List.of(new AdminReturnSummaryResponse.Item(11L, 10L, "립스틱", "기본", "상점", 2, 20_000, null)));
     }
