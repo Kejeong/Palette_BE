@@ -65,6 +65,17 @@ class RecommendGetProductsIntegrationTest {
     }
 
     @Test
+    @DisplayName("하드 필터: 괄호 안 쉼표가 있는 전성분(향료(리모넨, 리날룰))도 향료를 피하는 회원에게서 빠진다")
+    void fragranceWithParenthesesExcluded() {
+        product(1L, "향 토너", "스킨케어", "정제수, 향료(리모넨, 리날룰)", 1.0);
+        product(2L, "글리세린 크림", "스킨케어", "정제수, 글리세린(식물유래, 99%), 향료", 0.9);
+        product(3L, "무향 크림", "스킨케어", "정제수, 판테놀", 0.6);
+        survey(List.of(), List.of(FRAGRANCE), List.of());
+
+        assertThat(ids(recommend())).containsExactly(3L);
+    }
+
+    @Test
     @DisplayName("전성분 모르는 상품: 피하는 성분을 골랐으면 빠지고, 안 골랐으면 나온다")
     void unknownIngredients() {
         product(1L, "전성분 없는 크림", "스킨케어", null, 0.8);

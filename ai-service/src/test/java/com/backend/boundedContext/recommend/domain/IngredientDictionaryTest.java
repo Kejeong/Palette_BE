@@ -126,4 +126,83 @@ class IngredientDictionaryTest {
         assertThat(match("   ").known()).isFalse();
         assertThat(match(" , ,\n").known()).isFalse();
     }
+
+    @Test
+    @DisplayName("괄호 안 쉼표에서는 나누지 않고, 괄호 안 착향제도 FRAGRANCE: 향료(리모넨, 리날룰)")
+    void commaInsideParentheses() {
+        IngredientMatch result = match("정제수, 향료(리모넨, 리날룰)");
+
+        assertThat(result.tags()).containsExactly(FRAGRANCE);
+        assertThat(result.unmatchedNames()).containsExactly("정제수");
+        assertThat(result.known()).isTrue();
+    }
+
+    @Test
+    @DisplayName("괄호 안 설명(식물유래, 99%)은 미매칭 목록에 넣지 않고, 뒤의 향료를 찾음")
+    void descriptionInsideParentheses() {
+        IngredientMatch result = match("정제수, 글리세린(식물유래, 99%), 향료");
+
+        assertThat(result.tags()).containsExactly(FRAGRANCE);
+        assertThat(result.unmatchedNames()).containsExactly("정제수", "글리세린");
+    }
+
+    @Test
+    @DisplayName("괄호 안 착향제만 있어도 FRAGRANCE: 천연향(리모넨)")
+    void allergenOnlyInsideParentheses() {
+        IngredientMatch result = match("천연향(리모넨)");
+
+        assertThat(result.tags()).containsExactly(FRAGRANCE);
+        assertThat(result.unmatchedNames()).containsExactly("천연향");
+    }
+
+    @Test
+    @DisplayName("숫자 사이 쉼표는 괄호 밖이든 안이든 나누지 않음: 1,2-헥산다이올")
+    void hexanediol() {
+        assertThat(match("1,2-헥산다이올").unmatchedNames()).containsExactly("1,2-헥산다이올");
+        assertThat(match("보존제(1,2-헥산다이올), 에탄올").unmatchedNames()).containsExactly("보존제");
+        assertThat(match("보존제(1,2-헥산다이올), 에탄올").tags()).containsExactly(ALCOHOL);
+    }
+
+    @Test
+    @DisplayName("괄호 안 영문명(정제수(Water))은 미매칭 목록에 넣지 않음")
+    void englishNameInsideParentheses() {
+        IngredientMatch result = match("정제수(Water), 향료(Fragrance)");
+
+        assertThat(result.tags()).containsExactly(FRAGRANCE);
+        assertThat(result.unmatchedNames()).containsExactly("정제수");
+    }
+
+    @Test
+    @DisplayName("전각 괄호도 같은 규칙: 향료（리모넨，리날룰）")
+    void fullWidthParentheses() {
+        IngredientMatch result = match("정제수，향료（리모넨，리날룰），에탄올");
+
+        assertThat(result.tags()).containsExactlyInAnyOrder(FRAGRANCE, ALCOHOL);
+        assertThat(result.unmatchedNames()).containsExactly("정제수");
+    }
+
+    @Test
+    @DisplayName("닫는 괄호가 없으면 끝까지 괄호 안으로 보고, 예외 없이 괄호 안 성분도 찾음")
+    void unclosedParenthesis() {
+        IngredientMatch result = match("정제수, 향료(리모넨, 에탄올");
+
+        assertThat(result.tags()).containsExactlyInAnyOrder(FRAGRANCE, ALCOHOL);
+        assertThat(result.unmatchedNames()).containsExactly("정제수");
+    }
+
+    @Test
+    @DisplayName("여는 괄호 없이 닫는 괄호만 있으면 무시하고 나머지는 평소처럼 나눔")
+    void strayClosingParenthesis() {
+        IngredientMatch result = match("리모넨), 정제수, 에탄올)");
+
+        assertThat(result.tags()).containsExactlyInAnyOrder(FRAGRANCE, ALCOHOL);
+        assertThat(result.unmatchedNames()).containsExactly("정제수");
+        assertThat(result.known()).isTrue();
+    }
+
+    @Test
+    @DisplayName("겹친 괄호도 안쪽까지 찾음")
+    void nestedParentheses() {
+        assertThat(match("복합향(천연향(리모넨, 리날룰), 기타)").tags()).containsExactly(FRAGRANCE);
+    }
 }

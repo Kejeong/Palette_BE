@@ -111,6 +111,8 @@ custom:
   recommend:
     embeddingIntervalMillis: 5000   # 비어 있는 임베딩(상품·설문)을 채우는 간격(밀리초)
     embeddingBatchSize: 20          # 한 번에 임베딩하는 상품·설문 수
+    embeddingRetryDelayMinutes: 1,5,30,60  # 임베딩이 실패한 상품·설문을 다시 시도하기까지 기다리는 시간(분). n번째 실패 뒤 n번째 값, 그 뒤로는 마지막 값
+    embeddingFailureAlertAttempts: 3       # 연속 실패가 이 횟수에 처음 닿으면 ERROR 로그 1회(Slack 알림)
     preferredIngredientWeight: 0.05 # 추천 점수 가점: 겹친 선호 성분 1개마다
     interestCategoryWeight: 0.05    # 추천 점수 가점: 관심 카테고리 상품
   faq:

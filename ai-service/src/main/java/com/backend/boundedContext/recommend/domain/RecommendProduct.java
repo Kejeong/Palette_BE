@@ -30,6 +30,9 @@ import java.util.Set;
 @Table(name = "recommend_product")
 public class RecommendProduct extends BaseManualIdAndTime {
 
+    // 임베딩할 글에 넣는 상품 설명의 최대 글자 수
+    public static final int EMBEDDING_DESCRIPTION_MAX_LENGTH = 2_000;
+
     @Column(nullable = false)
     private boolean beauty;
 
@@ -112,9 +115,16 @@ public class RecommendProduct extends BaseManualIdAndTime {
         return !before.equals(getIngredientTags()) || knownBefore != ingredientsKnown;
     }
 
-    /** 임베딩할 글. 전성분·태그는 넣지 않는다(사전이 바뀌어도 다시 임베딩하지 않게) */
+    /** 임베딩할 글. 전성분·태그는 넣지 않는다(사전이 바뀌어도 다시 임베딩하지 않게). 설명은 앞부분만 넣는다 */
     public String embeddingSource() {
-        return "카테고리: " + categoryName + "\n상품명: " + name + "\n설명: " + description;
+        return "카테고리: " + categoryName + "\n상품명: " + name + "\n설명: " + truncate(description, EMBEDDING_DESCRIPTION_MAX_LENGTH);
+    }
+
+    // 앞에서 maxLength자까지. 이모지처럼 두 char로 된 글자를 반으로 자르지 않는다
+    static String truncate(String text, int maxLength) {
+        if (text.length() <= maxLength) return text;
+        int end = Character.isHighSurrogate(text.charAt(maxLength - 1)) ? maxLength - 1 : maxLength;
+        return text.substring(0, end);
     }
 
     public Set<IngredientTag> getIngredientTags() {
