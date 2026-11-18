@@ -67,6 +67,14 @@ public class CouponFacade {
         return couponGetAdminCouponsUseCase.getCoupons(type, status, sellerId, influencerId, pageable);
     }
 
+    // 전체 쿠폰 목록 (관리자, 쿠폰명 검색 포함)
+    @Transactional(readOnly = true)
+    public PageResponse<AdminCouponSummaryDto> getCouponsForAdmin(CouponType type, CouponDisplayStatus status,
+                                                                  Long sellerId, Long influencerId, String keyword,
+                                                                  Pageable pageable) {
+        return couponGetAdminCouponsUseCase.getCoupons(type, status, sellerId, influencerId, keyword, pageable);
+    }
+
     // 쿠폰 상세 (관리자)
     @Transactional(readOnly = true)
     public AdminCouponDetailDto getCouponForAdmin(Long couponId, Pageable usagePageable) {
