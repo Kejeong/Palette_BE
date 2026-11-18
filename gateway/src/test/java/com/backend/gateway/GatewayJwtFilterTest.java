@@ -14,6 +14,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -238,6 +239,120 @@ class GatewayJwtFilterTest {
                 .expectBody().jsonPath("$.resultCode").isEqualTo("400-INVALID_REQUEST");
 
         assertThat(serviceHits).hasValue(0);
+    }
+
+    // ── 회원 정보 헤더(TRSS-296): 서비스(common)는 이 헤더로 회원 정보를 만든다 ──
+
+    @Test
+    void 정상_토큰이면_회원_id와_역할을_헤더로_넘긴다() {
+        client.get().uri("/api/v1/orders").header(HttpHeaders.AUTHORIZATION, bearer(token("37", "USER")))
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(receivedHeaders.get().get("X-Member-Id")).isEqualTo("37");
+        assertThat(receivedHeaders.get().get("X-Member-Role")).isEqualTo("USER");
+    }
+
+    // 밖에서 넣은 회원 헤더가 서비스에 닿으면 누구나 다른 회원·관리자 행세를 할 수 있다
+    @Test
+    void 밖에서_넣은_회원_헤더는_지우고_토큰의_회원으로_넘긴다() {
+        client.get().uri("/api/v1/orders")
+                .header(HttpHeaders.AUTHORIZATION, bearer(token("37", "USER")))
+                .header("X-Member-Id", "1")
+                .header("X-Member-Role", "ADMIN")
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(receivedHeaders.get().getAll("X-Member-Id")).containsExactly("37");
+        assertThat(receivedHeaders.get().getAll("X-Member-Role")).containsExactly("USER");
+    }
+
+    @Test
+    void 공개_경로에_토큰_없이_회원_헤더만_넣으면_지우고_비회원으로_넘긴다() {
+        client.get().uri("/api/v1/products")
+                .header("X-Member-Id", "1")
+                .header("X-Member-Role", "ADMIN")
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(receivedHeaders.get().contains("X-Member-Id")).isFalse();
+        assertThat(receivedHeaders.get().contains("X-Member-Role")).isFalse();
+    }
+
+    // 상품 목록·맞춤 추천은 공개 경로지만 로그인했으면 그 회원 기준으로 답한다
+    @Test
+    void 공개_경로라도_정상_토큰이면_회원_헤더를_넘긴다() {
+        client.get().uri("/api/v1/products").header(HttpHeaders.AUTHORIZATION, bearer(token("37", "USER")))
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(receivedHeaders.get().get("X-Member-Id")).isEqualTo("37");
+    }
+
+    @Test
+    void 공개_경로에_만료된_토큰이면_헤더_없이_비회원으로_넘긴다() {
+        client.get().uri("/api/v1/products").header(HttpHeaders.AUTHORIZATION, bearer(expiredToken()))
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(receivedHeaders.get().contains("X-Member-Id")).isFalse();
+    }
+
+    @Test
+    void 회원_id가_숫자가_아니거나_역할이_없는_토큰은_가짜로_본다() {
+        expectUnauthorized(client.get().uri("/api/v1/orders").header(HttpHeaders.AUTHORIZATION, bearer(token("abc", "USER"))).exchange(),
+                "401-UNAUTHORIZED");
+        expectUnauthorized(client.get().uri("/api/v1/orders").header(HttpHeaders.AUTHORIZATION, bearer(token("37", "SUPER"))).exchange(),
+                "401-UNAUTHORIZED");
+        assertThat(serviceHits).hasValue(0);
+    }
+
+    // ── 경로별 역할(TRSS-296): common SecurityConfig와 같은 규칙. 안 맞으면 서비스에 닿지 않고 403 ──
+
+    @ParameterizedTest(name = "{0} {1} 역할 {2} → 403")
+    @CsvSource({
+            "GET, /api/v1/admin/payments, USER",            // 관리자 전용
+            "GET, /api/v1/admin/payments, LOGISTICS",
+            "GET, /api/v1/logistics/deliveries, USER",      // 물류 담당자 전용
+            "GET, /api/v1/logistics/deliveries, ADMIN",
+            "GET, /api/v1/orders, ADMIN",                   // 구매 기능: 관리자·물류 담당자는 막음
+            "GET, /api/v1/seller/products, LOGISTICS",      // 판매자 기능
+            "GET, /api/v1/influencer/partnerships, ADMIN",  // 인플루언서 기능
+            "POST, /api/v1/users/me/withdrawal, ADMIN",     // 탈퇴 조건 조회
+            "DELETE, /api/v1/users/me, ADMIN",              // 회원 탈퇴
+    })
+    void 역할이_맞지_않으면_403이고_서비스에_닿지_않는다(String method, String path, String role) {
+        client.method(HttpMethod.valueOf(method)).uri(path).header(HttpHeaders.AUTHORIZATION, bearer(token("1", role)))
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectBody().jsonPath("$.resultCode").isEqualTo("403-FORBIDDEN");
+
+        assertThat(serviceHits).hasValue(0);
+    }
+
+    @ParameterizedTest(name = "{0} {1} 역할 {2} → 통과")
+    @CsvSource({
+            "GET, /api/v1/admin/payments, ADMIN",
+            "GET, /api/v1/logistics/deliveries, LOGISTICS",
+            "GET, /api/v1/orders, USER",
+            "GET, /api/v1/seller/products, USER",
+            "GET, /api/v1/users/me, ADMIN",                 // 내 정보 조회는 역할을 가리지 않는다
+            "GET, /api/v1/notifications, LOGISTICS",        // 목록에 없는 경로는 로그인만 하면 된다
+    })
+    void 역할이_맞으면_서비스로_넘긴다(String method, String path, String role) {
+        client.method(HttpMethod.valueOf(method)).uri(path).header(HttpHeaders.AUTHORIZATION, bearer(token("1", role)))
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(receivedHeaders.get().get("X-Member-Role")).isEqualTo(role);
+    }
+
+    private String token(String memberId, String role) {
+        return Jwts.builder()
+                .subject(memberId).claim("role", role)
+                .expiration(new Date(System.currentTimeMillis() + 60_000))
+                .signWith(key())
+                .compact();
     }
 
     private void expectUnauthorized(WebTestClient.ResponseSpec response, String resultCode) {

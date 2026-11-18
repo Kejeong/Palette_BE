@@ -67,6 +67,7 @@ public class SecurityConfig {
             "/webhooks/delivery-tracker/**",  // Delivery Tracker 콜백. URL 토큰으로 delivery가 직접 확인
             "/api/v1/topups/hecto/**"         // 헥토 결제창 결과(브라우저 POST)·결과 알림(헥토 서버). 프론트로 넘기기만 하고 승인은 토큰이 있는 승인 API에서 함
     };
+    // 역할별 경로(ADMIN·LOGISTICS·SELLER·INFLUENCER·BUYER·WITHDRAWAL_API_URLS, DELETE /users/me)도 gateway JwtAuthenticationFilter에 같은 목록이 있다. 고치면 같이 고친다
     private static final String[] ADMIN_API_URLS = {
             "/api/v1/admin/**"
     };
@@ -113,6 +114,11 @@ public class SecurityConfig {
     // 서비스 간 호출용 내부 키. 기본값 없이 환경변수(.env)로만 주입
     @Value("${custom.internal.apiKey}")
     private String internalApiKey;
+
+    // 헤더가 없을 때 Authorization 토큰을 직접 열지. 운영은 gateway가 넘긴 헤더만 받는다(compose.prod.yaml에서 false).
+    // 기본 true: gateway 없이 서비스를 부르는 로컬 개발·서비스 테스트가 지금처럼 토큰으로 돈다(JwtTokenFilter)
+    @Value("${custom.auth.acceptBearerToken:true}")
+    private boolean acceptBearerToken;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -173,7 +179,7 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 // 필터는 빈으로 등록하지 않음 (빈이면 서블릿 필터로도 자동 등록됨)
-                .addFilterBefore(new JwtTokenFilter(jwtTokenProvider), UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(new JwtTokenFilter(jwtTokenProvider, acceptBearerToken), UsernamePasswordAuthenticationFilter.class)
                 .build();
     }
 
