@@ -23,7 +23,7 @@ main() {
     : "${ELASTIC_PASSWORD:?ELASTIC_PASSWORD가 없습니다}"
     : "${MARKET_ES_PASSWORD:?MARKET_ES_PASSWORD가 없습니다}"
     : "${READONLY_ES_PASSWORD:?READONLY_ES_PASSWORD가 없습니다}"
-    ES_URL="${ES_URL:-http://${ES_BIND_IP:?ES_BIND_IP나 ES_URL이 필요합니다}:9200}"
+    ES_URL="${ES_URL:-http://${DATA_BIND_IP:?DATA_BIND_IP나 ES_URL이 필요합니다}:9200}"
 
     # 관리자 비밀번호가 ps 명령의 프로세스 목록에 보이지 않게, curl 인자 대신 권한 600인 임시 파일로 넘긴다
     AUTH_FILE="$(mktemp)"

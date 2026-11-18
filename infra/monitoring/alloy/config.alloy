@@ -1,5 +1,10 @@
-// compose 프로젝트(palette) 컨테이너의 stdout 로그를 Docker API로 읽어 Loki로 보낸다.
+// compose 프로젝트 컨테이너의 stdout 로그를 Docker API로 읽어 Loki로 보낸다.
 // 앱은 로그를 파일로 남기지 않으므로 앱 코드·설정을 바꾸지 않아도 수집된다.
+//
+// 앱 서버(compose.prod.yaml)와 데이터 서버(compose.data.yaml)가 이 파일 하나를 같이 쓴다. 서버마다 다른 값은 환경변수로 받는다.
+//   COMPOSE_PROJECT : 로그를 모을 compose 프로젝트 이름(palette / palette-data)
+//   SERVER_NAME     : 모든 로그·지표에 붙일 server 라벨. 두 서버의 호스트 지표를 구분한다
+//   LOKI_URL, PROMETHEUS_URL : 보낼 곳. 데이터 서버는 앱 서버 내부 IP로 보낸다
 
 discovery.docker "palette" {
   host = "unix:///var/run/docker.sock"
@@ -7,7 +12,7 @@ discovery.docker "palette" {
   // 같은 서버의 다른 컨테이너 로그는 가져오지 않는다
   filter {
     name   = "label"
-    values = ["com.docker.compose.project=palette"]
+    values = ["com.docker.compose.project=" + sys.env("COMPOSE_PROJECT")]
   }
 }
 
@@ -37,8 +42,9 @@ loki.source.docker "palette" {
 
 loki.write "default" {
   endpoint {
-    url = "http://loki:3100/loki/api/v1/push"
+    url = sys.env("LOKI_URL")
   }
+  external_labels = { server = sys.env("SERVER_NAME") }
 }
 
 // ── 메트릭 ──────────────────────────────────────────────────────────────
@@ -124,6 +130,7 @@ prometheus.scrape "host" {
 
 prometheus.remote_write "default" {
   endpoint {
-    url = "http://prometheus:9090/api/v1/write"
+    url = sys.env("PROMETHEUS_URL")
   }
+  external_labels = { server = sys.env("SERVER_NAME") }
 }
