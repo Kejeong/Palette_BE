@@ -15,6 +15,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.function.IntSupplier;
 
 /**
  * 비어 있는 임베딩(상품·설문)을 OpenAI로 채운다. 트랜잭션 밖에서 부른다(외부 호출 동안 DB 연결을 잡지 않게).
@@ -57,11 +59,9 @@ public class RecommendEmbedUseCase {
             float[] embedding = embeddings.get(i);
             if (embedding == null) {
                 failed++;
-                int attempts = recommendVectorRepository.increaseProductEmbeddingAttempts(product.getId(), product.getEmbeddingSourceHash());
-                if (attempts == 0) continue;   // 그사이 글이 바뀌어 재시도 상태가 지워졌다
-                recommendVectorRepository.delayProductEmbedding(product.getId(), product.getEmbeddingSourceHash(),
-                        now.plus(recommendPolicy.embeddingRetryDelay(attempts)));
-                alertIfStuck(PRODUCT, product.getId(), attempts);
+                recordFailure(PRODUCT, product.getId(), now,
+                        () -> recommendVectorRepository.increaseProductEmbeddingAttempts(product.getId(), product.getEmbeddingSourceHash()),
+                        retryAt -> recommendVectorRepository.delayProductEmbedding(product.getId(), product.getEmbeddingSourceHash(), retryAt));
             } else if (recommendVectorRepository.saveProductEmbedding(product.getId(), product.getEmbeddingSourceHash(), embedding)) {
                 saved++;
             }
@@ -85,11 +85,9 @@ public class RecommendEmbedUseCase {
             float[] embedding = embeddings.get(i);
             if (embedding == null) {
                 failed++;
-                int attempts = recommendVectorRepository.increaseProfileEmbeddingAttempts(profile.getMemberId(), profile.getUpdatedAt());
-                if (attempts == 0) continue;   // 그사이 설문을 다시 저장해 재시도 상태가 지워졌다
-                recommendVectorRepository.delayProfileEmbedding(profile.getMemberId(), profile.getUpdatedAt(),
-                        now.plus(recommendPolicy.embeddingRetryDelay(attempts)));
-                alertIfStuck(PROFILE, profile.getMemberId(), attempts);
+                recordFailure(PROFILE, profile.getMemberId(), now,
+                        () -> recommendVectorRepository.increaseProfileEmbeddingAttempts(profile.getMemberId(), profile.getUpdatedAt()),
+                        retryAt -> recommendVectorRepository.delayProfileEmbedding(profile.getMemberId(), profile.getUpdatedAt(), retryAt));
             } else if (recommendVectorRepository.saveProfileEmbedding(profile.getMemberId(), profile.getUpdatedAt(), embedding)) {
                 saved++;
             }
@@ -132,8 +130,11 @@ public class RecommendEmbedUseCase {
         return embeddings;
     }
 
-    // 연속 실패가 기준 횟수에 처음 닿을 때 한 번만 ERROR. 글 원문(상품 설명 등)은 남기지 않는다
-    private void alertIfStuck(String target, Long id, int attempts) {
+    // 실패 횟수를 늘리고 다음 시도 시각을 미룬다. 연속 실패가 기준 횟수에 처음 닿을 때 한 번만 ERROR(글 원문은 남기지 않는다)
+    private void recordFailure(String target, Long id, LocalDateTime now, IntSupplier increaseAttempts, Consumer<LocalDateTime> delay) {
+        int attempts = increaseAttempts.getAsInt();
+        if (attempts == 0) return;   // 그사이 글·설문이 바뀌어 재시도 상태가 지워졌다
+        delay.accept(now.plus(recommendPolicy.embeddingRetryDelay(attempts)));
         if (attempts == recommendPolicy.getEmbeddingFailureAlertAttempts()) {
             log.error("recommend embedding keeps failing target={} id={} attempts={}", target, id, attempts);
         }

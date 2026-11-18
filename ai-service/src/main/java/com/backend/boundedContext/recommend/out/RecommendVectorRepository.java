@@ -98,6 +98,7 @@ public class RecommendVectorRepository {
         return attempts.isEmpty() ? 0 : attempts.getFirst();
     }
 
+    /** 설문의 다음 임베딩 시도 시각을 정한다. 그 전까지 대상 조회에서 빠진다 */
     public void delayProfileEmbedding(Long memberId, LocalDateTime updatedAt, LocalDateTime retryAt) {
         jdbcTemplate.update(
                 "update beauty_profile set embedding_retry_at = ? where member_id = ? and updated_at = ?",

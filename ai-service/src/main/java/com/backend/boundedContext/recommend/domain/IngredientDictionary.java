@@ -93,11 +93,12 @@ public final class IngredientDictionary {
 
         boolean known = false;
         for (String piece : split(ingredientsText)) {
+            Parts parts = parse(piece);
             // 괄호 밖 이름: 미매칭 목록과 known은 이것만 본다(괄호 안 영문명 "정제수(Water)"의 water가 사전 보강 목록에 섞이지 않게)
-            String name = normalize(piece);
+            String name = clean(parts.outside());
             boolean matched = tag(name, tags);
             // 괄호 안 성분명도 태그에는 쓴다: "향료(리모넨, 리날룰)"의 리모넨·리날룰도 착향제다
-            for (String inner : innerNames(piece)) tag(inner, tags);
+            for (String inner : innerNames(parts.groups())) tag(inner, tags);
 
             if (name.isEmpty()) continue;
             known = true;
@@ -159,21 +160,28 @@ public final class IngredientDictionary {
         return c == ')' || c == '）';
     }
 
-    // 조각의 바깥 괄호 안 내용을 같은 규칙으로 나눈 이름들(정규화). 괄호가 겹쳐 있으면 안쪽까지 모두
-    private static List<String> innerNames(String piece) {
+    // 괄호 안 내용들을 같은 규칙으로 나눈 이름들(정규화). 괄호가 겹쳐 있으면 안쪽까지 모두
+    private static List<String> innerNames(List<String> groups) {
         List<String> names = new ArrayList<>();
-        for (String group : groups(piece)) {
+        for (String group : groups) {
             for (String inner : split(group)) {
-                String name = normalize(inner);
+                Parts parts = parse(inner);
+                String name = clean(parts.outside());
                 if (!name.isEmpty()) names.add(name);
-                names.addAll(innerNames(inner));
+                names.addAll(innerNames(parts.groups()));
             }
         }
         return names;
     }
 
-    // 깊이 0에서 연 괄호 안의 내용들. 닫히지 않은 괄호는 끝까지
-    private static List<String> groups(String piece) {
+    // outside: 괄호 밖 글자, groups: 깊이 0에서 연 괄호 안의 내용들
+    private record Parts(String outside, List<String> groups) {
+    }
+
+    // 조각을 한 번 훑어 괄호 밖 글자와 괄호 안 내용을 나눈다.
+    // 짝이 안 맞는 괄호는 split과 같은 규칙(닫히지 않으면 끝까지 괄호 안, 짝 없는 닫는 괄호는 버림)
+    private static Parts parse(String piece) {
+        StringBuilder outside = new StringBuilder();
         List<String> groups = new ArrayList<>();
         int depth = 0;
         int start = 0;
@@ -182,26 +190,22 @@ public final class IngredientDictionary {
             if (isOpen(c)) {
                 if (depth == 0) start = i + 1;
                 depth++;
-            } else if (isClose(c) && depth > 0) {
-                depth--;
-                if (depth == 0) groups.add(piece.substring(start, i));
+            } else if (isClose(c)) {
+                if (depth > 0 && --depth == 0) groups.add(piece.substring(start, i));
+            } else if (depth == 0) {
+                outside.append(c);
             }
         }
         if (depth > 0) groups.add(piece.substring(start));
-        return groups;
+        return new Parts(outside.toString(), groups);
     }
 
-    // 괄호 밖 이름: 괄호와 그 안(영문명 등)을 지우고, 모든 공백을 지우고 영문은 소문자로.
-    // 짝이 안 맞는 괄호도 split과 같은 규칙(닫히지 않으면 끝까지 괄호 안, 짝 없는 닫는 괄호는 버림)
+    // 괄호 밖 이름: 괄호와 그 안(영문명 등)을 지우고, 모든 공백을 지우고 영문은 소문자로
     static String normalize(String name) {
-        StringBuilder outside = new StringBuilder();
-        int depth = 0;
-        for (int i = 0; i < name.length(); i++) {
-            char c = name.charAt(i);
-            if (isOpen(c)) depth++;
-            else if (isClose(c)) depth = Math.max(0, depth - 1);
-            else if (depth == 0) outside.append(c);
-        }
+        return clean(parse(name).outside());
+    }
+
+    private static String clean(String outside) {
         return SPACES.matcher(outside).replaceAll("").toLowerCase(Locale.ROOT);
     }
 }
