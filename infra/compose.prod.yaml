@@ -6,6 +6,11 @@
 #
 # 데이터를 가진 postgres·redis·kafka(·elasticsearch)는 데이터 서버(EC2-B, compose.data.yaml)에 있다(TRSS-320).
 # 앱은 .env의 DATA_HOST(데이터 서버 내부 IP)로 붙고, Redis는 REDIS_PASSWORD로 로그인한다. 둘 다 비어 있으면 compose가 시작하지 않는다.
+#
+# ai-service는 이 파일에 없다. 같은 서버의 k3s(쿠버네티스)에서 돈다(TRSS-327, infra/k8s/ai/).
+# Compose와 k3s는 서로의 내부망 이름을 모르므로, 이 서버 내부 IP(.env의 APP_SERVER_IP)에 연 포트로 서로 부른다.
+#   gateway → ai : APP_SERVER_IP:30087 (k3s NodePort)
+#   ai → member  : APP_SERVER_IP:8081 (아래 member의 ports)
 name: palette
 
 # 컨테이너 로그(docker logs) 파일 크기 제한. 없으면 서버 디스크(50GB)를 계속 차지한다.
@@ -16,7 +21,7 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "5"
 
-# Spring 앱(gateway·payment·member·market·settlement·delivery·notification·ai)이 제대로 실행됐는지 확인한다. scripts/deploy.sh는 이 상태(healthy)를 보고 배포 성공을 판단한다.
+# Spring 앱(gateway·payment·member·market·settlement·delivery·notification)이 제대로 실행됐는지 확인한다. scripts/deploy.sh는 이 상태(healthy)를 보고 배포 성공을 판단한다.
 # 앱마다 컨테이너 안에서 로그인 없이 열리는 Swagger 문서(/v3/api-docs)가 200인지 본다.
 #   정산처럼 로그인 없이 열리는 API가 없는 앱도 같은 방식으로 확인하려고 nginx를 거치지 않는다.
 # 실행 이미지에 curl이 없어도 되게 bash로 HTTP 요청을 직접 보낸다. 포트만 앱마다 다르다(각 서비스의 test).
@@ -100,7 +105,8 @@ services:
       SETTLEMENT_SERVICE_URL: http://settlement:8084
       DELIVERY_SERVICE_URL: http://delivery:8085
       NOTIFICATION_SERVICE_URL: http://notification:8086
-      AI_SERVICE_URL: http://ai:8087
+      # ai는 k3s에 있어 Docker 내부망 이름으로는 못 찾는다. k3s가 이 서버 30087번에 연 문(NodePort)으로 부른다(infra/k8s/ai/service.yaml)
+      AI_SERVICE_URL: http://${APP_SERVER_IP:?APP_SERVER_IP(이 서버 내부 IP)가 .env에 없습니다}:30087
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
     # 모든 요청이 거쳐 가 네트워크 버퍼(힙 밖)를 더 쓴다. 다른 앱과 같은 1g(힙 768MB)
     mem_limit: 1g
@@ -148,6 +154,10 @@ services:
       SERVER_FORWARD_HEADERS_STRATEGY: native
       CUSTOM_AUTH_ACCEPTBEARERTOKEN: "false"   # 운영은 gateway가 넘긴 회원 헤더만 받는다(common JwtTokenFilter). 설정 이름 custom.auth.acceptBearerToken
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+    # k3s의 ai가 크리에이터 추천에서 member 내부 API를 부른다. k3s 파드는 Docker 내부망 이름을 몰라서 이 서버 내부 IP에 연다.
+    # 인터넷 쪽에는 열리지 않는다(내부 IP에만 열고, 보안 그룹도 8081을 열지 않는다)
+    ports:
+      - "${APP_SERVER_IP:?APP_SERVER_IP(이 서버 내부 IP)가 .env에 없습니다}:8081:8081"
     # market·settlement와 같은 1g(힙 768MB)
     mem_limit: 1g
     healthcheck:
@@ -346,43 +356,6 @@ services:
       <<: *app-healthcheck
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8086 && printf 'GET /v3/api-docs HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && read -r status <&3 && cat <&3 >/dev/null && [[ $$status =~ ^HTTP/[0-9.]+\\ 200 ]]"]
     # 알림은 Redis를 쓰지 않는다
-
-  # AI 추천·FAQ 챗봇(ai-service). 같은 Dockerfile에서 MODULE만 바꿔 빌드한다.
-  # DB는 ai 스키마에 ai_user로 접속한다(DB_USERNAME과 다른 계정). pgvector 확장은 postgres/init/01-init-schemas.sh가 ai 스키마에 만든다.
-  # 상품 변경(product.events)을 Kafka로 받아 추천용 상품 사본·성분 태그·임베딩을 만든다.
-  ai:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      args:
-        MODULE: ai-service
-        # 배포 커밋(deploy.sh가 넘김). 이미지에 넣어 로그 service.version으로 남긴다(Dockerfile 참고)
-        APP_VERSION: ${APP_VERSION:-unknown}
-    image: palette-ai
-    container_name: palette-ai
-    restart: unless-stopped
-    logging: *default-logging
-    env_file: .env
-    environment:
-      DB_HOST: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}
-      DB_PORT: 5432
-      # 챗봇 회원별 요청 횟수를 Redis에 둔다
-      REDIS_HOST: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}
-      REDIS_PORT: 6379
-      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 없습니다}   # member와 같다
-      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}:9092
-      # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
-      AI_DB_USERNAME: ${AI_DB_USERNAME:?AI_DB_USERNAME이 .env에 없습니다}
-      # 크리에이터 추천이 인플루언서 승인 여부를 회원 서비스 내부 API로 확인한다
-      MEMBER_SERVICE_URL: http://member:8081
-      SERVER_FORWARD_HEADERS_STRATEGY: native
-      CUSTOM_AUTH_ACCEPTBEARERTOKEN: "false"   # 운영은 gateway가 넘긴 회원 헤더만 받는다(common JwtTokenFilter). 설정 이름 custom.auth.acceptBearerToken
-      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
-    # notification과 같은 768m(힙 576MB)
-    mem_limit: 768m
-    healthcheck:
-      <<: *app-healthcheck
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8087 && printf 'GET /v3/api-docs HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && read -r status <&3 && cat <&3 >/dev/null && [[ $$status =~ ^HTTP/[0-9.]+\\ 200 ]]"]
 
   # ── 로그 모니터링: Alloy(수집) → Loki(저장) → Grafana(조회·Slack 알림) ──
   # Grafana는 nginx를 거쳐 http://{EC2_HOST}/grafana/ 로 연다(nginx/default.conf). 3000번은 외부에 열지 않는다.
