@@ -125,3 +125,56 @@ groups:
           description: >-
             Grafana Explore에서 확인:
             {container="{{ $labels.container }}"} | json | log_level="ERROR" | log_logger="{{ $labels.log_logger }}"
+
+      # gateway가 서비스에 연결하지 못한 요청(서비스 컨테이너 꺼짐·재시작 중). ServiceConnectionFailureFilter가 주소 없이 WARN으로 남긴다.
+      # 위 "앱 ERROR 로그"는 ERROR만 보므로, 서비스가 죽어도(로그를 못 남기므로) 알림이 없었다. 이 규칙이 그 빈틈을 메운다.
+      # 배포로 서비스가 재시작되는 동안은 scripts/deploy.sh가 이 규칙만 Grafana 무음(silence)으로 꺼 둔다.
+      #   무음이 풀린 뒤 배포 중 실패가 남아 알림이 가지 않도록 최근 1분만 센다(deploy.sh는 배포가 끝나고 2분 뒤 무음을 푼다)
+      #   위 규칙의 keepFiringFor(1시간 유지)도 같은 이유로 두지 않는다
+      - uid: palette-gateway-connection-failure
+        title: gateway 서비스 연결 실패
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: instant
+              # route: gateway 경로 규칙 이름(application.yaml의 routes.id). 서비스 이름과 같다(market-coupon-usages 등은 앞부분이 서비스)
+              expr: >-
+                sum by (route) (
+                  count_over_time({container="palette-gateway"}
+                    | json log_logger="log.logger", message="message"
+                    | __error__="" | log_logger="com.backend.gateway.ServiceConnectionFailureFilter"
+                    | line_format `{{ .message }}`
+                    | regexp `route=(?P<route>[a-z-]+)`
+                  [1m])
+                )
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        for: 0s
+        noDataState: OK       # 연결 실패가 없으면 결과가 비어 있으므로 정상으로 본다
+        execErrState: Error   # Loki 조회 자체가 실패하면 그것도 알린다
+        labels:
+          severity: error
+          kind: gateway-connection-failure   # templates.yaml이 이 값으로 연결 실패용 메시지를 고른다
+        annotations:
+          summary: "gateway가 {{ $labels.route }} 서비스에 최근 1분간 {{ $values.B }}번 연결하지 못했습니다"
