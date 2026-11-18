@@ -115,6 +115,11 @@ public class SecurityConfig {
     @Value("${custom.internal.apiKey}")
     private String internalApiKey;
 
+    // 헤더가 없을 때 Authorization 토큰을 직접 열지. 운영은 gateway가 넘긴 헤더만 받는다(compose.prod.yaml에서 false).
+    // 기본 true: gateway 없이 서비스를 부르는 로컬 개발·서비스 테스트가 지금처럼 토큰으로 돈다(JwtTokenFilter)
+    @Value("${custom.auth.acceptBearerToken:true}")
+    private boolean acceptBearerToken;
+
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -174,7 +179,7 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 // 필터는 빈으로 등록하지 않음 (빈이면 서블릿 필터로도 자동 등록됨)
-                .addFilterBefore(new JwtTokenFilter(jwtTokenProvider), UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(new JwtTokenFilter(jwtTokenProvider, acceptBearerToken), UsernamePasswordAuthenticationFilter.class)
                 .build();
     }
 
