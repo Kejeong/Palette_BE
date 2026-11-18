@@ -6,7 +6,6 @@ import com.backend.boundedContext.coupon.app.dto.CartCouponCreateCommand;
 import com.backend.boundedContext.coupon.app.dto.CartCouponsDto;
 import com.backend.boundedContext.coupon.app.dto.MyCouponUsageDto;
 import com.backend.boundedContext.coupon.app.dto.PartnershipDto;
-import com.backend.boundedContext.coupon.app.dto.PickedProductDto;
 import com.backend.boundedContext.coupon.app.dto.ProductCouponDto;
 import com.backend.boundedContext.coupon.app.dto.SellerCouponMonthlyStatsDto;
 import com.backend.boundedContext.coupon.app.dto.ProductCouponIssueCommand;
@@ -47,7 +46,6 @@ public class CouponFacade {
     private final PartnershipRequestUseCase partnershipRequestUseCase;
     private final PartnershipChangeStatusUseCase partnershipChangeStatusUseCase;
     private final PartnershipGetPartnershipsUseCase partnershipGetPartnershipsUseCase;
-    private final PartnershipGetPickedProductsUseCase partnershipGetPickedProductsUseCase;
     private final CouponIssueProductCouponUseCase couponIssueProductCouponUseCase;
     private final CouponUpdateProductCouponUseCase couponUpdateProductCouponUseCase;
     private final CouponStopBySellerUseCase couponStopBySellerUseCase;
@@ -136,12 +134,6 @@ public class CouponFacade {
     @Transactional(readOnly = true)
     public PageResponse<PartnershipDto> getSellerPartnerships(Long memberId, PartnershipStatus status, Pageable pageable) {
         return partnershipGetPartnershipsUseCase.getForSeller(memberId, status, pageable);
-    }
-
-    // 협약 인플루언서가 pick한 내 판매 중 상품 (판매자, 상품 쿠폰 발행 대상)
-    @Transactional(readOnly = true)
-    public List<PickedProductDto> getPickedProducts(Long memberId, Long partnershipId) {
-        return partnershipGetPickedProductsUseCase.getPickedProducts(memberId, partnershipId);
     }
 
     // 협약 종료 (판매자) → 그 협약의 쿠폰 중지

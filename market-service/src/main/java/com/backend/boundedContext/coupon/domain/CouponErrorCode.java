@@ -32,7 +32,6 @@ public enum CouponErrorCode implements ErrorCode {
     COUPON_PERIOD_OVERLAPPED(409, "같은 인플루언서와 상품으로 유효 기간이 겹치는 쿠폰이 있습니다."),
     COUPON_NOT_EDITABLE(409, "시작 전 쿠폰만 수정할 수 있고, 시작 후에는 종료 일시 연장만 할 수 있습니다."),
     PRODUCT_NOT_OWNED(400, "본인이 판매하는 상품이 아닙니다."),
-    PRODUCT_NOT_PICKED(400, "협약한 인플루언서가 pick한 상품이 아닙니다."),
     PRODUCT_NOT_ON_SALE(409, "판매 중인 상품이 아닙니다."),
 
     // 협약

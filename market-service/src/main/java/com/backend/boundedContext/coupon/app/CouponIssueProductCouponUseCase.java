@@ -9,7 +9,6 @@ import com.backend.boundedContext.coupon.domain.ProductCoupon;
 import com.backend.boundedContext.coupon.out.CouponProductPort;
 import com.backend.boundedContext.coupon.out.CouponRepository;
 import com.backend.boundedContext.coupon.out.CouponSellerPort;
-import com.backend.boundedContext.coupon.out.InfluencerPickPort;
 import com.backend.boundedContext.coupon.out.ProductCouponRepository;
 import com.backend.global.exception.DomainException;
 import com.backend.global.exception.GlobalErrorCode;
@@ -30,7 +29,6 @@ import java.util.List;
  *         같은 협약의 종료나 다른 발행과 겹치지 않으므로 기간 겹침 확인도 이 잠금 안에서 안전하다.</li>
  *     <li>상품을 읽기 잠금하고, 내 상품인지(400-PRODUCT_NOT_OWNED), 판매 중인지(409-PRODUCT_NOT_ON_SALE) 본다.
  *         판매 중지, 삭제가 이 사이에 끼어들어 중지되지 않은 쿠폰이 남는 일을 막는다.</li>
- *     <li>협약 인플루언서가 pick한 상품인지 (400-PRODUCT_NOT_PICKED)</li>
  *     <li>유효 기간, 수량, 할인 내용 (400-COUPON_PERIOD_INVALID, 400-VALIDATION_FAILED)</li>
  *     <li>같은 인플루언서와 상품으로 기간이 겹치는 운영 중 쿠폰이 있는지 (409-COUPON_PERIOD_OVERLAPPED)</li>
  * </ol>
@@ -45,7 +43,6 @@ public class CouponIssueProductCouponUseCase {
     private final CouponSupport couponSupport;
     private final CouponSellerPort couponSellerPort;
     private final CouponProductPort couponProductPort;
-    private final InfluencerPickPort influencerPickPort;
     private final CouponRepository couponRepository;
     private final ProductCouponRepository productCouponRepository;
     private final CouponCodeGenerator couponCodeGenerator;
@@ -62,10 +59,8 @@ public class CouponIssueProductCouponUseCase {
             throw new DomainException(CouponErrorCode.PARTNERSHIP_NOT_ACTIVE);
         }
 
+        // 판매 중인 내 상품이면 어떤 상품이든 협약 인플루언서용 쿠폰을 발행할 수 있다(인플루언서 pick 조건은 두지 않는다)
         checkProduct(sellerId, command.productId());
-        if (!influencerPickPort.isPicked(partnership.getInfluencerId(), command.productId())) {
-            throw new DomainException(CouponErrorCode.PRODUCT_NOT_PICKED);
-        }
 
         Coupon coupon = Coupon.createProductCoupon(sellerId, command.name(), command.quantityLimited(), command.totalQuantity(),
                 command.validFrom(), command.validUntil(), now);

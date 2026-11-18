@@ -11,7 +11,6 @@ import com.backend.boundedContext.coupon.out.CouponInfluencerPort;
 import com.backend.boundedContext.coupon.out.CouponProductPort;
 import com.backend.boundedContext.coupon.out.CouponRepository;
 import com.backend.boundedContext.coupon.out.CouponUsageRepository;
-import com.backend.boundedContext.coupon.out.InfluencerPickPort;
 import com.backend.boundedContext.coupon.out.PartnershipRepository;
 import com.backend.boundedContext.coupon.out.ProductCouponRepository;
 import com.backend.shared.coupon.out.CouponApi;
@@ -57,7 +56,6 @@ class OrderCouponReservationIntegrationTest {
     @MockitoBean private MemberApi memberApi;
     @MockitoBean private OrderApi orderApi;
     @MockitoBean private CouponInfluencerPort couponInfluencerPort;
-    @MockitoBean private InfluencerPickPort influencerPickPort;
     @MockitoBean private CouponProductPort couponProductPort;
 
     private static LocalDateTime now() {
