@@ -51,6 +51,10 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     @Query("select p.id from Product p where p.status = :status and p.id > :afterId order by p.id")
     List<Long> findIdsByStatusAfter(ProductSaleStatus status, Long afterId, Limit limit);
 
+    /** 소분류의 이 상태가 아닌 상품 ID */
+    @Query("select p.id from Product p where p.category.id = :categoryId and p.status <> :status")
+    List<Long> findIdsByCategoryIdAndStatusNot(Long categoryId, ProductSaleStatus status);
+
     /**
      * since 이후 색인 문서 값이 바뀌었을 수 있는 상품 ID (전체 재색인 중 바뀐 상품을 새 인덱스에 다시 반영할 때).
      * 상품·옵션·재고·할인 엔티티는 모두 updated_at이 자동으로 갱신되고(@LastModifiedDate), 이 테이블들에는 벌크 UPDATE가 없다.
