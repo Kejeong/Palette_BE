@@ -50,7 +50,8 @@ class ProductRecommendSupportTest {
     private final ProductSimilarPort similarPort = mock(ProductSimilarPort.class);
     private final ProductRecommendStore store = mock(ProductRecommendStore.class);
     private final ProductRecommendSupport support = new ProductRecommendSupport(policy,
-            new ProductSimilarPolicy(0.35, 0.2, 0.15, 0.3, 50), seedSupport, summarySupport, recommendPort, similarPort,
+            new ProductSimilarPolicy(0.35, 0.2, 0.15, 0.3, 50), seedSupport, summarySupport,
+            mock(ProductImageSupport.class), recommendPort, similarPort,
             mock(ProductSearchPort.class), store);
 
     @Test

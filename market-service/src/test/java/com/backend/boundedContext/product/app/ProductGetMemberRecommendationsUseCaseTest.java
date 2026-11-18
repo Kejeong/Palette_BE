@@ -3,6 +3,8 @@ package com.backend.boundedContext.product.app;
 import com.backend.boundedContext.product.domain.MemberRecommendation;
 import com.backend.boundedContext.product.domain.ProductRecommendPolicy;
 import com.backend.boundedContext.product.app.dto.MemberRecommendationsDto;
+import com.backend.boundedContext.product.app.dto.ProductSummaryDto;
+import com.backend.boundedContext.product.domain.RecommendBasis;
 import com.backend.boundedContext.product.out.ProductRecommendStore;
 import com.backend.boundedContext.product.out.RecommendStoreUnavailableException;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +41,7 @@ class ProductGetMemberRecommendationsUseCaseTest {
     void setUp() {
         given(support.summaries(any())).willReturn(Map.of());
         given(support.productNames(any())).willReturn(Map.of());
+        given(support.thumbnailUrls(any())).willReturn(Map.of());
         given(support.pick(any(), any(), anyInt(), any())).willReturn(List.of());
     }
 
@@ -88,6 +91,29 @@ class ProductGetMemberRecommendationsUseCaseTest {
         assertThat(result.personalized()).isFalse();
         verify(support, never()).compute(any());
         verify(refresher, never()).refreshLater(any());
+    }
+
+    @Test
+    @DisplayName("기준 상품 섹션에 기준 상품 이름과 대표 이미지를 싣는다 (대표 이미지가 없으면 null)")
+    void sectionSeedThumbnail() {
+        MemberRecommendation recommendation = new MemberRecommendation(true, LocalDateTime.now(), List.of(), List.of(
+                new MemberRecommendation.Section(RecommendBasis.WISH, 10L, List.of(2L)),
+                new MemberRecommendation.Section(RecommendBasis.PURCHASE, 11L, List.of(3L))));
+        given(store.find(MEMBER_ID)).willReturn(Optional.of(recommendation));
+        given(support.pick(any(), any(), anyInt(), any())).willReturn(List.of(summary(2L)));
+        given(support.productNames(any())).willReturn(Map.of(10L, "시카 리페어 크림", 11L, "수분 토너"));
+        given(support.thumbnailUrls(any())).willReturn(Map.of(10L, "https://img.test/10.jpg"));
+
+        MemberRecommendationsDto result = useCase.getRecommendations(MEMBER_ID, 10);
+
+        assertThat(result.sections()).extracting(s -> s.seedProductName(), s -> s.seedThumbnailUrl())
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("시카 리페어 크림", "https://img.test/10.jpg"),
+                        org.assertj.core.groups.Tuple.tuple("수분 토너", null));
+    }
+
+    private static ProductSummaryDto summary(long productId) {
+        return new ProductSummaryDto(productId, "상품" + productId, 10_000, null, null, 1L, "상점", null, false, null, 0, 0);
     }
 
     private static MemberRecommendation stored(LocalDateTime generatedAt) {

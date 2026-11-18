@@ -81,6 +81,9 @@ public class ProductGetMemberRecommendationsUseCase {
         recommendation.forYou().stream().map(MemberRecommendation.Item::reasonProductId).filter(Objects::nonNull).forEach(nameIds::add);
         recommendation.sections().forEach(section -> nameIds.add(section.seedProductId()));
         Map<Long, String> names = productRecommendSupport.productNames(nameIds);
+        // 섹션 제목 옆 썸네일. 기준 상품은 이미 샀거나 찜한 상품이라 화면 값(summaries)에 없어서 따로 읽는다
+        Map<Long, String> seedThumbnails = productRecommendSupport.thumbnailUrls(
+                recommendation.sections().stream().map(MemberRecommendation.Section::seedProductId).toList());
 
         Set<Long> used = new HashSet<>();
         Map<Long, MemberRecommendation.Item> items = recommendation.forYou().stream()
@@ -96,7 +99,7 @@ public class ProductGetMemberRecommendationsUseCase {
             List<ProductSummaryDto> picked = productRecommendSupport.pick(section.productIds(), summaries, SECTION_SIZE, used);
             if (!picked.isEmpty()) {
                 sections.add(new RecommendationSectionDto(section.basis(), section.seedProductId(),
-                        names.get(section.seedProductId()), picked));
+                        names.get(section.seedProductId()), seedThumbnails.get(section.seedProductId()), picked));
             }
         }
         return new MemberRecommendationsDto(true, forYou, sections);

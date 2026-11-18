@@ -48,6 +48,7 @@ class ProductRecommendSupport {
     private final ProductSimilarPolicy similarPolicy;
     private final ProductRecommendSeedSupport seedSupport;
     private final ProductSummarySupport productSummarySupport;
+    private final ProductImageSupport productImageSupport;
     private final ProductRecommendPort productRecommendPort;
     private final ProductSimilarPort productSimilarPort;
     private final ProductSearchPort productSearchPort;
@@ -123,6 +124,11 @@ class ProductRecommendSupport {
 
     public Map<Long, String> productNames(Collection<Long> productIds) {
         return seedSupport.productNames(productIds);
+    }
+
+    /** 상품 ID → 대표 이미지 URL. 대표 이미지가 없는 상품은 키가 없다 */
+    public Map<Long, String> thumbnailUrls(Collection<Long> productIds) {
+        return productImageSupport.getThumbnailUrls(productIds);
     }
 
     private List<MemberRecommendation.Item> forYou(MemberSnapshot snapshot, RecommendCandidates candidates) {
