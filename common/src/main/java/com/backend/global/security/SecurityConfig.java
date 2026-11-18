@@ -2,6 +2,8 @@ package com.backend.global.security;
 
 import java.util.List;
 
+import jakarta.servlet.DispatcherType;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -90,6 +92,7 @@ public class SecurityConfig {
             "/api/v1/users/me/coupon-usages",
             "/api/v1/topups/**",
             "/api/v1/wallet/**",
+            "/api/v1/payments/**",   // 반품 환불 조회·회수 택배비 결제 (관리자 결제 조회는 /api/v1/admin/payments)
             "/api/v1/sellers/**",
             "/api/v1/influencers/**"   // 인플루언서 신청 (프로필 GET은 위에서 공개)
     };
@@ -148,6 +151,8 @@ public class SecurityConfig {
                         .authenticationEntryPoint(authenticationEntryPoint)  // 401
                         .accessDeniedHandler(accessDeniedHandler))           // 403
                 .authorizeHttpRequests(auth -> auth
+                        // 원래 요청에서 이미 인증·인가를 통과한 비동기 응답 마무리(SSE 종료)와 오류 처리 디스패치는 다시 검사하지 않음
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers(SWAGGER_URLS).permitAll()
                         .requestMatchers(PUBLIC_API_URLS).permitAll()
                         .requestMatchers(HttpMethod.GET, ACTUATOR_URLS).permitAll()

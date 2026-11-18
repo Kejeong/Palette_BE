@@ -1,6 +1,6 @@
 package com.backend.boundedContext.order.in.dto;
 
-import com.backend.boundedContext.order.domain.ReturnReasonCode;
+import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.shared.order.dto.OrderStatus;
 
 import java.time.LocalDateTime;

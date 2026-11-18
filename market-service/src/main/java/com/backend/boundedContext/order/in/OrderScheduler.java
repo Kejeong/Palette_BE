@@ -51,6 +51,15 @@ public class OrderScheduler {
                 orderId -> orderFacade.recheckPayingOrder(orderId, now));
     }
 
+    // 반품 환불 확인: 결제 서비스가 환불했는지 확인해 주문에 기록하고, 오래 환불되지 않으면 ERROR로 알린다
+    @Scheduled(fixedDelayString = "${custom.order.refundCheckIntervalSeconds}", timeUnit = TimeUnit.SECONDS)
+    public void checkRefunds() {
+        LocalDateTime now = LocalDateTime.now();
+        processInBatches("반품 환불 확인", "기록",
+                (afterId, limit) -> orderFacade.findRefundCheckTargetIds(now, afterId, limit),
+                orderId -> orderFacade.checkRefund(orderId, now));
+    }
+
     // 대상을 schedulerBatchSize건씩 id 순으로 조회하고, 한 건씩 처리한다.
     private void processInBatches(String jobName, String doneLabel,
                                   BiFunction<Long, Integer, List<Long>> findTargets,

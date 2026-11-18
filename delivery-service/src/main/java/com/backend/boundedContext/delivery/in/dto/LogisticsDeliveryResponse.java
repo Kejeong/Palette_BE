@@ -2,6 +2,7 @@ package com.backend.boundedContext.delivery.in.dto;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import com.backend.boundedContext.delivery.domain.Courier;
 import com.backend.boundedContext.delivery.domain.Delivery;
@@ -32,16 +33,24 @@ public record LogisticsDeliveryResponse(
         List<Item> items
 ) {
 
+    // thumbnailUrl: 응답할 때 market에서 조회한 상품의 현재 대표 이미지. 이미지가 없거나 조회에 실패하면 null
     public record Item(Long orderItemId, Long sellerId, String sellerName, String productName,
-                       String optionName, int quantity) {
+                       String optionName, int quantity, Long productId, String thumbnailUrl) {
 
-        static Item from(DeliveryItem item) {
+        static Item from(DeliveryItem item, Map<Long, String> thumbnails) {
             return new Item(item.getOrderItemId(), item.getSellerId(), item.getSellerName(),
-                    item.getProductName(), item.getOptionName(), item.getQuantity());
+                    item.getProductName(), item.getOptionName(), item.getQuantity(),
+                    item.getProductId(), thumbnails.get(item.getOptionId()));
         }
     }
 
+    // 이미지 없이 (thumbnailUrl: null)
     public static LogisticsDeliveryResponse from(Delivery delivery) {
+        return from(delivery, Map.of());
+    }
+
+    // thumbnails: 옵션 ID → 대표 이미지 URL
+    public static LogisticsDeliveryResponse from(Delivery delivery, Map<Long, String> thumbnails) {
         return new LogisticsDeliveryResponse(
                 delivery.getId(),
                 delivery.getOrderId(),
@@ -62,7 +71,7 @@ public record LogisticsDeliveryResponse(
                 delivery.getLastTrackingStatus(),
                 delivery.getManualCompletionReason(),
                 delivery.getManuallyCompletedAt(),
-                delivery.getItems().stream().map(Item::from).toList()
+                delivery.getItems().stream().map(item -> Item.from(item, thumbnails)).toList()
         );
     }
 }

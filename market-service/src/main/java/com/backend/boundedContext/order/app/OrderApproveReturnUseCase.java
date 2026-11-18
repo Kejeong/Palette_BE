@@ -58,8 +58,10 @@ public class OrderApproveReturnUseCase {
             productApi.restoreStock(restoreItems, StockRestoreReason.RETURN_RESTORE);
         }
 
-        // 환불 금액 = 결제 금액 전액(배송비 포함). 같은 트랜잭션의 Outbox로 발행한다
-        eventPublisher.publish(new OrderReturnedEvent(order.getId(), order.getBuyerId(), order.getPayAmount(), order.getReturnedAt()));
+        // refundAmount = 결제 금액 전액(배송비 포함, 결제가 대조용으로만 씀). 실제 환불액은 결제가 반품 사유로 나눈다
+        // (단순 변심이면 배송비·반품 배송비를 뺌). 같은 트랜잭션의 Outbox로 발행한다
+        eventPublisher.publish(new OrderReturnedEvent(order.getId(), order.getBuyerId(), order.getPayAmount(),
+                order.getReturnedAt(), order.getReturnReasonCode()));
 
         log.info("반품 승인: orderId={}, itemCount={}, restoreItemCount={}, refundAmount={}",
                 order.getId(), order.getItems().size(), restoreItems.size(), order.getPayAmount());

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import com.backend.shared.event.DomainEvent;
 import com.backend.shared.event.EventEnvelope;
+import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.shared.order.event.OrderReturnedEvent;
 
 import tools.jackson.databind.JsonNode;
@@ -24,10 +25,10 @@ class OrderReturnedEventContractTest {
     private final EventMessages eventMessages = new EventMessages(jsonMapper, new OutboxEventTypes());
 
     @Test
-    @DisplayName("봉투 JSON: eventType·aggregateType·aggregateId와 payload 필드 4개(orderId, buyerId, refundAmount 숫자, returnedAt ISO 문자열)")
+    @DisplayName("봉투 JSON: eventType·aggregateType·aggregateId와 payload 필드 5개(orderId, buyerId, refundAmount 숫자, returnedAt ISO 문자열, returnReasonCode 문자열)")
     void wireFormat() {
         OrderReturnedEvent event = new OrderReturnedEvent(10L, 3L, 53_000L,
-                LocalDateTime.of(2026, 11, 12, 16, 45, 30, 321_000_000));
+                LocalDateTime.of(2026, 11, 12, 16, 45, 30, 321_000_000), ReturnReasonCode.CHANGE_OF_MIND);
 
         JsonNode json = jsonMapper.readTree(kafkaValue(event));
 
@@ -35,11 +36,26 @@ class OrderReturnedEventContractTest {
         assertThat(json.get("aggregateType").asString()).isEqualTo("ORDER");
         assertThat(json.get("aggregateId").asLong()).isEqualTo(10L);
         JsonNode payload = json.get("payload");
-        assertThat(payload.propertyNames()).containsExactlyInAnyOrder("orderId", "buyerId", "refundAmount", "returnedAt");
+        assertThat(payload.propertyNames())
+                .containsExactlyInAnyOrder("orderId", "buyerId", "refundAmount", "returnedAt", "returnReasonCode");
         assertThat(payload.get("refundAmount").isIntegralNumber()).isTrue();
         assertThat(payload.get("refundAmount").asLong()).isEqualTo(53_000L);
         assertThat(payload.get("returnedAt").isString()).isTrue();
         assertThat(LocalDateTime.parse(payload.get("returnedAt").asString())).isEqualTo(event.returnedAt());
+        assertThat(payload.get("returnReasonCode").asString()).isEqualTo("CHANGE_OF_MIND");
+    }
+
+    @Test
+    @DisplayName("사유를 싣기 전에 발행된 JSON(returnReasonCode 없음)도 읽히고, 사유는 null이다")
+    void readWithoutReturnReasonCode() {
+        OrderReturnedEvent withoutReason = new OrderReturnedEvent(10L, 3L, 53_000L, LocalDateTime.of(2026, 11, 12, 0, 0));
+        String kafkaValue = kafkaValue(withoutReason).replace(",\"returnReasonCode\":null", "");
+        assertThat(kafkaValue).doesNotContain("returnReasonCode");
+
+        EventEnvelope<DomainEvent> read = eventMessages.read(kafkaValue);
+
+        assertThat(read.payload()).isEqualTo(withoutReason);
+        assertThat(((OrderReturnedEvent) read.payload()).returnReasonCode()).isNull();
     }
 
     @Test

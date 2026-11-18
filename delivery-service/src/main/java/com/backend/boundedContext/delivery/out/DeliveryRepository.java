@@ -37,6 +37,20 @@ public interface DeliveryRepository extends JpaRepository<Delivery, Long> {
     // 항목은 Delivery.items의 @BatchSize로 한 번에 읽는다
     Page<Delivery> findByStatus(DeliveryStatus status, Pageable pageable);
 
+    /**
+     * 관리자 실패 거래(배송 추적 실패): stalledAt 이전에 송장을 등록했는데 아직 SHIPPED인 배송 중 송장 등록 시각이 [from, to)인 것
+     * from, to가 없으면 호출하는 쪽에서 아주 이른, 아주 늦은 시각을 넘긴다(null 파라미터 타입 문제를 피함). 항목은 @BatchSize로 읽는다
+     */
+    @Query("""
+            select d from Delivery d
+            where d.status = com.backend.shared.delivery.dto.DeliveryStatus.SHIPPED
+              and d.shippedAt <= :stalledAt
+              and d.shippedAt >= :from and d.shippedAt < :to
+            """)
+    Page<Delivery> findStalledShipped(@Param("stalledAt") LocalDateTime stalledAt,
+                                      @Param("from") LocalDateTime from, @Param("to") LocalDateTime to,
+                                      Pageable pageable);
+
     // 콜백 → 확인 요청 기록. 이미 요청이 있어도 항상 now로 덮어쓴다.
     @Modifying
     @Query("""

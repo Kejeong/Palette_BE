@@ -1,6 +1,7 @@
 package com.backend.boundedContext.delivery.app;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import org.springframework.stereotype.Component;
 
@@ -25,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 public class DeliveryCompleteManuallyUseCase {
 
     private final DeliverySupport deliverySupport;
+    private final DeliveryProductImageSupport deliveryProductImageSupport;
     private final EventPublisher eventPublisher;
 
     public LogisticsDeliveryResponse completeManually(Long deliveryId, LocalDateTime deliveredAt, String reason,
@@ -37,6 +39,6 @@ public class DeliveryCompleteManuallyUseCase {
         // 배송지·사유는 남기지 않는다
         log.info("관리자 수동 배송 완료: deliveryId={}, orderId={}, deliveredAt={}",
                 delivery.getId(), delivery.getOrderId(), deliveredAt);
-        return LogisticsDeliveryResponse.from(delivery);
+        return LogisticsDeliveryResponse.from(delivery, deliveryProductImageSupport.getThumbnailUrls(List.of(delivery)));
     }
 }

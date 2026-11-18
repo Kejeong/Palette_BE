@@ -83,6 +83,7 @@ custom:
     topupReconcileBatchSize: 100        # 결과 확인 스케줄러가 한 번에 조회하는 건수. 다 채우면 같은 실행에서 이어서 조회(PG 결과를 모르는 건이 나오면 그 배치까지만)
     topupStuckWarnMinutes: 60           # 결과가 정해지지 않은 상태로 이 시간(분)이 넘게 남은 충전 건은 결과 확인 스케줄러 간격마다 오류 로그로 알림
     adminMemberId: 1           # 수수료(FEE)를 받는 관리자 회원 ID (시드 1번)
+    returnPickupFee: 2500    # 단순 변심 반품 때 구매자가 내는 반품 배송비(원). 환불 금액에서 뺀다
     # 회원 기능은 회원 내부 API(/internal/v1/members)를 HTTP로 부른다
     memberBaseUrl: ${MEMBER_SERVICE_URL:http://localhost:8081}   # 회원 서비스(member-service) 주소. 개발 서버는 compose의 MEMBER_SERVICE_URL을 쓴다
     memberConnectTimeoutSeconds: 2   # 회원 서비스 접속 제한 시간(초)

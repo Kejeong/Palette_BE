@@ -1,5 +1,6 @@
 package com.backend.boundedContext.order.domain;
 
+import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.global.exception.DomainException;
 import com.backend.global.jpa.entity.BaseIdAndTime;
 import com.backend.shared.order.dto.ConfirmType;
@@ -119,6 +120,12 @@ public class Order extends BaseIdAndTime {
     private String returnRejectReason;
 
     private LocalDateTime returnedAt;
+
+    // 반품 환불 완료 시각 (결제 서비스가 환불한 시각). RETURNED인데 null이면 아직 환불 전
+    private LocalDateTime refundedAt;
+
+    // 환불 지연 알림(ERROR 로그)을 보낸 시각. 같은 주문으로 알림을 한 번만 보내려고 남긴다
+    private LocalDateTime refundAlertedAt;
 
     // 배송지 스냅샷
     @Embedded
@@ -404,6 +411,35 @@ public class Order extends BaseIdAndTime {
         items.forEach(item -> item.decideRestoreStock(restoreByItemId.get(item.getId())));
         this.returnedAt = now;
         changeStatus(OrderStatus.RETURNED, null);
+    }
+
+    /**
+     * 반품 환불 완료를 기록한다(환불 확인 스케줄러). RETURNED이고 아직 기록 전일 때만 기록하고 true, 아니면 그대로 두고 false.
+     * 환불은 결제 서비스가 반품 승인 이벤트를 받아 하므로, 주문은 결과만 받아 적는다.
+     */
+    public boolean markRefunded(LocalDateTime refundedAt) {
+        if (status != OrderStatus.RETURNED || this.refundedAt != null) {
+            return false;
+        }
+        this.refundedAt = refundedAt;
+        return true;
+    }
+
+    /**
+     * 환불 지연 알림을 보냈다고 기록한다(환불 확인 스케줄러). 환불 전이고 아직 알리지 않았을 때만 기록하고 true.
+     * true일 때만 알림을 보내서, 환불이 계속 오지 않아도 알림은 한 번만 간다.
+     */
+    public boolean markRefundAlerted(LocalDateTime alertedAt) {
+        if (!isRefundPending() || refundAlertedAt != null) {
+            return false;
+        }
+        this.refundAlertedAt = alertedAt;
+        return true;
+    }
+
+    /** 반품 승인됐는데 아직 환불 전인지 (회원 탈퇴를 막는다) */
+    public boolean isRefundPending() {
+        return status == OrderStatus.RETURNED && refundedAt == null;
     }
 
     /**

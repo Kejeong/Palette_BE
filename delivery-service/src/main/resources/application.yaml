@@ -95,6 +95,12 @@ custom:
     readTimeoutMillis: 15000       # 응답 대기 제한 시간(밀리초)
     maxCallsPerSecond: 5           # 모든 호출 합계 초당 최대 횟수 (기본 할당량 10회/초의 절반)
     maxActiveWebhooks: 900         # 활성 웹훅 최대 수 (할당량 1,000개). 닿으면 새 등록을 미루고 안전망이 대신 확인
+  # 상품 내부 API(/internal/v1/products/options). market-service(8082). 물류 목록·상세·송장 응답의 상품 대표 이미지
+  # 응답하지 못하면 물류 응답은 이미지 없이(thumbnailUrl: null) 나간다
+  market:
+    baseUrl: ${MARKET_SERVICE_URL:http://localhost:8082}
+    connectTimeoutMillis: 1000   # market 서비스 접속 제한 시간(밀리초)
+    readTimeoutMillis: 2000      # 응답 대기 제한 시간(밀리초). 물류 목록·상세 요청 안에서 부르므로 짧게 둔다
   delivery:
     trackingCheckIntervalSeconds: 30     # 배송 상태 확인(콜백 받은 건 조회) 간격(초)
     webhookRegisterIntervalSeconds: 60   # 새 송장 웹훅 등록 간격(초). 송장 등록 직후 바로 등록하지 않는다
@@ -102,3 +108,4 @@ custom:
     safetyCheckAfterDays: 2              # 발송 후 이 일수가 지나도 SHIPPED면 하루 한 번 다시 확인
     safetyCheckCron: "0 0 6 * * *"       # 안전망 확인 시각 (KST 매일 06:00)
     schedulerBatchSize: 50               # 스케줄러가 한 번에 조회하는 배송 건 수 (초당 5회로 10초 안에 끝나는 양)
+    trackingFailureAfterDays: 15         # 송장 등록 후 이 일수가 지나도 배송 완료가 안 되면 관리자 실패 거래(배송 추적 실패)에 보인다

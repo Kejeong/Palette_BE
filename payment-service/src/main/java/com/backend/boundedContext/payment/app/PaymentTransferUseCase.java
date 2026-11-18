@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Function;
@@ -41,8 +42,10 @@ public class PaymentTransferUseCase {
      * 정산 지급: 홀딩 → 판매자 지갑(SETTLEMENT), 홀딩 → 관리자 지갑(FEE)
      * 1. 같은 멱등 키로 이미 지급했으면 기존 결과를 반환 (금액 비교는 정산 쪽에서 함)
      * 2. 주문별 금액 합계 = 지급액 + 수수료인지 확인
-     * 3. 홀딩을 주문 ID 오름차순으로 잠그고, 주문별 금액만큼 정산 누적 (다 차면 SETTLED)
-     * 4. 판매자·관리자 지갑을 회원 ID 오름차순으로 잠그고 입금, 원장 기록
+     * 3. 홀딩을 주문 ID 오름차순으로 잠근다
+     * 4. 잠근 뒤 같은 멱등 키 지급 내역을 한 번 더 찾고, 있으면 그 결과를 반환
+     * 5. 주문별 금액만큼 홀딩에 정산 누적 (다 차면 SETTLED)
+     * 6. 판매자·관리자 지갑을 회원 ID 오름차순으로 잠그고 입금, 원장 기록
      * 실패는 모두 DomainException으로 던지고, 호출한 쪽 트랜잭션과 함께 롤백된다
      */
     public TransferResultDto transfer(SettlementTransferCommand command) {
@@ -59,8 +62,18 @@ public class PaymentTransferUseCase {
             throw new DomainException(PaymentErrorCode.TRANSFER_AMOUNT_MISMATCH);
         }
 
+        Map<Long, WalletHolding> holdings = lockHoldings(amountByOrderId.keySet());
+
+        // 같은 키 요청이 겹치면 뒤 요청은 위 잠금에서 앞 요청의 커밋을 기다린다. 1번 확인은 그 전에 했으므로 여기서 다시 찾는다.
+        // 그냥 진행하면 앞 요청이 SETTLED로 바꾼 홀딩에서 404가 나서, 지급된 정산서가 정산 쪽에서 실패로 남는다.
+        // READ COMMITTED라 이 조회는 앞 요청이 커밋한 원장을 본다 (REPEATABLE READ로 올리면 보이지 않는다)
+        Optional<TransferResultDto> transferredWhileWaiting = paymentFindTransferUseCase.findTransfer(command.idempotencyKey());
+        if (transferredWhileWaiting.isPresent()) {
+            return transferredWhileWaiting.get();
+        }
+
         LocalDateTime now = LocalDateTime.now();
-        settleHoldings(amountByOrderId, now);
+        settleHoldings(holdings, amountByOrderId, now);
 
         Map<Long, Wallet> wallets = lockWallets(command.sellerMemberId(), paymentPolicy.adminMemberId());
         WalletTransaction payout = deposit(
@@ -99,11 +112,13 @@ public class PaymentTransferUseCase {
                 SettledOrderAmountDto::orderId, SettledOrderAmountDto::amount, Long::sum, TreeMap::new));
     }
 
-    private void settleHoldings(Map<Long, Long> amountByOrderId, LocalDateTime now) {
-        Map<Long, WalletHolding> holdings = walletHoldingRepository.findAllByOrderIdInForUpdate(amountByOrderId.keySet())
+    private Map<Long, WalletHolding> lockHoldings(Set<Long> orderIds) {
+        return walletHoldingRepository.findAllByOrderIdInForUpdate(orderIds)
                 .stream()
                 .collect(Collectors.toMap(WalletHolding::getOrderId, Function.identity()));
+    }
 
+    private void settleHoldings(Map<Long, WalletHolding> holdings, Map<Long, Long> amountByOrderId, LocalDateTime now) {
         amountByOrderId.forEach((orderId, amount) -> {
             WalletHolding holding = holdings.get(orderId);
             if (holding == null) {

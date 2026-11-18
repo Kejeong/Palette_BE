@@ -2,7 +2,7 @@ package com.backend.boundedContext.order.in.dto;
 
 import com.backend.boundedContext.order.domain.Order;
 import com.backend.boundedContext.order.domain.OrderItem;
-import com.backend.boundedContext.order.domain.ReturnReasonCode;
+import com.backend.shared.order.dto.ReturnReasonCode;
 import com.backend.shared.order.dto.OrderStatus;
 
 import java.time.LocalDateTime;
@@ -13,6 +13,7 @@ import java.util.List;
  *
  * @param payAmount   결제 금액(배송비 포함). 승인하면 이 금액 전액을 환불한다
  * @param deliveredAt 배송 완료 시각 (배송지 없는 주문은 null)
+ * @param returnRejectReason 관리자가 반품을 거절한 사유 (거절되지 않았으면 null)
  */
 public record AdminReturnSummaryResponse(
         Long orderId,
@@ -27,6 +28,7 @@ public record AdminReturnSummaryResponse(
         String reason,
         LocalDateTime returnedAt,
         LocalDateTime returnRejectedAt,
+        String returnRejectReason,
         List<Item> items
 ) {
     /**
@@ -62,6 +64,7 @@ public record AdminReturnSummaryResponse(
                 order.getReturnReason(),
                 order.getReturnedAt(),
                 order.getReturnRejectedAt(),
+                order.getReturnRejectReason(),
                 order.getItems().stream().map(Item::from).toList()
         );
     }
