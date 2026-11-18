@@ -2,11 +2,10 @@
 # 실행(레포 루트에서): docker compose -f infra/compose.prod.yaml up -d --build
 # 값은 같은 폴더(infra/)의 .env에서 읽는다(.env.prod.example 참고). .env는 서버에만 두고 커밋하지 않는다.
 # 이 파일의 상대 경로(./nginx, ./monitoring, ..)는 이 파일이 있는 infra/ 기준이다.
-# 외부에는 nginx 80(HTTP)·443(HTTPS)번만 연다. app·postgres·redis는 Docker 내부 네트워크로만 통신한다.
+# 외부에는 nginx 80(HTTP)·443(HTTPS)번만 연다. 앱끼리는 Docker 내부 네트워크로 통신한다.
 #
-# 데이터 서버 전환(TRSS-320): .env에 DATA_HOST(데이터 서버 내부 IP)를 넣으면 앱이 이 파일의 postgres·redis·kafka 대신
-# 데이터 서버(compose.data.yaml)에 붙는다. 비워 두면 지금처럼 이 파일의 컨테이너를 쓴다.
-# 데이터 서버 Redis는 비밀번호가 있으므로 REDIS_PASSWORD도 DATA_HOST와 같이 넣는다(이 파일의 redis는 비밀번호가 없어서, 먼저 넣으면 접속이 실패한다).
+# 데이터를 가진 postgres·redis·kafka(·elasticsearch)는 데이터 서버(EC2-B, compose.data.yaml)에 있다(TRSS-320).
+# 앱은 .env의 DATA_HOST(데이터 서버 내부 IP)로 붙고, Redis는 REDIS_PASSWORD로 로그인한다. 둘 다 비어 있으면 compose가 시작하지 않는다.
 name: palette
 
 # 컨테이너 로그(docker logs) 파일 크기 제한. 없으면 서버 디스크(50GB)를 계속 차지한다.
@@ -129,14 +128,14 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      DB_HOST: ${DATA_HOST:-postgres}
+      DB_HOST: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}
       DB_PORT: 5432
       # 이메일 인증코드·로그인 실패 횟수·Refresh Token을 Redis에 둔다
-      REDIS_HOST: ${DATA_HOST:-redis}
+      REDIS_HOST: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}
       REDIS_PORT: 6379
-      # Spring이 spring.data.redis.password로 읽는다. 비어 있으면 비밀번호 없이 접속한다
-      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
+      # Spring이 spring.data.redis.password로 읽는다. 데이터 서버 Redis에 건 비밀번호(compose.data.yaml)와 같은 값
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 없습니다}
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       MEMBER_DB_USERNAME: ${MEMBER_DB_USERNAME:?MEMBER_DB_USERNAME이 .env에 없습니다}
       # 회원이 부르는 다른 서비스 내부 API 주소. Docker 내부망으로 직접 부른다
@@ -154,13 +153,6 @@ services:
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /v3/api-docs HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && read -r status <&3 && cat <&3 >/dev/null && [[ $$status =~ ^HTTP/[0-9.]+\\ 200 ]]"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
 
   # 상품·주문(market-service). 같은 Dockerfile에서 MODULE만 바꿔 빌드한다.
   # DB는 market 스키마에 market_user로 접속한다(DB_USERNAME과 다른 계정).
@@ -178,13 +170,13 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      DB_HOST: ${DATA_HOST:-postgres}
+      DB_HOST: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}
       DB_PORT: 5432
-      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}:9092
       # 인기 검색어(시간 단위 ZSET)를 Redis에 둔다. 키는 product:popular-keyword:로 시작해 회원 키와 섞이지 않는다
-      REDIS_HOST: ${DATA_HOST:-redis}
+      REDIS_HOST: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}
       REDIS_PORT: 6379
-      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-}   # member와 같다
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 없습니다}   # member와 같다
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       MARKET_DB_USERNAME: ${MARKET_DB_USERNAME:?MARKET_DB_USERNAME이 .env에 없습니다}
       # 회원 내부 API(/internal/v1/members·sellers)를 부르는 member-service 주소
@@ -204,12 +196,6 @@ services:
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8082 && printf 'GET /v3/api-docs HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && read -r status <&3 && cat <&3 >/dev/null && [[ $$status =~ ^HTTP/[0-9.]+\\ 200 ]]"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      # redis는 기다리지 않는다. 인기 검색어(부가 기능)만 쓰고 Redis가 없어도 검색이 실패하지 않으므로, Redis 상태 때문에 market 배포가 막히지 않게 한다
 
   # 예치금·충전·결제·정산 지급(payment-service). 같은 Dockerfile에서 MODULE만 바꿔 빌드한다.
   # 루트 모놀리스(app)가 하던 마지막 기능이라, 결제가 분리되면서 app 컨테이너를 이 서비스로 바꿨다.
@@ -231,9 +217,9 @@ services:
     env_file: .env
     environment:
       # .env의 값보다 우선한다. 컨테이너끼리는 서비스 이름으로 찾는다.
-      DB_HOST: ${DATA_HOST:-postgres}
+      DB_HOST: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}
       DB_PORT: 5432
-      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}:9092
       # 비어 있으면 기본값(로컬 계정)으로 접속하므로 반드시 넣는다
       PAYMENT_DB_USERNAME: ${PAYMENT_DB_USERNAME:?PAYMENT_DB_USERNAME이 .env에 없습니다}
       # 결제가 회원 내부 API(/internal/v1/members)를 부를 member-service 주소 (충전 전 회원 확인, 관리자 결제·충전 조회의 이메일)
@@ -250,11 +236,6 @@ services:
       <<: *app-healthcheck
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8083 && printf 'GET /v3/api-docs HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && read -r status <&3 && cat <&3 >/dev/null && [[ $$status =~ ^HTTP/[0-9.]+\\ 200 ]]"]
     # 결제는 Redis를 쓰지 않는다
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
 
   # 정산(settlement-service). 같은 Dockerfile에서 MODULE만 바꿔 빌드한다.
   # DB는 settlement 스키마에 settlement_user로 접속한다(DB_USERNAME과 다른 계정).
@@ -275,9 +256,9 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      DB_HOST: ${DATA_HOST:-postgres}
+      DB_HOST: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}
       DB_PORT: 5432
-      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       SETTLEMENT_DB_USERNAME: ${SETTLEMENT_DB_USERNAME:?SETTLEMENT_DB_USERNAME이 .env에 없습니다}
       # 회원 내부 API(/internal/v1/sellers)를 부르는 member-service 주소 (판매자 조회, 제재 여부 확인)
@@ -294,11 +275,6 @@ services:
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8084 && printf 'GET /v3/api-docs HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && read -r status <&3 && cat <&3 >/dev/null && [[ $$status =~ ^HTTP/[0-9.]+\\ 200 ]]"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
 
   # 배송(delivery-service). 같은 Dockerfile에서 MODULE만 바꿔 빌드한다.
   # DB는 delivery 스키마에 delivery_user로 접속한다(DB_USERNAME과 다른 계정).
@@ -319,9 +295,9 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      DB_HOST: ${DATA_HOST:-postgres}
+      DB_HOST: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}
       DB_PORT: 5432
-      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       DELIVERY_DB_USERNAME: ${DELIVERY_DB_USERNAME:?DELIVERY_DB_USERNAME이 .env에 없습니다}
       # 상품 내부 API(/internal/v1/products/options)를 부르는 market-service 주소 (물류 목록·상세의 상품 대표 이미지)
@@ -336,11 +312,6 @@ services:
       <<: *app-healthcheck
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8085 && printf 'GET /v3/api-docs HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && read -r status <&3 && cat <&3 >/dev/null && [[ $$status =~ ^HTTP/[0-9.]+\\ 200 ]]"]
     # 배송은 Redis를 쓰지 않는다
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
 
   # 구매자 알림(notification-service). 같은 Dockerfile에서 MODULE만 바꿔 빌드한다.
   # DB는 notification 스키마에 notification_user로 접속한다(DB_USERNAME과 다른 계정).
@@ -360,9 +331,9 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      DB_HOST: ${DATA_HOST:-postgres}
+      DB_HOST: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}
       DB_PORT: 5432
-      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       NOTIFICATION_DB_USERNAME: ${NOTIFICATION_DB_USERNAME:?NOTIFICATION_DB_USERNAME이 .env에 없습니다}
       SERVER_FORWARD_HEADERS_STRATEGY: native
@@ -375,11 +346,6 @@ services:
       <<: *app-healthcheck
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8086 && printf 'GET /v3/api-docs HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && read -r status <&3 && cat <&3 >/dev/null && [[ $$status =~ ^HTTP/[0-9.]+\\ 200 ]]"]
     # 알림은 Redis를 쓰지 않는다
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
 
   # AI 추천·FAQ 챗봇(ai-service). 같은 Dockerfile에서 MODULE만 바꿔 빌드한다.
   # DB는 ai 스키마에 ai_user로 접속한다(DB_USERNAME과 다른 계정). pgvector 확장은 postgres/init/01-init-schemas.sh가 ai 스키마에 만든다.
@@ -398,13 +364,13 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      DB_HOST: ${DATA_HOST:-postgres}
+      DB_HOST: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}
       DB_PORT: 5432
       # 챗봇 회원별 요청 횟수를 Redis에 둔다
-      REDIS_HOST: ${DATA_HOST:-redis}
+      REDIS_HOST: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}
       REDIS_PORT: 6379
-      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-}   # member와 같다
-      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 없습니다}   # member와 같다
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:?DATA_HOST(데이터 서버 내부 IP)가 .env에 없습니다}:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       AI_DB_USERNAME: ${AI_DB_USERNAME:?AI_DB_USERNAME이 .env에 없습니다}
       # 크리에이터 추천이 인플루언서 승인 여부를 회원 서비스 내부 API로 확인한다
@@ -417,100 +383,6 @@ services:
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8087 && printf 'GET /v3/api-docs HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && read -r status <&3 && cat <&3 >/dev/null && [[ $$status =~ ^HTTP/[0-9.]+\\ 200 ]]"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-
-  postgres:
-    image: pgvector/pgvector:pg17-trixie   # postgres 17 + pgvector 확장(AI 추천 임베딩). postgres:17과 같은 Debian trixie(glibc 2.41)라 기존 데이터·정렬 규칙이 그대로 맞는다. 기본 pg17 태그는 bookworm(glibc 2.36)이라 쓰지 않는다
-    container_name: palette-postgres
-    restart: unless-stopped
-    logging: *default-logging
-    environment:
-      POSTGRES_DB: ${DB_NAME:?DB_NAME이 .env에 없습니다}
-      POSTGRES_USER: ${DB_USERNAME:?DB_USERNAME이 .env에 없습니다}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD가 .env에 없습니다}
-      TZ: UTC   # 로컬 compose.yaml과 같게 둔다. 앱은 JVM 시간대(KST)로 LocalDateTime을 저장한다.
-      # 서비스별 DB 계정 비밀번호(postgres/init/01-init-schemas.sh가 계정을 만들 때 쓴다)
-      MEMBER_DB_PASSWORD: ${MEMBER_DB_PASSWORD:?MEMBER_DB_PASSWORD가 .env에 없습니다}
-      MARKET_DB_PASSWORD: ${MARKET_DB_PASSWORD:?MARKET_DB_PASSWORD가 .env에 없습니다}
-      PAYMENT_DB_PASSWORD: ${PAYMENT_DB_PASSWORD:?PAYMENT_DB_PASSWORD가 .env에 없습니다}
-      SETTLEMENT_DB_PASSWORD: ${SETTLEMENT_DB_PASSWORD:?SETTLEMENT_DB_PASSWORD가 .env에 없습니다}
-      DELIVERY_DB_PASSWORD: ${DELIVERY_DB_PASSWORD:?DELIVERY_DB_PASSWORD가 .env에 없습니다}
-      NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?NOTIFICATION_DB_PASSWORD가 .env에 없습니다}
-      AI_DB_PASSWORD: ${AI_DB_PASSWORD:?AI_DB_PASSWORD가 .env에 없습니다}
-      READONLY_DB_PASSWORD: ${READONLY_DB_PASSWORD:?READONLY_DB_PASSWORD가 .env에 없습니다}
-    # 서버 안(127.0.0.1)에서만 접속된다. 외부에서 보려면 SSH 터널을 쓴다.
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-      # DB가 비어 있을 때만 자동 실행된다. 이미 데이터가 있는 운영 DB에는 스크립트 안내대로 한 번 직접 실행한다
-      - ./postgres/init:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  redis:
-    image: redis:7.4
-    container_name: palette-redis
-    restart: unless-stopped
-    logging: *default-logging
-    # 재시작해도 Refresh Token·인증코드가 사라지지 않게 디스크에 남긴다.
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "127.0.0.1:6379:6379"
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  # Outbox 릴레이가 이벤트를 발행하는 Kafka
-  # app만 Docker 내부 네트워크(kafka:9092)로 접속한다. 외부·호스트에는 열지 않는다.
-  kafka:
-    image: apache/kafka:4.1.0
-    container_name: palette-kafka
-    restart: unless-stopped
-    logging: *default-logging
-    environment:
-      KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
-      # 브로커가 1대라 내부 토픽 복제 수도 1
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      # 토픽은 릴레이가 처음 보낼 때 만든다(OutboxKafkaSender). 오타로 엉뚱한 토픽이 생기지 않게 브로커 자동 생성은 끈다
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-      # 이벤트 원본은 outbox_event에 남으므로 Kafka에는 3일·파티션당 512MB까지만 둔다(디스크 50GB)
-      KAFKA_LOG_RETENTION_HOURS: 72
-      KAFKA_LOG_RETENTION_BYTES: 536870912
-      KAFKA_LOG_DIRS: /var/lib/kafka/data
-      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
-    volumes:
-      - kafka-data:/var/lib/kafka/data
-    # 힙 512MB + 페이지 캐시·메타스페이스. 서버 8GB 안에서 앱(각 1g)·DB·모니터링과 나눠 쓴다
-    mem_limit: 1g
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 20s
 
   # ── 로그 모니터링: Alloy(수집) → Loki(저장) → Grafana(조회·Slack 알림) ──
   # Grafana는 nginx를 거쳐 http://{EC2_HOST}/grafana/ 로 연다(nginx/default.conf). 3000번은 외부에 열지 않는다.
@@ -609,9 +481,6 @@ services:
       - prometheus
 
 volumes:
-  postgres-data:
-  redis-data:
-  kafka-data:
   loki-data:
   prometheus-data:
   alloy-data:
