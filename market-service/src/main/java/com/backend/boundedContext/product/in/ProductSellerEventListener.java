@@ -40,8 +40,14 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class ProductSellerEventListener {
 
-    /** processed_event.consumer 값이자 Kafka groupId. 같은 이벤트를 다른 서비스(정산 등)와 따로 처리한다 */
-    static final String CONSUMER = "market";
+    /**
+     * Kafka groupId. 같은 이벤트를 다른 서비스(정산 등)와 따로 받는다. 토픽이 다른 OrderDeliveryEventListener와 같은 group(market)을 그대로 쓴다.
+     * 바꾸면 새 consumer group이 되어 auto-offset-reset(earliest)에 따라 seller.events를 처음부터 다시 받는다
+     */
+    static final String GROUP_ID = "market";
+
+    /** processed_event.consumer 값. 리스너마다 따로 둔다 (V21에서 이전 값 market의 기록을 옮겼다) */
+    static final String CONSUMER = "market-product-seller";
 
     /** OutboxKafkaSender가 붙이는 이벤트 타입 헤더 */
     private static final String EVENT_TYPE_HEADER = "eventType";
@@ -57,7 +63,7 @@ public class ProductSellerEventListener {
     private final EventMessages eventMessages;
     private final ProcessedEvents processedEvents;
 
-    @KafkaListener(topics = "seller.events", groupId = CONSUMER)
+    @KafkaListener(topics = "seller.events", groupId = GROUP_ID)
     @Transactional
     public void handle(ConsumerRecord<String, String> record) {
         // 다루지 않는 이벤트는 payload를 읽기 전에 거른다. 이 앱이 모르는 새 이벤트 타입이어도 DLT로 보내지 않는다

@@ -18,7 +18,7 @@ import java.nio.charset.StandardCharsets;
 /**
  * 회원 서비스의 판매자 이벤트를 Kafka(seller.events)로 받아 판매자 제재 때 협약을 모두 종료한다.
  *
- * <p>상품 쪽 컨슈머(ProductSellerEventListener, groupId = market)와 같은 토픽을 받지만 groupId를 따로 둔다(market-coupon).
+ * <p>상품 쪽 컨슈머(ProductSellerEventListener, groupId = market, processed_event.consumer = market-product-seller)와 같은 토픽을 받지만 groupId를 따로 둔다(market-coupon).
  * 같은 groupId로 두면 파티션이 두 컨슈머에 나뉘어 한 이벤트를 둘 중 하나만 받게 된다.
  *
  * <ul>

@@ -157,7 +157,7 @@ class ProductSellerEventListenerKafkaIntegrationTest {
 
         await().atMost(WAIT).until(() -> processed(marker));
         Integer count = jdbcTemplate.queryForObject(
-                "select count(*) from processed_event where event_id = ? and consumer = 'market'", Integer.class, envelope.eventId());
+                "select count(*) from processed_event where event_id = ? and consumer = ?", Integer.class, envelope.eventId(), ProductSellerEventListener.CONSUMER);
         assertThat(count).isEqualTo(1);
     }
 
@@ -178,7 +178,7 @@ class ProductSellerEventListenerKafkaIntegrationTest {
 
     private boolean processed(UUID eventId) {
         Integer count = jdbcTemplate.queryForObject(
-                "select count(*) from processed_event where event_id = ? and consumer = 'market'", Integer.class, eventId);
+                "select count(*) from processed_event where event_id = ? and consumer = ?", Integer.class, eventId, ProductSellerEventListener.CONSUMER);
         return count != null && count == 1;
     }
 

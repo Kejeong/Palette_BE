@@ -125,7 +125,7 @@ class OrderDeliveryEventListenerKafkaIntegrationTest {
 
         await().atMost(WAIT).until(() -> processed(marker));
         Integer count = jdbcTemplate.queryForObject(
-                "select count(*) from processed_event where event_id = ? and consumer = 'market'", Integer.class, envelope.eventId());
+                "select count(*) from processed_event where event_id = ? and consumer = ?", Integer.class, envelope.eventId(), OrderDeliveryEventListener.CONSUMER);
         assertThat(count).isEqualTo(1);
         assertThat(deliveredAt(orderId)).isEqualTo(LocalDateTime.of(2026, 11, 3, 15, 0));
     }
@@ -271,7 +271,7 @@ class OrderDeliveryEventListenerKafkaIntegrationTest {
 
     private boolean processed(UUID eventId) {
         Integer count = jdbcTemplate.queryForObject(
-                "select count(*) from processed_event where event_id = ? and consumer = 'market'", Integer.class, eventId);
+                "select count(*) from processed_event where event_id = ? and consumer = ?", Integer.class, eventId, OrderDeliveryEventListener.CONSUMER);
         return count != null && count == 1;
     }
 
