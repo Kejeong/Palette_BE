@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.backend.boundedContext.payment.app.dto.TopupConfirmDto;
 import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.Topup;
+import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
@@ -185,6 +186,21 @@ public class PaymentTopupConfirmProcessor {
         topup.retryMethodCancel();
         return Optional.of(new TopupMethodCancelStart(topup.getId(), topup.getPgProvider(), PgPaymentRef.from(topup),
                 topup.getAmount(), topup.getCancelAttempts(), topup.methodCancelIdempotencyKey()));
+    }
+
+    /**
+     * 대사가 자동으로 정할 수 없는 허용하지 않은 결제 수단 취소 건을 수동 확인으로 표시하고, 표시했으면 true
+     * 이 회차가 아직 진행 중이고 표시 전일 때만 표시함
+     */
+    @Transactional
+    public boolean markMethodCancelManualCheck(Long topupId, int attempt, TopupManualCheckReason reason) {
+        Topup topup = topupRepository.findByIdForUpdate(topupId)
+                .orElseThrow(() -> new DomainException(PaymentErrorCode.TOPUP_NOT_FOUND));
+        if (!topup.isMethodCancelingAttempt(attempt) || topup.needsManualCheck()) {
+            return false;
+        }
+        topup.markManualCheck(reason, LocalDateTime.now());
+        return true;
     }
 
     /**

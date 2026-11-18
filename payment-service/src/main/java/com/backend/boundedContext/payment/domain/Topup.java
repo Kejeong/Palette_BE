@@ -86,6 +86,14 @@ public class Topup extends BaseIdAndTime {
 
     private LocalDateTime canceledAt;
 
+    // 수동 확인 사유. 대사가 자동으로 정할 수 없는 CANCELING·METHOD_CANCELING 건에 남기며, 표시된 건은 대사·오래 남은 건 경고에서 뺌
+    @Enumerated(EnumType.STRING)
+    @Column(length = 40)
+    private TopupManualCheckReason manualCheckReason;
+
+    // 수동 확인으로 표시한 시각
+    private LocalDateTime manualCheckAt;
+
     public static Topup create(Long memberId, Wallet wallet, long amount, PgProvider pgProvider, LocalDateTime requestedAt) {
         Topup topup = new Topup();
         topup.memberId = memberId;
@@ -211,6 +219,19 @@ public class Topup extends BaseIdAndTime {
     // 이 회차의 허용하지 않은 결제 수단 취소가 아직 진행 중인지 결과를 반영하기 전에 확인해, 이미 확정됐거나 재시도로 회차가 바뀐 뒤 늦게 온 결과는 반영하지 않게 함
     public boolean isMethodCancelingAttempt(int attempt) {
         return status == TopupStatus.METHOD_CANCELING && cancelAttempts == attempt;
+    }
+
+    // 수동 확인으로 표시: CANCELING·METHOD_CANCELING만. 상태·금액은 그대로 둠
+    public void markManualCheck(TopupManualCheckReason reason, LocalDateTime at) {
+        if (status != TopupStatus.CANCELING && status != TopupStatus.METHOD_CANCELING) {
+            throw new IllegalStateException("취소 중인 충전 건만 수동 확인으로 표시할 수 있습니다: " + status);
+        }
+        this.manualCheckReason = reason;
+        this.manualCheckAt = at;
+    }
+
+    public boolean needsManualCheck() {
+        return manualCheckReason != null;
     }
 
     // 허용하지 않은 결제 수단 전액 취소의 PG 멱등 키. 충전 취소 키와 겹치지 않게 구분하고, 재시도마다 회차를 넣음

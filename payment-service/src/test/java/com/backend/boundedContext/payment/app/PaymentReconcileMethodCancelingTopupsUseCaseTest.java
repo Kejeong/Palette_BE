@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import com.backend.boundedContext.payment.app.dto.TopupReconcileResult;
 import com.backend.boundedContext.payment.domain.PaymentPolicy;
 import com.backend.boundedContext.payment.domain.PgProvider;
+import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
 import com.backend.boundedContext.payment.out.pg.PgPaymentNotFoundException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
@@ -86,7 +88,7 @@ class PaymentReconcileMethodCancelingTopupsUseCaseTest {
     }
 
     @Test
-    @DisplayName("최대 횟수(3회)를 채운 건은 다시 요청하지 않는다 (사람이 확인)")
+    @DisplayName("최대 횟수(3회)를 채운 건은 다시 요청하지 않고 수동 확인으로 표시한다")
     void reconcile_maxAttempts() {
         targets(target(PaymentReconcileMethodCancelingTopupsUseCase.MAX_ATTEMPTS));
         given(gateway.getPayment(ref("pk_7"))).willReturn(pg(0));
@@ -95,6 +97,7 @@ class PaymentReconcileMethodCancelingTopupsUseCaseTest {
 
         assertThat(result.pending()).isEqualTo(1);
         verify(canceller, never()).retry(anyLong(), anyInt(), any());
+        verify(processor).markMethodCancelManualCheck(7L, 3, TopupManualCheckReason.METHOD_CANCEL_RETRY_EXHAUSTED);
     }
 
     @Test
@@ -110,7 +113,7 @@ class PaymentReconcileMethodCancelingTopupsUseCaseTest {
     }
 
     @Test
-    @DisplayName("일부만 취소됐거나 PG에 결제가 없거나 조회 결과를 모르면 아무것도 하지 않는다")
+    @DisplayName("일부만 취소됐거나 PG에 결제가 없으면 수동 확인으로 표시하고, 조회 결과를 모르면 아무것도 하지 않는다")
     void reconcile_cannotDecide() {
         TopupMethodCancelTarget partial = target(1);
         TopupMethodCancelTarget notFound = new TopupMethodCancelTarget(8L, ref("pk_8"), PgProvider.TOSS, 20_000, 1, UPDATED_AT);
@@ -125,6 +128,9 @@ class PaymentReconcileMethodCancelingTopupsUseCaseTest {
         assertThat(result.pending()).isEqualTo(3);
         verify(processor, never()).completeMethodCancel(anyLong(), anyInt(), anyString());
         verify(canceller, never()).retry(anyLong(), anyInt(), any());
+        verify(processor).markMethodCancelManualCheck(7L, 1, TopupManualCheckReason.METHOD_CANCEL_PARTIAL);
+        verify(processor).markMethodCancelManualCheck(8L, 1, TopupManualCheckReason.PG_PAYMENT_NOT_FOUND);
+        verify(processor, never()).markMethodCancelManualCheck(eq(9L), anyInt(), any());
     }
 
     private void targets(TopupMethodCancelTarget... targets) {

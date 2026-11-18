@@ -17,7 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 오래 남은 충전 건 경고: 결과가 정해지지 않은 상태로 topupStuckWarnAfter(1시간)가 넘게 남은 충전 건을 상태별로 세어 오류 로그를 남김
- * 대사가 계속 결과를 정하지 못하는 건(PG 장애가 길어짐, 자동으로 정할 수 없어 사람 확인 대기 등)을 드러내기 위함
+ * 대사가 계속 결과를 정하지 못하는 건(PG 장애가 길어짐 등)을 드러내기 위함. 수동 확인으로 표시된 건은 표시할 때 알렸으므로 세지 않음
  * 이런 건이 남아 있으면 회원 탈퇴가 막히고(hasPendingTopups) 대사 배치 자리를 차지함
  *
  * 기준은 마지막 수정 시각(updatedAt): PROCESSING·CANCELING은 상태가 바뀐 시각, METHOD_CANCELING은 마지막 취소 재시도 시각

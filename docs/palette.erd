@@ -561,6 +561,8 @@
           "ribljhU7yA5-lVRSEq4jy",
           "q5a4Yp39Ga0FlplOFWwBe",
           "EujCUd9llsl7iJt1WRLc7",
+          "AflQaGFSIUFJTG6rUxZ2J",
+          "haPwVpiRtRFQiHW8CUy1L",
           "86Xon1SWkJAu2uenOZoha",
           "byeHm3iKdBevgkgFL2ej5"
         ],
@@ -6730,6 +6732,46 @@
         "meta": {
           "updateAt": 1794897662802,
           "createAt": 1794897662802
+        }
+      },
+      "AflQaGFSIUFJTG6rUxZ2J": {
+        "id": "AflQaGFSIUFJTG6rUxZ2J",
+        "tableId": "Sp7yQwzWyiW9dDjvQZRTW",
+        "name": "manual_check_reason",
+        "comment": "수동 확인 사유 - 대사가 자동으로 정할 수 없는 CANCELING·METHOD_CANCELING 건에 남김. 표시된 건은 대사·오래 남은 건 경고에서 빠지고 관리자가 정리하면 지움",
+        "dataType": "VARCHAR(40)",
+        "default": "",
+        "options": 0,
+        "ui": {
+          "keys": 0,
+          "widthName": 120,
+          "widthComment": 60,
+          "widthDataType": 76,
+          "widthDefault": 60
+        },
+        "meta": {
+          "updateAt": 1795011912191,
+          "createAt": 1795011912191
+        }
+      },
+      "haPwVpiRtRFQiHW8CUy1L": {
+        "id": "haPwVpiRtRFQiHW8CUy1L",
+        "tableId": "Sp7yQwzWyiW9dDjvQZRTW",
+        "name": "manual_check_at",
+        "comment": "수동 확인 표시 일시",
+        "dataType": "TIMESTAMP",
+        "default": "",
+        "options": 0,
+        "ui": {
+          "keys": 0,
+          "widthName": 120,
+          "widthComment": 60,
+          "widthDataType": 71,
+          "widthDefault": 60
+        },
+        "meta": {
+          "updateAt": 1795011912191,
+          "createAt": 1795011912191
         }
       }
     },

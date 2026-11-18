@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.backend.boundedContext.payment.app.dto.TopupCancelDto;
 import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.Topup;
+import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
@@ -92,6 +93,21 @@ public class PaymentTopupCancelProcessor {
         // failCancel()이 취소 중 금액을 0으로 만들기 전에 되돌릴 금액·키를 읽음
         walletTransactionRepository.save(locked.wallet().change(WalletTransactionType.CHARGE_CANCEL_RESTORE, topup.getCancelingAmount(), topup.getId(), topup.cancelRestoreIdempotencyKey()));
         topup.failCancel();
+    }
+
+    /**
+     * 대사가 자동으로 정할 수 없는 건을 수동 확인으로 표시하고, 표시했으면 true
+     * 이 회차가 아직 CANCELING이고 표시 전일 때만 표시함 (그사이 취소 응답이 반영됐으면 표시하지 않음). 지갑은 건드리지 않아 충전 건만 잠금
+     */
+    @Transactional
+    public boolean markManualCheck(Long topupId, int attempt, TopupManualCheckReason reason) {
+        Topup topup = topupRepository.findByIdForUpdate(topupId)
+                .orElseThrow(() -> new DomainException(PaymentErrorCode.TOPUP_NOT_FOUND));
+        if (!topup.isCancelingAttempt(attempt) || topup.needsManualCheck()) {
+            return false;
+        }
+        topup.markManualCheck(reason, LocalDateTime.now());
+        return true;
     }
 
     /**

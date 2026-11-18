@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import com.backend.boundedContext.payment.app.dto.TopupReconcileResult;
 import com.backend.boundedContext.payment.domain.PaymentPolicy;
+import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
 import com.backend.boundedContext.payment.out.pg.PgPaymentNotFoundException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.PgResultUnknownException;
@@ -21,8 +22,9 @@ import lombok.extern.slf4j.Slf4j;
  *
  * PG 취소 합계로 판단함 (상태값은 부분 취소 여부에 따라 달라서 보지 않음)
  * - 취소 합계 = 충전 금액 → 이미 전액 취소됨 → FAILED_METHOD_NOT_ALLOWED 확정
- * - 취소 합계 = 0 → 취소 안 됨 → 회차를 늘려 다시 취소 (최대 MAX_ATTEMPTS회까지. 마지막 회차가 실패하면 오류 로그 한 번)
- * - 그 외(일부만 취소)·PG에 결제 없음 → 자동으로 정할 수 없어 그대로 두고 오류 로그
+ * - 취소 합계 = 0 → 취소 안 됨 → 회차를 늘려 다시 취소 (최대 MAX_ATTEMPTS회까지. 다 쓰면 수동 확인으로 표시)
+ * - 그 외(일부만 취소)·PG에 결제 없음 → 자동으로 정할 수 없어 그대로 두고 수동 확인으로 표시
+ * 수동 확인 표시는 오류 로그를 한 번 남기고, 다음 회차부터 대사에서 빠짐
  * - 결과 모름(응답 없음·그 외 오류) → 다음 회차에 다시 확인
  */
 @Slf4j
@@ -30,7 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class PaymentReconcileMethodCancelingTopupsUseCase {
 
-    // PG 전액 취소를 시도하는 최대 횟수 (승인 응답·대사의 첫 시도 포함). 넘으면 다시 요청하지 않고 사람이 확인
+    // PG 전액 취소를 시도하는 최대 횟수 (승인 응답·대사의 첫 시도 포함). 다 쓰면 다시 요청하지 않고 수동 확인으로 표시
     static final int MAX_ATTEMPTS = 3;
 
     private final PaymentPolicy paymentPolicy;
@@ -41,7 +43,7 @@ public class PaymentReconcileMethodCancelingTopupsUseCase {
     /**
      * 확인 대기 시간(topupReconcileDelay)이 지나도록 METHOD_CANCELING인 충전 건을 오래된 순으로 topupReconcileBatchSize건씩 확인함 (배치를 다 채우면 이어서 확인, 결과 모름이 나오면 그 배치까지만)
      * 재시도하면 충전 건이 갱신돼 다음 재시도도 확인 대기 시간 뒤에 함
-     * 반환값은 건수 집계 (completed: 취소 확정, failed: 다시 요청했지만 실패, pending: 다음 회차에 다시 확인·사람 확인 대기, errors: 예상 못 한 오류)
+     * 반환값은 건수 집계 (completed: 취소 확정, failed: 다시 요청했지만 실패, pending: 다음 회차에 다시 확인·수동 확인으로 표시, errors: 예상 못 한 오류)
      */
     public TopupReconcileResult reconcileMethodCancelingTopups(LocalDateTime now) {
         LocalDateTime cutoff = now.minus(paymentPolicy.topupReconcileDelay());
@@ -58,7 +60,7 @@ public class PaymentReconcileMethodCancelingTopupsUseCase {
             result = topupGateways.get(target.pgProvider()).getPayment(target.payment());
         } catch (PgPaymentNotFoundException e) {
             // PG가 승인한 결제라 정상이면 PG에 결제가 있음. 결제키·키 설정 등이 잘못된 것이라 사람이 확인
-            log.error("허용하지 않은 결제 수단으로 승인된 충전 건의 결제가 PG에 없습니다. 확인이 필요합니다. topupId={}, pg={}", target.topupId(), target.pgProvider());
+            markManualCheck(target, TopupManualCheckReason.PG_PAYMENT_NOT_FOUND, "결제가 PG에 없습니다.");
             return TopupReconcileOutcome.PENDING;
         } catch (PgResultUnknownException e) {
             // 회차마다 반복될 수 있어 스택 대신 가장 안쪽 원인 메시지만 남김
@@ -74,23 +76,25 @@ public class PaymentReconcileMethodCancelingTopupsUseCase {
 
         // 일부만 취소됐으면 전액 취소를 다시 보낼 수 없어(금액이 맞지 않음) 사람이 확인
         if (result.canceledAmount() != 0) {
-            log.error("허용하지 않은 결제 수단 충전 건의 PG 취소 금액이 충전 금액과 달라 자동으로 처리하지 않습니다. 확인이 필요합니다. topupId={}, PG 취소 합계 {}원, 충전 금액 {}원",
-                    target.topupId(), result.canceledAmount(), target.amount());
+            markManualCheck(target, TopupManualCheckReason.METHOD_CANCEL_PARTIAL, "PG 취소 합계 " + result.canceledAmount() + "원, 충전 금액 " + target.amount() + "원");
             return TopupReconcileOutcome.PENDING;
         }
 
-        // 취소되지 않음 → 최대 횟수 전이면 다시 요청
+        // 취소되지 않음 → 최대 횟수 전이면 다시 요청. 다 썼으면 표시 (마지막 요청이 실패한 다음 회차에 PG를 한 번 더 조회한 뒤 표시함)
         if (target.attempt() >= MAX_ATTEMPTS) {
-            // 마지막 회차 실패 때 오류 로그를 이미 남겼으므로 여기서는 경고만 (알림이 반복되지 않게)
-            log.warn("허용하지 않은 결제 수단 충전 건의 PG 취소가 {}회 실패해 다시 요청하지 않습니다. 확인 대기 중입니다. topupId={}", MAX_ATTEMPTS, target.topupId());
+            markManualCheck(target, TopupManualCheckReason.METHOD_CANCEL_RETRY_EXHAUSTED, "PG 취소를 " + MAX_ATTEMPTS + "회 시도했지만 취소되지 않았습니다.");
             return TopupReconcileOutcome.PENDING;
         }
         if (paymentTopupMethodCanceller.retry(target.topupId(), target.attempt(), result.method())) {
             return TopupReconcileOutcome.COMPLETED;
         }
-        if (target.attempt() + 1 >= MAX_ATTEMPTS) {
-            log.error("허용하지 않은 결제 수단 충전 건의 PG 취소가 {}회 모두 실패했습니다. 돈이 빠진 채 반영되지 않았으니 확인이 필요합니다. topupId={}", MAX_ATTEMPTS, target.topupId());
-        }
         return TopupReconcileOutcome.FAILED;
+    }
+
+    // 수동 확인으로 표시하고, 이번에 표시했을 때만 오류 로그 (돈은 빠졌는데 예치금에 반영되지 않은 상태)
+    private void markManualCheck(TopupMethodCancelTarget target, TopupManualCheckReason reason, String detail) {
+        if (paymentTopupConfirmProcessor.markMethodCancelManualCheck(target.topupId(), target.attempt(), reason)) {
+            log.error("허용하지 않은 결제 수단 충전 건을 자동으로 처리할 수 없어 수동 확인으로 표시합니다. topupId={}, pg={}, reason={}, {}", target.topupId(), target.pgProvider(), reason, detail);
+        }
     }
 }

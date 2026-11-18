@@ -63,20 +63,21 @@ public interface TopupRepository extends JpaRepository<Topup, Long>, JpaSpecific
     Optional<Topup> findByIdForUpdate(@Param("id") Long id);
 
     // 결과 확인 대상: 기준 시각 이전부터 같은 상태로 남은 충전 건을 오래된 순으로, 위치(afterUpdatedAt, afterId) 다음부터 (건수 제한은 Pageable)
+    // 수동 확인으로 표시된 건은 사람이 정리하므로 뺌
     @Query("""
             select t from Topup t
-            where t.status = :status and t.updatedAt < :cutoff
+            where t.status = :status and t.updatedAt < :cutoff and t.manualCheckReason is null
               and (t.updatedAt > :afterUpdatedAt or (t.updatedAt = :afterUpdatedAt and t.id > :afterId))
             order by t.updatedAt, t.id
             """)
     List<Topup> findStale(@Param("status") TopupStatus status, @Param("cutoff") LocalDateTime cutoff,
                           @Param("afterUpdatedAt") LocalDateTime afterUpdatedAt, @Param("afterId") Long afterId, Pageable pageable);
 
-    // 오래 남은 충전 건: 기준 시각 이전부터 같은 상태로 남은 충전 건을 상태별로 셈
+    // 오래 남은 충전 건: 기준 시각 이전부터 같은 상태로 남은 충전 건을 상태별로 셈 (수동 확인으로 표시된 건은 표시할 때 알렸으므로 뺌)
     @Query("""
             select new com.backend.boundedContext.payment.out.TopupStuckCount(t.status, count(t), min(t.id))
             from Topup t
-            where t.status in :statuses and t.updatedAt < :cutoff
+            where t.status in :statuses and t.updatedAt < :cutoff and t.manualCheckReason is null
             group by t.status
             """)
     List<TopupStuckCount> countStale(@Param("statuses") Collection<TopupStatus> statuses, @Param("cutoff") LocalDateTime cutoff);
