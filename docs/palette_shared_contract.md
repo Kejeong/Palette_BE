@@ -747,8 +747,8 @@ public record TransferResultDto(String idempotencyKey, Long walletTransactionId,
 | 유형 | 서비스 | 경로 | 상태 |
 | --- | --- | --- | --- |
 | SETTLEMENT_MANUAL_REQUIRED | settlement | `GET /api/v1/admin/settlements/failures` | 구현 |
-| PAYMENT_FAILED, TOPUP_DELAYED | payment | `GET /api/v1/admin/payments/failures` | 요청 |
-| REFUND_FAILED | payment (환불) | `GET /api/v1/admin/refunds/failures` | 요청 |
+| PAYMENT_FAILED, REFUND_FAILED | payment (결제, 반품 환불) | `GET /api/v1/admin/payments/failures` (type 없으면 둘 다) | 구현 |
+| TOPUP_DELAYED | payment (충전) | `GET /api/v1/admin/topups/failures` | 요청 |
 | DELIVERY_TRACKING_FAILED | delivery | `GET /api/v1/admin/deliveries/failures` | 요청 |
 
 ### SettlementApi
