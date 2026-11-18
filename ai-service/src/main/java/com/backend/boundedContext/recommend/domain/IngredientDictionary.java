@@ -1,6 +1,8 @@
 package com.backend.boundedContext.recommend.domain;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
@@ -16,9 +18,6 @@ import static com.backend.boundedContext.recommend.domain.IngredientTag.*;
  */
 public final class IngredientDictionary {
 
-    // 쉼표는 "1,2-헥산다이올"처럼 숫자 사이에 있으면 나누지 않는다
-    private static final Pattern SEPARATOR = Pattern.compile("(?<!\\d),|,(?!\\d)|[，、\\n\\r]");
-    private static final Pattern PARENTHESES = Pattern.compile("[(（][^)）]*[)）]");
     private static final Pattern SPACES = Pattern.compile("\\s+");
 
     private enum Kind { EXACT, PREFIX, SUFFIX, CONTAINS }
@@ -95,25 +94,122 @@ public final class IngredientDictionary {
         if (ingredientsText == null) return new IngredientMatch(tags, unmatched, false);
 
         boolean known = false;
-        for (String piece : SEPARATOR.split(ingredientsText)) {
-            String name = normalize(piece);
+        for (String piece : split(ingredientsText)) {
+            Parts parts = parse(piece);
+            // 괄호 밖 이름: 미매칭 목록과 known은 이것만 본다(괄호 안 영문명 "정제수(Water)"의 water가 사전 보강 목록에 섞이지 않게)
+            String name = clean(parts.outside());
+            boolean matched = tag(name, tags);
+            // 괄호 안 성분명도 태그에는 쓴다: "향료(리모넨, 리날룰)"의 리모넨·리날룰도 착향제다
+            for (String inner : innerNames(parts.groups())) tag(inner, tags);
+
             if (name.isEmpty()) continue;
             known = true;
-            boolean matched = false;
-            for (Rule rule : RULES) {
-                if (rule.matches(name)) {
-                    tags.add(rule.tag());
-                    matched = true;
-                }
-            }
             if (!matched) unmatched.add(name);
         }
         return new IngredientMatch(tags, unmatched, known);
     }
 
-    // 괄호와 그 안(영문명 등), 모든 공백을 지우고 영문은 소문자로
+    // 이름에 맞는 규칙의 태그를 모두 더한다. 하나라도 맞으면 true
+    private static boolean tag(String name, Set<IngredientTag> tags) {
+        if (name.isEmpty()) return false;
+        boolean matched = false;
+        for (Rule rule : RULES) {
+            if (rule.matches(name)) {
+                tags.add(rule.tag());
+                matched = true;
+            }
+        }
+        return matched;
+    }
+
+    /**
+     * 괄호 밖의 구분자에서만 나눈다: "향료(리모넨, 리날룰)"은 한 조각.
+     * 구분자는 쉼표(앞뒤가 모두 숫자면 나누지 않음: "1,2-헥산다이올")·전각 쉼표·모점·줄바꿈.
+     * 닫는 괄호가 없으면 끝까지 괄호 안으로 보고, 여는 괄호 없이 닫는 괄호만 있으면 무시한다(깊이는 0 아래로 내려가지 않는다).
+     */
+    static List<String> split(String text) {
+        List<String> pieces = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (isOpen(c)) depth++;
+            else if (isClose(c)) depth = Math.max(0, depth - 1);
+            else if (depth == 0 && isSeparator(text, i)) {
+                pieces.add(text.substring(start, i));
+                start = i + 1;
+            }
+        }
+        pieces.add(text.substring(start));
+        return pieces;
+    }
+
+    private static boolean isSeparator(String text, int i) {
+        char c = text.charAt(i);
+        if (c == ',') {
+            boolean digitBefore = i > 0 && Character.isDigit(text.charAt(i - 1));
+            boolean digitAfter = i + 1 < text.length() && Character.isDigit(text.charAt(i + 1));
+            return !(digitBefore && digitAfter);
+        }
+        return c == '，' || c == '、' || c == '\n' || c == '\r';
+    }
+
+    private static boolean isOpen(char c) {
+        return c == '(' || c == '（';
+    }
+
+    private static boolean isClose(char c) {
+        return c == ')' || c == '）';
+    }
+
+    // 괄호 안 내용들을 같은 규칙으로 나눈 이름들(정규화). 괄호가 겹쳐 있으면 안쪽까지 모두.
+    // 재귀 대신 할 일 목록으로 돈다: 괄호가 수천 겹이어도 스택이 넘치지 않게(StackOverflowError)
+    private static List<String> innerNames(List<String> groups) {
+        List<String> names = new ArrayList<>();
+        Deque<String> pending = new ArrayDeque<>(groups);
+        while (!pending.isEmpty()) {
+            for (String inner : split(pending.poll())) {
+                Parts parts = parse(inner);
+                String name = clean(parts.outside());
+                if (!name.isEmpty()) names.add(name);
+                pending.addAll(parts.groups());
+            }
+        }
+        return names;
+    }
+
+    // outside: 괄호 밖 글자, groups: 깊이 0에서 연 괄호 안의 내용들
+    private record Parts(String outside, List<String> groups) {
+    }
+
+    // 조각을 한 번 훑어 괄호 밖 글자와 괄호 안 내용을 나눈다.
+    // 짝이 안 맞는 괄호는 split과 같은 규칙(닫히지 않으면 끝까지 괄호 안, 짝 없는 닫는 괄호는 버림)
+    private static Parts parse(String piece) {
+        StringBuilder outside = new StringBuilder();
+        List<String> groups = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < piece.length(); i++) {
+            char c = piece.charAt(i);
+            if (isOpen(c)) {
+                if (depth == 0) start = i + 1;
+                depth++;
+            } else if (isClose(c)) {
+                if (depth > 0 && --depth == 0) groups.add(piece.substring(start, i));
+            } else if (depth == 0) {
+                outside.append(c);
+            }
+        }
+        if (depth > 0) groups.add(piece.substring(start));
+        return new Parts(outside.toString(), groups);
+    }
+
+    // 괄호 밖 이름: 괄호와 그 안(영문명 등)을 지우고, 모든 공백을 지우고 영문은 소문자로
     static String normalize(String name) {
-        String withoutParentheses = PARENTHESES.matcher(name).replaceAll("");
-        return SPACES.matcher(withoutParentheses).replaceAll("").toLowerCase(Locale.ROOT);
+        return clean(parse(name).outside());
+    }
+
+    private static String clean(String outside) {
+        return SPACES.matcher(outside).replaceAll("").toLowerCase(Locale.ROOT);
     }
 }

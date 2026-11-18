@@ -120,7 +120,7 @@ class RecommendProductIntegrationTest {
     }
 
     @Test
-    @DisplayName("OpenAI가 실패하면 그대로 두고, 다음 차례에 채운다")
+    @DisplayName("OpenAI가 실패하면 그대로 두고, 다음 시도 시각이 지나면 다시 채운다")
     void embeddingFailureRetried() {
         recommendFacade.applyProductChange(event(1L, "수분 크림", "스킨케어", true, "정제수", true), T0);
 
@@ -129,6 +129,10 @@ class RecommendProductIntegrationTest {
         assertThat(embedding(1L)).isNull();
 
         fakeEmbeddingModel.failing = false;
+        recommendFacade.embedPending();
+        assertThat(embedding(1L)).isNull();   // 다음 시도 시각 전이라 건너뛴다
+
+        jdbcTemplate.update("update recommend_product set embedding_retry_at = ? where id = 1", LocalDateTime.now().minusSeconds(1));
         recommendFacade.embedPending();
         assertThat(embedding(1L)).isNotNull();
     }

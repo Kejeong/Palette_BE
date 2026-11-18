@@ -18,39 +18,98 @@ import java.util.List;
 public class RecommendVectorRepository {
     private final JdbcTemplate jdbcTemplate;
 
-    /** 임베딩을 기다리는 판매 중 뷰티 상품 ID (뷰티가 아닌 상품은 추천하지 않으므로 임베딩하지 않는다) */
-    public List<Long> findProductIdsToEmbed(int limit) {
-        return jdbcTemplate.queryForList(
-                "select id from recommend_product where embedding is null and on_sale and beauty order by id limit ?",
-                Long.class, limit);
+    /**
+     * 임베딩을 기다리는 판매 중 뷰티 상품 ID (뷰티가 아닌 상품은 추천하지 않으므로 임베딩하지 않는다).
+     * 실패해서 다음 시도 시각이 아직 안 된 상품은 뺀다(한 상품이 계속 실패해도 뒤 상품이 막히지 않게)
+     */
+    public List<Long> findProductIdsToEmbed(int limit, LocalDateTime now) {
+        return jdbcTemplate.queryForList("""
+                        select id from recommend_product
+                        where embedding is null and on_sale and beauty
+                          and (embedding_retry_at is null or embedding_retry_at <= ?)
+                        order by id limit ?
+                        """,
+                Long.class, now, limit);
     }
 
-    /** 임베딩을 저장한다. 그사이 상품 글이 바뀌었으면(해시가 다르면) 저장하지 않고 false */
+    /** 임베딩을 저장하고 재시도 상태를 지운다. 그사이 상품 글이 바뀌었으면(해시가 다르면) 저장하지 않고 false */
     public boolean saveProductEmbedding(Long productId, String sourceHash, float[] embedding) {
-        return jdbcTemplate.update(
-                "update recommend_product set embedding = cast(? as vector) where id = ? and embedding_source_hash = ?",
+        return jdbcTemplate.update("""
+                        update recommend_product
+                        set embedding = cast(? as vector), embedding_attempts = 0, embedding_retry_at = null
+                        where id = ? and embedding_source_hash = ?
+                        """,
                 toVector(embedding), productId, sourceHash) == 1;
     }
 
+    /** 임베딩 실패 횟수를 1 늘리고 늘린 값을 돌려준다. 그사이 상품 글이 바뀌었으면(해시가 다르면) 세지 않고 0 */
+    public int increaseProductEmbeddingAttempts(Long productId, String sourceHash) {
+        List<Integer> attempts = jdbcTemplate.queryForList("""
+                        update recommend_product set embedding_attempts = embedding_attempts + 1
+                        where id = ? and embedding_source_hash = ?
+                        returning embedding_attempts
+                        """,
+                Integer.class, productId, sourceHash);
+        return attempts.isEmpty() ? 0 : attempts.getFirst();
+    }
+
+    /** 다음 임베딩 시도 시각을 정한다. 그 전까지 대상 조회에서 빠진다 */
+    public void delayProductEmbedding(Long productId, String sourceHash, LocalDateTime retryAt) {
+        jdbcTemplate.update(
+                "update recommend_product set embedding_retry_at = ? where id = ? and embedding_source_hash = ?",
+                retryAt, productId, sourceHash);
+    }
+
+    /** 임베딩할 글이 바뀌었을 때: 임베딩과 재시도 상태를 지워 바로 다시 만들게 한다 */
     public void clearProductEmbedding(Long productId) {
-        jdbcTemplate.update("update recommend_product set embedding = null where id = ?", productId);
+        jdbcTemplate.update(
+                "update recommend_product set embedding = null, embedding_attempts = 0, embedding_retry_at = null where id = ?",
+                productId);
     }
 
-    /** 임베딩을 기다리는 설문의 회원 ID */
-    public List<Long> findProfileMemberIdsToEmbed(int limit) {
-        return jdbcTemplate.queryForList(
-                "select member_id from beauty_profile where embedding is null order by id limit ?", Long.class, limit);
+    /** 임베딩을 기다리는 설문의 회원 ID. 실패해서 다음 시도 시각이 아직 안 된 설문은 뺀다 */
+    public List<Long> findProfileMemberIdsToEmbed(int limit, LocalDateTime now) {
+        return jdbcTemplate.queryForList("""
+                        select member_id from beauty_profile
+                        where embedding is null and (embedding_retry_at is null or embedding_retry_at <= ?)
+                        order by id limit ?
+                        """,
+                Long.class, now, limit);
     }
 
-    /** 설문 임베딩을 저장한다. 그사이 설문을 다시 저장했으면(updated_at이 다르면) 저장하지 않고 false */
+    /** 설문 임베딩을 저장하고 재시도 상태를 지운다. 그사이 설문을 다시 저장했으면(updated_at이 다르면) 저장하지 않고 false */
     public boolean saveProfileEmbedding(Long memberId, LocalDateTime updatedAt, float[] embedding) {
-        return jdbcTemplate.update(
-                "update beauty_profile set embedding = cast(? as vector) where member_id = ? and updated_at = ?",
+        return jdbcTemplate.update("""
+                        update beauty_profile
+                        set embedding = cast(? as vector), embedding_attempts = 0, embedding_retry_at = null
+                        where member_id = ? and updated_at = ?
+                        """,
                 toVector(embedding), memberId, updatedAt) == 1;
     }
 
+    /** 설문 임베딩 실패 횟수를 1 늘리고 늘린 값을 돌려준다. 그사이 설문을 다시 저장했으면 세지 않고 0 */
+    public int increaseProfileEmbeddingAttempts(Long memberId, LocalDateTime updatedAt) {
+        List<Integer> attempts = jdbcTemplate.queryForList("""
+                        update beauty_profile set embedding_attempts = embedding_attempts + 1
+                        where member_id = ? and updated_at = ?
+                        returning embedding_attempts
+                        """,
+                Integer.class, memberId, updatedAt);
+        return attempts.isEmpty() ? 0 : attempts.getFirst();
+    }
+
+    /** 설문의 다음 임베딩 시도 시각을 정한다. 그 전까지 대상 조회에서 빠진다 */
+    public void delayProfileEmbedding(Long memberId, LocalDateTime updatedAt, LocalDateTime retryAt) {
+        jdbcTemplate.update(
+                "update beauty_profile set embedding_retry_at = ? where member_id = ? and updated_at = ?",
+                retryAt, memberId, updatedAt);
+    }
+
+    /** 설문을 다시 저장했을 때: 임베딩과 재시도 상태를 지워 바로 다시 만들게 한다 */
     public void clearProfileEmbedding(Long memberId) {
-        jdbcTemplate.update("update beauty_profile set embedding = null where member_id = ?", memberId);
+        jdbcTemplate.update(
+                "update beauty_profile set embedding = null, embedding_attempts = 0, embedding_retry_at = null where member_id = ?",
+                memberId);
     }
 
     /** 추천 결과 한 줄. ingredientTags는 코드 이름 */
@@ -63,7 +122,6 @@ public class RecommendVectorRepository {
      * - 거르기(WHERE, 점수와 무관): 판매 중 뷰티 상품만. 피하는 성분을 골랐으면 그 태그가 하나라도 있는 상품과 전성분을 모르는 상품을 뺀다
      * - 정렬: 프로필과 상품 임베딩의 코사인 유사도 + 겹친 선호 성분 가점 + 관심 카테고리 가점.
      *   프로필이나 상품 임베딩이 아직 없으면 유사도는 0으로 보고 가점·최신순으로 정한다
-     * 프로필 임베딩은 DB에서 바로 읽는다(벡터를 앱으로 가져오지 않는다). 추천할 때 OpenAI는 부르지 않는다.
      */
     public List<RecommendedRow> findRecommended(Long memberId, List<String> preferred, List<String> avoided,
                                                 List<String> interests, double preferredWeight, double categoryWeight, int size) {
