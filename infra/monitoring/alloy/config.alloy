@@ -40,59 +40,6 @@ loki.source.docker "palette" {
   forward_to    = [loki.write.default.receiver]
 }
 
-// ── k3s 파드 로그 (TRSS-327) ──────────────────────────────────────────────
-// k3s는 Docker가 아니라 containerd로 파드를 돌려서 위 Docker 수집에 안 보인다. 대신 파드 로그 파일을 읽는다.
-// 파일 위치: /var/log/pods/<네임스페이스>_<파드>_<uid>/<컨테이너>/0.log (서버 전체가 /rootfs로 읽기 전용 마운트돼 있다)
-// palette 네임스페이스만 읽는다. 이 폴더가 없는 서버(데이터 서버)에서는 아무것도 안 한다.
-local.file_match "k8s_pods" {
-  path_targets = [{"__path__" = "/rootfs/var/log/pods/palette_*/*/*.log"}]
-}
-
-// 파일 경로에서 파드·컨테이너 이름을 꺼내 Docker 로그와 같은 라벨을 붙인다.
-// container="palette-ai"처럼 맞춰 두면 알림 규칙(rules.yaml)과 Grafana 쿼리를 안 고쳐도 ai 로그가 그대로 잡힌다
-discovery.relabel "k8s_pods" {
-  targets = local.file_match.k8s_pods.targets
-
-  rule {
-    source_labels = ["__path__"]
-    regex         = "/rootfs/var/log/pods/palette_([^_]+)_[^/]+/([^/]+)/.*"
-    target_label  = "container"
-    replacement   = "palette-$2"
-  }
-
-  rule {
-    source_labels = ["__path__"]
-    regex         = "/rootfs/var/log/pods/palette_([^_]+)_[^/]+/([^/]+)/.*"
-    target_label  = "service"
-    replacement   = "$2"
-  }
-
-  // 파드가 2개일 때 어느 파드 로그인지 구분한다
-  rule {
-    source_labels = ["__path__"]
-    regex         = "/rootfs/var/log/pods/palette_([^_]+)_[^/]+/([^/]+)/.*"
-    target_label  = "pod"
-    replacement   = "$1"
-  }
-}
-
-loki.source.file "k8s_pods" {
-  targets    = discovery.relabel.k8s_pods.output
-  forward_to = [loki.process.k8s_pods.receiver]
-}
-
-loki.process "k8s_pods" {
-  // 파드 로그 줄 앞의 "시각 stdout F "를 떼어 앱이 찍은 JSON만 남긴다(Docker 로그와 같은 모양이 된다)
-  stage.cri { }
-
-  // loki.source.file이 붙이는 filename(파드 uid가 들어가 배포마다 바뀜)은 뺀다
-  stage.label_drop {
-    values = ["filename"]
-  }
-
-  forward_to = [loki.write.default.receiver]
-}
-
 loki.write "default" {
   endpoint {
     url = sys.env("LOKI_URL")
