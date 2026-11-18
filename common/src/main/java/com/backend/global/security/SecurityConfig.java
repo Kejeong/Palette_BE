@@ -67,6 +67,7 @@ public class SecurityConfig {
             "/webhooks/delivery-tracker/**",  // Delivery Tracker 콜백. URL 토큰으로 delivery가 직접 확인
             "/api/v1/topups/hecto/**"         // 헥토 결제창 결과(브라우저 POST)·결과 알림(헥토 서버). 프론트로 넘기기만 하고 승인은 토큰이 있는 승인 API에서 함
     };
+    // 역할별 경로(ADMIN·LOGISTICS·SELLER·INFLUENCER·BUYER·WITHDRAWAL_API_URLS, DELETE /users/me)도 gateway JwtAuthenticationFilter에 같은 목록이 있다. 고치면 같이 고친다
     private static final String[] ADMIN_API_URLS = {
             "/api/v1/admin/**"
     };
