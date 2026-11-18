@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -19,8 +20,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-@Tag(name = "알림", description = "내 알림 목록, 안 읽은 알림 개수, 읽음 처리")
+@Tag(name = "알림", description = "내 알림 목록, 안 읽은 알림 개수, 읽음 처리, 실시간 구독")
 @RestController
 @RequestMapping("/api/v1/notifications")
 @RequiredArgsConstructor
@@ -46,6 +48,15 @@ public class ApiV1NotificationController {
     @GetMapping("/unread-count")
     public RsData<Long> getUnreadCount(@AuthenticationPrincipal AuthMember authMember) {
         return RsData.of("200-1", "안 읽은 알림 개수를 조회했습니다.", notificationFacade.getUnreadCount(authMember.memberId()));
+    }
+
+    @Operation(
+            summary = "알림 실시간 구독 (SSE)",
+            description = "연결하면 안 읽은 개수(unread-count 이벤트)를 바로 보냅니다. Authorization 헤더가 필요하므로 EventSource 대신 fetch 기반 SSE로 연결합니다. "
+                    + "연결은 30분 뒤 서버가 끝내며, 끊기면 다시 연결하고 목록을 다시 조회합니다.")
+    @GetMapping(value = "/subscribe", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter subscribe(@AuthenticationPrincipal AuthMember authMember) {
+        return notificationFacade.subscribe(authMember.memberId());
     }
 
     @Operation(summary = "알림 읽음 처리", description = "이미 읽은 알림이면 그대로 성공합니다.")

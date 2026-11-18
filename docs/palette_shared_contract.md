@@ -747,8 +747,8 @@ public record TransferResultDto(String idempotencyKey, Long walletTransactionId,
 | 유형 | 서비스 | 경로 | 상태 |
 | --- | --- | --- | --- |
 | SETTLEMENT_MANUAL_REQUIRED | settlement | `GET /api/v1/admin/settlements/failures` | 구현 |
-| PAYMENT_FAILED, TOPUP_DELAYED | payment | `GET /api/v1/admin/payments/failures` | 요청 |
-| REFUND_FAILED | payment (환불) | `GET /api/v1/admin/refunds/failures` | 요청 |
+| PAYMENT_FAILED, REFUND_FAILED | payment (결제, 반품 환불) | `GET /api/v1/admin/payments/failures` (type 없으면 둘 다) | 구현 |
+| TOPUP_DELAYED | payment (충전) | `GET /api/v1/admin/topups/failures` | 요청 |
 | DELIVERY_TRACKING_FAILED | delivery | `GET /api/v1/admin/deliveries/failures` | 구현 (TRSS-291) |
 
 배송 추적 실패(delivery) 항목:
@@ -902,22 +902,38 @@ public record DeliveryCompletedEvent(Long deliveryId, Long orderId, Long buyerId
 
 ## 8. notification
 
-알림은 `notification-service`(포트 8086, DB 스키마 `notification`)입니다. 주문·배송 이벤트를 받아 구매자 알림을 저장하고, 구매자가 알림을 조회·읽음 처리하는 API를 제공합니다. 다른 서비스를 부르지 않고, 이벤트도 발행하지 않습니다(TRSS-179).
+알림은 `notification-service`(포트 8086, DB 스키마 `notification`)입니다. 주문·배송 이벤트를 받아 구매자 알림을 저장하고, 구매자가 알림을 조회·읽음 처리하는 API를 제공합니다. 새 알림과 안 읽은 개수는 SSE로 실시간 전달합니다(TRSS-273). 다른 서비스를 부르지 않고, 이벤트도 발행하지 않습니다(TRSS-179).
 
 ### 알림 API (프론트용)
 
 | 요청 | 응답 `data` | 비고 |
 | --- | --- | --- |
 | `GET /api/v1/notifications?type=&cursor=&size=20` | `{ items: [{ id, type, message, orderId, productName, itemCount, carrierName, trackingNumber, read, createdAt }], nextCursor, hasNext }` | 최근 30일 알림을 최신순으로. `type`을 넘기면 그 유형만(없으면 전체). 다음 페이지는 같은 `type`에 `nextCursor`를 `cursor`로 넘긴다. `size`는 1~100. 없는 `type`이면 400 `INVALID_REQUEST` |
-| `GET /api/v1/notifications/unread-count` | 안 읽은 알림 개수(숫자) | 헤더 종 아이콘 뱃지용. 최근 30일 알림 중 유형과 관계없이 센다. 실시간 전달(SSE) 전까지 프론트가 주기적으로 부른다 |
+| `GET /api/v1/notifications/unread-count` | 안 읽은 알림 개수(숫자) | 헤더 종 아이콘 뱃지용. 최근 30일 알림 중 유형과 관계없이 센다. 바뀐 개수는 SSE로도 받는다 |
 | `PATCH /api/v1/notifications/{notificationId}/read` | 없음 | 이미 읽은 알림이면 그대로 성공. 없거나 다른 회원의 알림이면 404 `NOTIFICATION_NOT_FOUND` |
 | `PATCH /api/v1/notifications/read-all` | 없음 | 안 읽은 내 알림을 모두 읽음 처리 |
+| `GET /api/v1/notifications/subscribe` | `text/event-stream` (아래 실시간 전달) | 로그인 필요. 응답이 `RsData`가 아니라 이벤트 스트림이다. 토큰이 없거나 만료되면 401 |
 
 - 목록은 다른 목록 API의 `PageResponse`(page·totalPages)가 아니라 커서 방식이다. 폴링 중 새 알림이 생겨도 다음 페이지가 밀리지 않게 하기 위해서다.
 - `type`은 `ORDER_PAID`(주문 완료)·`DELIVERY_STARTED`(배송 시작)·`DELIVERY_COMPLETED`(배송 완료)이고, `message`는 알림을 만들 때 완성해 저장한 문구다.
 - `productName`은 대표 상품명(주문의 첫 상품), `itemCount`는 주문 항목(상품 줄) 수다(수량 합계가 아님). 화면에서 "라이트 윈드브레이커 외 2개"처럼 쓴다. 주문 완료 알림에 저장하고, 배송 알림은 같은 주문의 주문 완료 알림 값을 그대로 쓴다. 주문 완료 알림이 없거나 이 필드가 생기기 전 알림이면 null이다.
 - `carrierName`(택배사 표시 이름)·`trackingNumber`(송장번호)는 배송 시작 알림에만 있고 그 외는 null이다. `message`에도 같은 값이 들어 있지만, 화면은 문구를 잘라 쓰지 말고 이 필드를 쓴다.
 - 최근 30일(`custom.notification.visibleDays`) 안에 생긴 알림만 목록·안 읽은 개수에 나온다. 오래된 알림은 지우지 않고 조회에서만 뺀다. 읽음 처리 API는 기간과 관계없이 동작한다.
+
+### 실시간 전달 (SSE)
+
+| 이벤트(`event:`) | `data` | 보내는 때 |
+| --- | --- | --- |
+| `unread-count` | 안 읽은 알림 개수(숫자) | 연결 직후, 새 알림 저장 뒤, 하나·모두 읽음 처리 뒤 |
+| `notification` | 목록의 `items` 한 줄과 같은 JSON | 새 알림 저장 뒤. 바로 이어서 `unread-count`도 온다 |
+
+- 다른 API처럼 `Authorization: Bearer` 헤더로 인증한다. 브라우저 기본 `EventSource`는 헤더를 붙일 수 없으므로 fetch 기반 SSE(예: `@microsoft/fetch-event-source`)로 연결한다.
+- 알림 저장·읽음 처리가 커밋된 뒤에 보낸다. 롤백되면 보내지 않고, 전송이 실패해도 알림은 저장되어 있다.
+- 같은 회원이 탭을 여러 개 열면 탭마다 연결되고, 모든 탭이 같은 이벤트를 받는다. 한 탭에서 읽음 처리하면 다른 탭의 뱃지도 바뀐다.
+- 30초(`custom.notification.heartbeatIntervalSeconds`)마다 SSE 주석 `:heartbeat`를 보낸다. 이벤트가 아니므로 프론트는 처리하지 않아도 된다. nginx는 90초 동안 아무것도 오지 않으면 연결을 끊는다.
+- 연결은 30분(`custom.notification.sseTimeoutMinutes`) 뒤 서버가 끝낸다. 끊기면 다시 연결하고, 401이면 토큰을 재발급한 뒤 다시 연결한다.
+- 끊긴 동안의 알림은 다시 보내지 않는다(`Last-Event-ID` 미지원). 다시 연결하면 `unread-count`가 바로 오고, 목록은 다시 조회한다.
+- 연결은 서버 메모리에 둔다. notification-service가 한 대일 때만 모든 연결로 전달된다. 여러 대로 늘리면 서버 간 전달(Redis pub/sub 등)이 필요하다.
 
 ### 받는 이벤트
 
