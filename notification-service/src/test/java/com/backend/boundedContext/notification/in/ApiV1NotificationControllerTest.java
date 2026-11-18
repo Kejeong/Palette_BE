@@ -18,6 +18,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
@@ -29,6 +30,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -146,6 +148,27 @@ class ApiV1NotificationControllerTest {
                 .andExpect(jsonPath("$.resultCode").value("200-1"));
 
         verify(notificationFacade).readAll(3L);
+    }
+
+    @Test
+    @DisplayName("구독: 로그인 회원 기준으로 SSE 연결을 열어 둠")
+    void subscribe() throws Exception {
+        given(notificationFacade.subscribe(3L)).willReturn(new SseEmitter());
+
+        mockMvc.perform(get("/api/v1/notifications/subscribe").header("Authorization", bearer(3L)))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted());
+
+        verify(notificationFacade).subscribe(3L);
+    }
+
+    @Test
+    @DisplayName("구독: 로그인하지 않으면 401이고 연결을 만들지 않음")
+    void subscribe_unauthenticated() throws Exception {
+        mockMvc.perform(get("/api/v1/notifications/subscribe"))
+                .andExpect(status().isUnauthorized());
+
+        verify(notificationFacade, never()).subscribe(any());
     }
 
     @Test
