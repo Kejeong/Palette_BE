@@ -53,7 +53,8 @@ public class ProductJpaSearchAdapter implements ProductSearchPort {
     private static Sort toSort(ProductSort sort) {
         Sort.Order byId = Sort.Order.desc("id");
         return switch (sort) {
-            case RELEVANCE, LATEST -> Sort.by(Sort.Order.desc("createdAt"), byId);   // 관련도는 DB 검색에 없어 최신순으로 대신한다
+            // 관련도는 DB 검색에 없고, 행동 지표(찜·별점·판매량)는 검색 색인에만 있어 최신순으로 대신한다
+            case RELEVANCE, LATEST, POPULAR, WISH, SALES -> Sort.by(Sort.Order.desc("createdAt"), byId);
             case DISCOUNT_RATE -> throw new IllegalArgumentException("할인율순은 orderByDiscountRate로 정렬한다");
             case PRICE_ASC -> Sort.by(Sort.Order.asc("price"), byId);
             case PRICE_DESC -> Sort.by(Sort.Order.desc("price"), byId);
