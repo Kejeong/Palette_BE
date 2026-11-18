@@ -1,0 +1,93 @@
+# k3s 안의 작은 Alloy: palette 파드의 앱 지표(/actuator/prometheus, 관리 포트 9091)를 걷어 앱 서버 Prometheus로 보낸다(TRSS-327).
+#
+# 왜 따로 두나: Compose의 Alloy(monitoring/alloy/config.alloy)는 Docker에 물어 컨테이너를 찾는데, 파드는 Docker에 안 보인다.
+# 파드는 배포마다 IP가 바뀌고 1~2개로 늘었다 줄어서, 쿠버네티스에 "지금 떠 있는 파드"를 물어봐야 한다.
+# 클러스터 안에서 돌면 그 권한과 파드 IP 접근이 기본으로 된다. 파드 로그는 Compose의 Alloy가 로그 파일로 읽는다.
+#
+# 설치는 k3s HelmChart 기능으로 한다(서버에 helm을 깔지 않는다).
+#   kubectl apply -f infra/k8s/alloy.yaml
+# 확인: Grafana에서 up{job="spring", container="palette-ai"}
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: alloy
+  namespace: kube-system
+spec:
+  repo: https://grafana.github.io/helm-charts
+  chart: alloy
+  # 버전을 고정한다(2026-10-28 출시, Alloy v1.21.3)
+  version: 1.14.4
+  targetNamespace: kube-system
+  valuesContent: |-
+    # 노드가 1개라 파드 1개면 된다(기본은 노드마다 하나씩 뜨는 daemonset)
+    controller:
+      type: deployment
+      replicas: 1
+    # Alloy가 쓰는 PodLogs 같은 사용자 정의 리소스는 쓰지 않는다
+    crds:
+      create: false
+    # 설정 파일이 바뀌면 다시 읽어 주는 보조 컨테이너. 설정은 HelmChart로만 바뀌고 그때 파드가 새로 떠서 필요 없다(메모리 절약)
+    configReloader:
+      enabled: false
+    alloy:
+      resources:
+        requests:
+          cpu: 20m
+          memory: 64Mi
+        limits:
+          memory: 192Mi
+      configMap:
+        create: true
+        content: |
+          // palette 네임스페이스 파드만 찾는다. 권한(파드 목록 읽기)은 차트가 만든다
+          discovery.kubernetes "pods" {
+            role = "pod"
+            namespaces {
+              names = ["palette"]
+            }
+          }
+
+          // 관리 포트(이름 management, 9091)를 연 컨테이너만 남기고, Compose 때와 같은 라벨을 붙인다.
+          // job="spring", container="palette-ai", service="ai" (+ remote_write의 server="app")가 같아서
+          // 옮기기 전과 같은 Grafana 쿼리·대시보드로 보인다. 파드가 2개면 pod·instance로 구분된다
+          discovery.relabel "app_metrics" {
+            targets = discovery.kubernetes.pods.targets
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_port_name"]
+              regex         = "management"
+              action        = "keep"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              target_label  = "container"
+              replacement   = "palette-$1"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              target_label  = "service"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_name"]
+              target_label  = "pod"
+            }
+          }
+
+          prometheus.scrape "app" {
+            job_name        = "spring"
+            targets         = discovery.relabel.app_metrics.output
+            metrics_path    = "/actuator/prometheus"
+            scrape_interval = "15s"
+            forward_to      = [prometheus.remote_write.default.receiver]
+          }
+
+          // 앱 서버의 Prometheus(Compose). 내부 IP에만 열려 있고 파드는 노드를 거쳐 닿는다
+          prometheus.remote_write "default" {
+            endpoint {
+              url = "http://10.0.1.122:9090/api/v1/write"
+            }
+            external_labels = { server = "app" }
+          }
