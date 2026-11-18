@@ -29,6 +29,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -45,6 +46,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -166,6 +168,38 @@ class OrderCreateOrderUseCaseTest {
         assertThatThrownBy(() -> useCase.create(BUYER_ID, null, List.of(1L), 15000, null))
                 .isInstanceOf(DomainException.class)
                 .hasFieldOrPropertyWithValue("resultCode", "400-SELF_PURCHASE_NOT_ALLOWED");
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("내 판매자 조회(member HTTP)는 장바구니를 잠그기 전에 하고, 판매자 이름 조회는 옵션을 읽은 뒤에 한다")
+    void sellerLookupBeforeCartLock() {
+        given(orderSupport.getCartForUpdate(BUYER_ID)).willReturn(cartWith(100L, 1));
+        givenOptions(onSale(100L, 15000));
+        givenSeller();
+        givenSaveAssignsIds();
+
+        useCase.create(BUYER_ID, null, List.of(1L), 15000, null);
+
+        InOrder inOrder = inOrder(memberApi, orderSupport);
+        inOrder.verify(memberApi).checkActiveMember(BUYER_ID);
+        inOrder.verify(memberApi).findSellerByMemberId(BUYER_ID);
+        inOrder.verify(orderSupport).getCartForUpdate(BUYER_ID);
+        inOrder.verify(orderSupport).getSaleableOptions(List.of(100L));
+        inOrder.verify(memberApi).getSellers(any());
+    }
+
+    @Test
+    @DisplayName("다른 판매자의 상품이면 판매자 회원도 주문할 수 있다")
+    void sellerBuysOtherSellersProduct() {
+        given(orderSupport.getCartForUpdate(BUYER_ID)).willReturn(cartWith(100L, 1));
+        givenOptions(onSale(100L, 15000));   // SELLER_ID의 상품
+        givenSeller();
+        givenSaveAssignsIds();
+        given(memberApi.findSellerByMemberId(BUYER_ID)).willReturn(Optional.of(
+                new SellerDto(SELLER_ID + 100, BUYER_ID, "다른상점", SellerStatus.APPROVED)));
+
+        assertThat(useCase.create(BUYER_ID, null, List.of(1L), 15000, null).orderId()).isEqualTo(ORDER_ID);
     }
 
     @Test

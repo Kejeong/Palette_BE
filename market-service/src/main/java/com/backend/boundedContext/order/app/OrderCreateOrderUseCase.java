@@ -45,6 +45,8 @@ import java.util.stream.Collectors;
  *     <li>결제 금액 = 상품 금액 합계 - 상품 쿠폰 할인 - 장바구니 쿠폰 할인 + 배송비</li>
  * </ol>
  * 예상 결제 금액(expectedTotalPrice)은 배송비를 뺀 금액과 비교한다. 장바구니의 expectedTotalPrice도 배송비를 빼고 보여 주기 때문이다.
+ * 판매자 여부(본인 상품 확인용)는 구매자 ID에만 의존하므로 장바구니를 잠그기 전에 member에서 조회해 둔다.
+ * member가 느려도 그동안 장바구니 행 잠금을 쥐지 않는다. 판매자 이름 조회(getSellers)는 옵션에 의존해 잠금 뒤에 한다.
  * 잠금 순서는 장바구니 → 상품과 옵션(재고 차감) → 쿠폰이다. 쿠폰 쪽 작업(중지, 자동 중지)은 쿠폰보다 먼저 상품을 잠그지 않으므로
  * 서로 기다리다 막히지 않는다.
  */
@@ -76,6 +78,9 @@ public class OrderCreateOrderUseCase {
         memberApi.checkActiveMember(buyerId);
         validateIdempotencyKey(idempotencyKey);
 
+        // 본인 상품 확인에 쓸 내 판매자 ID. member HTTP라 장바구니 잠금 전에 조회한다 (판매자가 아니면 empty)
+        Optional<Long> mySellerId = memberApi.findSellerByMemberId(buyerId).map(SellerDto::sellerId);
+
         Cart cart = orderSupport.getCartForUpdate(buyerId);
 
         // 같은 키로 다시 온 요청이면 처음 만든 주문을 그대로 돌려준다
@@ -105,7 +110,7 @@ public class OrderCreateOrderUseCase {
         List<Long> optionIds = cartItems.stream().map(CartItem::getOptionId).toList();
         Map<Long, OptionSnapshotDto> options = orderSupport.getSaleableOptions(optionIds);
 
-        validateNotSelfProduct(buyerId, options.values());
+        validateNotSelfProduct(mySellerId, options.values());
         validateNotInPendingOrder(buyerId, optionIds);
 
         // 주문서 생성
@@ -191,10 +196,8 @@ public class OrderCreateOrderUseCase {
         }
     }
 
-    // 판매자 본인 상품은 주문할 수 없음
-    private void validateNotSelfProduct(Long buyerId, Collection<OptionSnapshotDto> options) {
-        Optional<Long> mySellerId = memberApi.findSellerByMemberId(buyerId).map(SellerDto::sellerId);
-
+    // 판매자 본인 상품은 주문할 수 없음. mySellerId는 장바구니 잠금 전에 조회한 값
+    private void validateNotSelfProduct(Optional<Long> mySellerId, Collection<OptionSnapshotDto> options) {
         if (mySellerId.isEmpty()) {
             return;
         }
