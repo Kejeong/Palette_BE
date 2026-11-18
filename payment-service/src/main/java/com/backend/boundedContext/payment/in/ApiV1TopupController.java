@@ -57,11 +57,13 @@ public class ApiV1TopupController {
             결제창 인증 성공 후 호출한다. 금액을 검증하고 충전 건의 PG 승인 API를 호출해 예치금에 반영한다.
             - 토스: 성공 리다이렉트의 paymentKey·orderId·amount
             - 헥토: 서버가 결제창 결과를 받아 충전 결과 화면으로 넘긴 paymentKey(헥토 거래번호)·orderId·amount
-            data.status가 DONE이면 반영 완료, PROCESSING이면 결과 확인 중(PG 응답 지연 등)이며 잠시 후 충전 내역에서 확인한다.""")
+            data.status가 DONE이면 반영 완료, PROCESSING이면 결과 확인 중(PG 응답 지연 등)이며 잠시 후 충전 내역에서 확인한다.
+            같은 요청(같은 orderId·paymentKey·amount)을 다시 보내면 PG를 다시 부르지 않고 처음 결과를 돌려준다 (새로고침·중복 클릭 대비).
+            DONE이면 data.balance는 지금 지갑 잔액이라 처음 응답과 다를 수 있다.""")
     @ApiResponse(responseCode = "200", description = "200-1 충전 완료(data.status: DONE) 또는 결과 확인 중(data.status: PROCESSING)")
     @ApiResponse(responseCode = "400", description = "400-AMOUNT_MISMATCH 준비 금액과 다름 / 400-TOPUP_PAYMENT_DECLINED 카드 거절 등(data: PG 오류 코드·메시지) / 400-TOPUP_METHOD_NOT_ALLOWED 충전에 쓸 수 없는 결제 수단(예치금에 반영하지 않고 결제를 자동 취소)")
     @ApiResponse(responseCode = "404", description = "404-TOPUP_NOT_FOUND 충전 건 없음")
-    @ApiResponse(responseCode = "409", description = "409-TOPUP_ALREADY_PROCESSED 이미 처리된 충전·결제키")
+    @ApiResponse(responseCode = "409", description = "409-TOPUP_ALREADY_PROCESSED 결제키·금액이 처음 요청과 다름 / 실패·만료·취소된 충전 건 / 다른 충전 건에 쓰인 결제키")
     @ApiResponse(responseCode = "502", description = "502-EXTERNAL_SERVICE_ERROR PG 키 설정 오류 등")
     @PostMapping("/confirm")
     public RsData<TopupConfirmDto> confirmTopup(

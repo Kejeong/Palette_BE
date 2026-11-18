@@ -239,7 +239,7 @@ if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
   - 근거 FAQ가 없으면 OpenAI 채팅을 부르지 않고 고객센터 안내 문구(`answerType: "NO_MATCH"`)로 답한다. 근거 없이 지어낸 답을 막기 위함이다
   - 요청 수 제한(Redis)이 실패하면 챗봇을 막지 않고 WARN만 남긴다. 제한은 비용 보호용이라 Redis 장애로 상담까지 막지 않는다
 - **응답 시간 초과는 실패로 단정하지 않는다.** 카드 승인은 이미 됐을 수 있다. 충전을 `PROCESSING`으로 두고 성공 응답 `200-1` + `data.status: "PROCESSING"`(결과 확인 중)으로 돌려준다. 프론트는 `data.status`로 완료와 확인 중을 구분한다. 대사 스케줄러가 토스 조회로 결과를 확정한다.
-- 같은 `Idempotency-Key` + 같은 요청은 오류가 아니라 처음 응답을 그대로 돌려준다. 다른 본문이면 `409-IDEMPOTENCY_KEY_REUSED`다. (주문 생성 `POST /orders`는 구현: 같은 구매자·같은 키면 처음 만든 주문을 돌려주고(그 주문이 취소됐으면 `409-IDEMPOTENCY_KEY_EXPIRED`), 본문은 비교하지 않는다. 그 밖의 API는 헤더 미구현. 지금은 충전 승인 재요청이 `409-TOPUP_ALREADY_PROCESSED`이고 상태는 `GET /topups/{id}`로 확인한다. 내부 `PaymentApi.pay()`만 같은 키에 처음 결과를 돌려준다)
+- 같은 `Idempotency-Key` + 같은 요청은 오류가 아니라 처음 응답을 그대로 돌려준다. 다른 본문이면 `409-IDEMPOTENCY_KEY_REUSED`다. (주문 생성 `POST /orders`는 구현: 같은 구매자·같은 키면 처음 만든 주문을 돌려주고(그 주문이 취소됐으면 `409-IDEMPOTENCY_KEY_EXPIRED`), 본문은 비교하지 않는다. 그 밖의 API는 헤더 미구현. 충전 승인 `POST /topups/confirm`은 헤더 대신 주문번호(`orderId`)를 키로 쓴다: 같은 회원·주문번호에 결제키·금액이 같은 재요청이면 PG를 다시 부르지 않고 `DONE`(잔액은 지금 지갑 잔액)·`PROCESSING`을 `200-1`로 돌려주고, 결제키·금액이 다르거나 실패·만료·취소된 충전 건이면 `409-TOPUP_ALREADY_PROCESSED`(상태는 `GET /topups/{id}`로 확인). 내부 `PaymentApi.pay()`는 본문 `idempotencyKey`에 처음 결과를 돌려준다)
 
 ### 6.5 스케줄러·Spring Batch·이벤트 리스너
 
@@ -330,7 +330,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 400-TOPUP_AMOUNT_INVALID | 1만 원 단위·1만~100만 원 위반 |
 | | 400-AMOUNT_MISMATCH | 저장 금액 ≠ 승인 요청 금액 |
 | | 400-TOPUP_PAYMENT_DECLINED | PG가 결제를 승인하지 않음(카드 거절·한도 초과 등) (`data.code`·`message`: PG 오류 코드·메시지. 헥토는 `outRsltCd`·`outRsltMsg`) |
-| | 409-TOPUP_ALREADY_PROCESSED | READY가 아닌 충전 건(승인 중·완료·실패·만료)에 승인·실패 기록 요청, 이미 쓰인 결제키 |
+| | 409-TOPUP_ALREADY_PROCESSED | 승인: 결제키·금액이 처음 요청과 다른 재요청, 실패·만료·취소된 충전 건, 다른 충전 건에 쓰인 결제키 (같은 요청의 재요청은 처음 결과를 `200-1`로 돌려줌). 실패 기록: READY가 아닌 충전 건 |
 | | 409-TOPUP_NOT_CANCELABLE | 승인 완료(DONE)가 아니거나 취소할 남은 금액이 없는 충전 건에 취소 요청 |
 | | 400-TOPUP_METHOD_NOT_ALLOWED | 승인된 결제가 충전에 허용하지 않은 결제 수단(카드·간편결제·계좌이체 외). 예치금에 반영하지 않고 결제를 자동 취소 |
 | | 400-TOPUP_CANCEL_DECLINED | PG가 충전 취소를 거절함(환불 기간 지남·부분 취소 불가·헥토 취소 금액 초과 등). 잔액은 되돌림 (`data.code`·`message`: PG 오류 코드·메시지) |
