@@ -29,6 +29,9 @@ public record AdminPaymentDto(
         @Schema(description = "결제 금액", example = "72900")
         long amount,
 
+        @Schema(description = "결제 금액에 포함된 배송비. 무료 배송이면 0", example = "2500")
+        long shippingFee,
+
         @Schema(description = """
                 결제 상태
                 - PAID: 결제 완료
@@ -57,7 +60,7 @@ public record AdminPaymentDto(
 ) {
     public static AdminPaymentDto of(Payment payment, String memberEmail, WalletHoldingStatus holdingStatus) {
         return new AdminPaymentDto(payment.getId(), payment.getOrderId(), payment.getOrderNumber(), payment.getMemberId(), memberEmail,
-                payment.getAmount(), payment.getStatus(), payment.getFailReason(), holdingStatus,
+                payment.getAmount(), payment.getShippingFee(), payment.getStatus(), payment.getFailReason(), holdingStatus,
                 payment.getCreatedAt(), payment.getPaidAt());
     }
 }
