@@ -86,19 +86,20 @@ class AdminPaymentQueryIntegrationTest {
     }
 
     @Test
-    @DisplayName("이메일로 검색하면 그 회원의 결제 시도가 최신순으로 나오고, 이메일·보관 금액 상태가 채워진다")
+    @DisplayName("이메일로 검색하면 그 회원의 결제 시도가 최신순으로 나오고, 이메일·배송비·보관 금액 상태가 채워진다")
     void searchByEmail() {
         Payment paid = savePaid(72_900);
-        Payment failed = saveFailed(52_000);
+        Payment failed = saveFailed(randomOrderId(), 22_000, 2_500);
 
         PageResponse<AdminPaymentDto> result = paymentFacade.getAdminPayments(email, null, null, PageRequest.of(0, 20));
 
         assertThat(result.totalElements()).isEqualTo(2);
         assertThat(result.items())
-                .extracting(AdminPaymentDto::paymentId, AdminPaymentDto::memberEmail, AdminPaymentDto::status, AdminPaymentDto::holdingStatus)
+                .extracting(AdminPaymentDto::paymentId, AdminPaymentDto::memberEmail, AdminPaymentDto::shippingFee,
+                        AdminPaymentDto::status, AdminPaymentDto::holdingStatus)
                 .containsExactly(
-                        tuple(failed.getId(), email, PaymentStatus.FAILED_INSUFFICIENT_BALANCE, null),
-                        tuple(paid.getId(), email, PaymentStatus.PAID, WalletHoldingStatus.HELD));
+                        tuple(failed.getId(), email, 2_500L, PaymentStatus.FAILED_INSUFFICIENT_BALANCE, null),
+                        tuple(paid.getId(), email, 0L, PaymentStatus.PAID, WalletHoldingStatus.HELD));
     }
 
     @Test
@@ -162,8 +163,12 @@ class AdminPaymentQueryIntegrationTest {
     }
 
     private Payment saveFailed(Long orderId, long amount) {
+        return saveFailed(orderId, amount, 0);
+    }
+
+    private Payment saveFailed(Long orderId, long amount, long shippingFee) {
         Payment payment = paymentRepository.save(Payment.failed(orderId, orderNumberOf(orderId), wallet, amount,
-                "TEST-" + UUID.randomUUID(), PaymentStatus.FAILED_INSUFFICIENT_BALANCE, "잔액 부족"));
+                "TEST-" + UUID.randomUUID(), PaymentStatus.FAILED_INSUFFICIENT_BALANCE, "잔액 부족").withShippingFee(shippingFee));
         payments.add(payment);
         return payment;
     }
