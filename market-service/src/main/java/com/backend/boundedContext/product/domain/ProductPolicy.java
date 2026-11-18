@@ -14,7 +14,7 @@ public class ProductPolicy {
     private final int maxDetailImages;
     // 검색 전체 재색인이 한 번에 읽어 bulk로 보내는 상품 수
     private final int searchIndexBatchSize;
-    // 할인 경계 재색인: 지난 성공 실행 시각보다 이만큼(초) 앞부터 다시 본다
+    // 전체 재색인 보정: 재색인 시작(또는 최신이 아님을 처음 본) 시각보다 이만큼(초) 앞부터 바뀐 상품을 다시 본다 (커밋 지연)
     private final int discountBoundaryOverlapSeconds;
     // 할인 경계 재색인: 지난 실행 시각이 없을 때(앱 기동 후 첫 실행) 돌아보는 구간(분)
     private final int discountBoundaryLookbackMinutes;

@@ -32,9 +32,9 @@ class OrderCheckActiveOrdersUseCaseTest {
     }
 
     @Test
-    @DisplayName("hasActiveOrders: 구매자 기준으로 진행 중 상태(CREATED, PAYING, PAYMENT_FAILED, PAID, RETURN_REQUESTED) 주문 존재 여부를 돌려준다")
+    @DisplayName("hasActiveOrders: 구매자 기준으로 진행 중 상태(CREATED, PAYING, PAYMENT_FAILED, PAID, RETURN_REQUESTED) 주문이나 환불 전 반품 주문이 있는지 돌려준다")
     void hasActiveOrders() {
-        given(orderRepository.existsByBuyerIdAndStatusIn(eq(3L), argThat(OrderCheckActiveOrdersUseCaseTest::isActiveStatuses)))
+        given(orderRepository.existsActiveOrRefundPendingByBuyerId(eq(3L), argThat(OrderCheckActiveOrdersUseCaseTest::isActiveStatuses)))
                 .willReturn(true);
 
         assertThat(useCase.hasActiveOrders(3L)).isTrue();

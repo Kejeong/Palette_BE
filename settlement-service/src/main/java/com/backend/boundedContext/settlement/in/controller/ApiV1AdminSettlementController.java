@@ -1,26 +1,28 @@
 package com.backend.boundedContext.settlement.in.controller;
 
-import com.backend.boundedContext.settlement.domain.SettlementTrigger;
 import com.backend.boundedContext.settlement.app.SettlementFacade;
-import com.backend.boundedContext.settlement.domain.SettlementPolicy;
 import com.backend.boundedContext.settlement.domain.SettlementAdminStatusGroup;
+import com.backend.boundedContext.settlement.domain.SettlementPolicy;
 import com.backend.boundedContext.settlement.domain.SettlementStatus;
-import com.backend.boundedContext.settlement.in.dto.SettlementLedgerMismatchConfirmRequest;
-import com.backend.boundedContext.settlement.in.dto.SettlementLedgerMismatchConfirmResponse;
+import com.backend.boundedContext.settlement.domain.SettlementTrigger;
 import com.backend.boundedContext.settlement.in.dto.SettlementDetailResponse;
 import com.backend.boundedContext.settlement.in.dto.SettlementHistoryResponse;
 import com.backend.boundedContext.settlement.in.dto.SettlementHoldRequest;
+import com.backend.boundedContext.settlement.in.dto.SettlementLedgerMismatchConfirmRequest;
+import com.backend.boundedContext.settlement.in.dto.SettlementLedgerMismatchConfirmResponse;
 import com.backend.boundedContext.settlement.in.dto.SettlementPayoutResult;
 import com.backend.boundedContext.settlement.in.dto.SettlementPreviewResponse;
 import com.backend.boundedContext.settlement.in.dto.SettlementResponse;
 import com.backend.boundedContext.settlement.in.dto.SettlementRetryRequest;
 import com.backend.boundedContext.settlement.in.dto.SettlementRunRequest;
 import com.backend.boundedContext.settlement.in.dto.SettlementRunResponse;
+import com.backend.boundedContext.settlement.in.dto.SettlementRunStartResponse;
 import com.backend.boundedContext.settlement.in.dto.SettlementRunnableMonthResponse;
 import com.backend.boundedContext.settlement.in.dto.SettlementSummaryResponse;
 import com.backend.global.page.PageResponse;
 import com.backend.global.rsData.RsData;
 import com.backend.global.security.AuthMember;
+import com.backend.shared.admin.dto.AdminFailureItem;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -31,21 +33,22 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
-import org.springframework.data.domain.Pageable;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.core.io.Resource;
-import com.backend.boundedContext.settlement.in.dto.SettlementRunStartResponse;
+import org.springframework.data.domain.Pageable;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
 
@@ -82,6 +85,20 @@ public class ApiV1AdminSettlementController {
     public RsData<PageResponse<SettlementRunResponse>> getRuns(Pageable pageable) {
         return RsData.of("200-1", "정산 실행 결과를 조회했습니다.",
                 settlementFacade.getRuns(pageable.getPageNumber(), pageable.getPageSize()));
+    }
+
+    @Operation(summary = "실패 거래: 수동 처리 필요 정산서",
+            description = "관리자 실패 거래 화면(A7)의 정산 행. 공통 형식(AdminFailureItem)으로, 수동 처리 필요(MANUAL_REQUIRED)가 된 시각 최신순. "
+                    + "from, to(yyyy-MM-dd, 포함, 한국 시간)는 그 시각의 날짜로 거른다. 처리는 월 정산 화면의 재처리")
+    @ApiResponse(responseCode = "200", description = "200-1 조회 성공")
+    @GetMapping("/failures")
+    public RsData<PageResponse<AdminFailureItem>> getFailures(
+            @Parameter(description = "시작 날짜 yyyy-MM-dd (포함)")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @Parameter(description = "끝 날짜 yyyy-MM-dd (포함)")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Pageable pageable) {
+        return RsData.of("200-1", "실패 거래(정산)를 조회했습니다.", settlementFacade.getFailures(from, to, pageable));
     }
 
     @Operation(summary = "정산서 목록", description = "정산월·상태·판매자로 거를 수 있다(모두 선택). 실패 사유·시도 횟수·다음 재시도 일시 포함")

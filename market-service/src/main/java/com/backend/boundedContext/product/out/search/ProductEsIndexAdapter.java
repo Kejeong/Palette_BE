@@ -94,8 +94,8 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
     public boolean aliasExists() {
         try {
             return client.indices().existsAlias(e -> e.name(alias)).value();
-        } catch (IOException e) {
-            throw new UncheckedIOException("상품 검색 alias를 확인하지 못했습니다. alias=" + alias, e);
+        } catch (IOException | RuntimeException e) {
+            throw new SearchIndexUnavailableException("상품 검색 alias를 확인하지 못했습니다. alias=" + alias, e);
         }
     }
 
@@ -153,7 +153,7 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
         // 재색인 중 인덱스가 지워졌으면 쓰지 않는다. 그대로 쓰면 ES가 같은 이름으로 매핑 없는(nori 없는) 인덱스를 자동으로 만들고,
         // 이어지는 alias 전환이 그 인덱스로 검색을 옮긴다. 이름이 있는 인덱스라 require_alias를 쓸 수 없어 묶음마다 확인한다
         if (!indexExists(indexName)) {
-            throw new IllegalStateException("재색인 중인 상품 검색 인덱스가 없어 색인하지 않습니다. index=" + indexName);
+            throw new SearchIndexUnavailableException("재색인 중인 상품 검색 인덱스가 없어 색인하지 않습니다. index=" + indexName);
         }
 
         BulkRequest.Builder bulk = new BulkRequest.Builder();
@@ -196,7 +196,7 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
     private void ensureAlias() {
         if (aliasReady) return;
         if (!aliasExists()) {
-            throw new IllegalStateException("상품 검색 alias가 없어 색인하지 않습니다. 전체 재색인이 alias를 만든 뒤 반영합니다. alias=" + alias);
+            throw new SearchIndexUnavailableException("상품 검색 alias가 없어 색인하지 않습니다. 전체 재색인이 alias를 만든 뒤 반영합니다. alias=" + alias);
         }
         aliasReady = true;
     }
@@ -214,20 +214,25 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
         return client.indices().getAlias(g -> g.name(alias)).aliases().keySet();
     }
 
+    /**
+     * bulk 요청을 보낸다. 접속·응답 실패와 문서 거부(alias가 사라짐, 이전 인덱스의 strict 매핑 등)는 모두
+     * SearchIndexUnavailableException으로 던진다. ES나 인덱스가 돌아오면 같은 요청이 성공하는 실패다.
+     */
     private void execute(BulkRequest request) {
+        BulkResponse response;
         try {
-            BulkResponse response = client.bulk(request);
-            if (response.errors()) {
-                List<String> failures = response.items().stream()
-                        .filter(item -> item.error() != null)
-                        .map(ProductEsIndexAdapter::describe)
-                        .toList();
-                if (!failures.isEmpty()) {
-                    throw new IllegalStateException("상품 검색 색인 일부를 반영하지 못했습니다. " + failures);
-                }
+            response = client.bulk(request);
+        } catch (IOException | RuntimeException e) {
+            throw new SearchIndexUnavailableException("상품 검색 색인에 접속하지 못했습니다.", e);
+        }
+        if (response.errors()) {
+            List<String> failures = response.items().stream()
+                    .filter(item -> item.error() != null)
+                    .map(ProductEsIndexAdapter::describe)
+                    .toList();
+            if (!failures.isEmpty()) {
+                throw new SearchIndexUnavailableException("상품 검색 색인 일부를 반영하지 못했습니다. " + failures);
             }
-        } catch (IOException e) {
-            throw new UncheckedIOException("상품 검색 색인에 접속하지 못했습니다.", e);
         }
     }
 

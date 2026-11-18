@@ -23,6 +23,8 @@ import com.backend.boundedContext.payment.app.dto.WalletTransactionDto;
 import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
 import com.backend.global.page.PageResponse;
+import com.backend.shared.admin.dto.AdminFailureItem;
+import com.backend.shared.admin.dto.AdminFailureType;
 import com.backend.shared.order.event.OrderReturnedEvent;
 import com.backend.shared.payment.dto.PayCommand;
 import com.backend.shared.payment.dto.PayResultDto;
@@ -43,6 +45,7 @@ public class PaymentFacade {
     private final PaymentGetWalletTransactionsUseCase paymentGetWalletTransactionsUseCase;
     private final PaymentGetAdminPaymentsUseCase paymentGetAdminPaymentsUseCase;
     private final PaymentGetAdminTopupsUseCase paymentGetAdminTopupsUseCase;
+    private final PaymentGetFailuresUseCase paymentGetFailuresUseCase;
     private final PaymentPrepareTopupUseCase paymentPrepareTopupUseCase;
     private final PaymentConfirmTopupUseCase paymentConfirmTopupUseCase;
     private final PaymentCancelTopupUseCase paymentCancelTopupUseCase;
@@ -94,6 +97,13 @@ public class PaymentFacade {
     @Transactional(readOnly = true)
     public PageResponse<AdminPaymentDto> getAdminPayments(String keyword, LocalDate from, LocalDate to, Pageable pageable) {
         return paymentGetAdminPaymentsUseCase.getPayments(keyword, from, to, pageable);
+    }
+
+    // 관리자 실패 거래(A7)의 결제, 환불 행 (공통 형식). type이 없으면 결제 실패와 환불 실패를 합쳐 최신순
+    @Transactional(readOnly = true)
+    public PageResponse<AdminFailureItem> getAdminFailures(AdminFailureType type, LocalDate from, LocalDate to,
+                                                           Pageable pageable) {
+        return paymentGetFailuresUseCase.getFailures(type, from, to, pageable);
     }
 
     // 관리자 결제 조회 충전 탭

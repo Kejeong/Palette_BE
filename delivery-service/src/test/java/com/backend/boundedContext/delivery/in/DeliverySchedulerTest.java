@@ -53,7 +53,7 @@ class DeliverySchedulerTest {
         DeliveryTrackerPolicy trackerPolicy = new DeliveryTrackerPolicy("http://localhost:1/graphql", "id", "secret",
                 "http://localhost:8085/webhooks/delivery-tracker", TOKEN, 48, 24, 15000, 5, maxActiveWebhooks,
                 webhookEnabled, true);
-        return new DeliveryScheduler(facade, new DeliveryPolicy(2, 50), trackerPolicy);
+        return new DeliveryScheduler(facade, new DeliveryPolicy(2, 50, 15), trackerPolicy);
     }
 
     @Test

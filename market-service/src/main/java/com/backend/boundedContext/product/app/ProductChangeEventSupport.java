@@ -1,5 +1,6 @@
 package com.backend.boundedContext.product.app;
 
+import com.backend.boundedContext.product.domain.OptionStock;
 import com.backend.boundedContext.product.domain.Product;
 import com.backend.boundedContext.product.domain.ProductSaleStatus;
 import com.backend.boundedContext.product.out.ProductRepository;
@@ -21,20 +22,30 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 public class ProductChangeEventSupport {
-    private static final int PUBLISH_ALL_BATCH_SIZE = 500;
+    /** 한 번에 읽어 이벤트로 만드는 상품 수 (상품·대표 이미지·재고를 IN으로 읽는다) */
+    private static final int BATCH_SIZE = 500;
 
     private final ProductRepository productRepository;
     private final ProductImageSupport productImageSupport;
+    private final ProductSupport productSupport;
     private final EventPublisher eventPublisher;
 
     public void publishChanged(Collection<Long> productIds) {
-        if (productIds.isEmpty()) return;
+        List<Long> ids = List.copyOf(productIds);
+        for (int from = 0; from < ids.size(); from += BATCH_SIZE) {
+            publishBatch(ids.subList(from, Math.min(from + BATCH_SIZE, ids.size())));
+        }
+    }
+
+    private void publishBatch(List<Long> productIds) {
 
         List<Product> products = productRepository.findAllById(productIds).stream()
                 .sorted(Comparator.comparing(Product::getId))
                 .toList();
         Map<Long, String> thumbnails = productImageSupport.getThumbnailUrls(productIds);
-        products.forEach(product -> eventPublisher.publish(toEvent(product, thumbnails.get(product.getId()))));
+        Map<Long, List<OptionStock>> stocks = productSupport.getOptionStocksByProductId(productIds);
+        products.forEach(product -> eventPublisher.publish(toEvent(product, thumbnails.get(product.getId()),
+                ProductSupport.isSoldOut(stocks.getOrDefault(product.getId(), List.of())))));
     }
 
     /**
@@ -46,17 +57,17 @@ public class ProductChangeEventSupport {
         long afterId = 0L;
         int published = 0;
         while (true) {
-            List<Long> ids = productRepository.findIdsByStatusAfter(ProductSaleStatus.ON_SALE, afterId, Limit.of(PUBLISH_ALL_BATCH_SIZE));
+            List<Long> ids = productRepository.findIdsByStatusAfter(ProductSaleStatus.ON_SALE, afterId, Limit.of(BATCH_SIZE));
             if (ids.isEmpty()) break;
             publishChanged(ids);
             published += ids.size();
             afterId = ids.getLast();
-            if (ids.size() < PUBLISH_ALL_BATCH_SIZE) break;
+            if (ids.size() < BATCH_SIZE) break;
         }
         return published;
     }
 
-    private static ProductChangedEvent toEvent(Product product, String thumbnailUrl) {
+    private static ProductChangedEvent toEvent(Product product, String thumbnailUrl, boolean soldOut) {
         return new ProductChangedEvent(
                 product.getId(),
                 product.getName(),
@@ -66,6 +77,7 @@ public class ProductChangeEventSupport {
                 product.getIngredientsText(),
                 product.getPrice(),
                 thumbnailUrl,
-                product.isDisplayable());
+                product.isDisplayable(),
+                soldOut);
     }
 }
