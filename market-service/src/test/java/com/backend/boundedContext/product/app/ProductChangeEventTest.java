@@ -31,6 +31,7 @@ import java.util.List;
 
 import static com.backend.boundedContext.product.ProductImageFixtures.THUMBNAIL;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
 /**
@@ -218,6 +219,22 @@ class ProductChangeEventTest {
     private Long createBeauty(String name, String ingredientsText) {
         return productFacade.createProduct(MEMBER_ID, categoryId("뷰티", "스킨케어"), name, "설명", 25_000,
                 List.of(), List.of(ProductOptionSpec.single(10)), THUMBNAIL, List.of(), ingredientsText);
+    }
+
+    @Test
+    @DisplayName("판매 지표: 판매량이 바뀐 상품마다 ProductMetricsChangedEvent(상품 ID만)를 product.events로 발행한다")
+    void publishSalesMetricsChanges() {
+        Long productId = createBeauty("수분 크림", "정제수");
+        given(orderApi.findProductIdsWithSalesChanged(any(), any())).willReturn(List.of(productId, productId));   // 중복은 한 번만
+
+        int published = productFacade.publishSalesMetricsChanges(LocalDateTime.now().minusMinutes(1), LocalDateTime.now());
+
+        assertThat(published).isEqualTo(1);
+        List<OutboxEvent> metrics = outboxEventRepository.findAll().stream()
+                .filter(e -> e.getEventType().equals("ProductMetricsChangedEvent") && e.getAggregateId().equals(productId))
+                .toList();
+        assertThat(metrics).singleElement().satisfies(e -> assertThat(e.getAggregateType()).isEqualTo("PRODUCT"));
+        assertThat(events(productId)).hasSize(1);   // 상품 변경 이벤트(AI용)는 등록 때뿐
     }
 
     private List<ProductOption> options(Long productId) {

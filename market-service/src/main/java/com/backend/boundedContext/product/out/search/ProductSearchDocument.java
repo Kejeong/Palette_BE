@@ -13,6 +13,11 @@ package com.backend.boundedContext.product.out.search;
  * @param effectivePrice 색인한 시각의 기본가. 할인 중이면 할인가, 아니면 정가 (옵션 추가금 제외). 가격순 정렬에 쓴다
  * @param discountRate   색인한 시각에 진행 중인 할인의 할인율 (%, 소수점 내림). 할인 중이 아니면 0.
  *                       할인은 1% 이상만 등록되므로 0보다 크면 할인 중이다. 특가 필터와 할인율순 정렬에 쓴다
+ * @param wishCount      찜 수. 찜 많은순 정렬에 쓴다
+ * @param reviewCount    리뷰 수 (삭제 제외)
+ * @param ratingScore    별점 항목 (0~1, 베이지안 평균 × 신뢰도, 리뷰가 없으면 0)
+ * @param salesCount30d  최근 30일 판매량 (결제 수량, 취소·반품 제외). 판매량순 정렬에 쓴다
+ * @param behaviorScore  행동 점수 (0~1, 찜·별점·판매 가중합). 인기순 정렬과 추천에 쓴다
  * @param createdAt      등록 시각 (epoch 밀리초). 최신순 정렬에 쓴다
  */
 public record ProductSearchDocument(
@@ -23,6 +28,11 @@ public record ProductSearchDocument(
         boolean soldOut,
         long effectivePrice,
         int discountRate,
+        long wishCount,
+        long reviewCount,
+        double ratingScore,
+        long salesCount30d,
+        double behaviorScore,
         long createdAt
 ) {
 }

@@ -25,7 +25,8 @@ class ProductSearchIndexMappingTest {
 
     /** 매핑 버전 → 그 버전의 인덱스 설정·매핑(_meta 제외) 해시 */
     private static final Map<Integer, String> VERSION_HASHES = Map.of(
-            2, "5efdf3550d266d1370a7f63b0f07b201879f0959d2631e65cfdfb387fe50c8b0");
+            2, "5efdf3550d266d1370a7f63b0f07b201879f0959d2631e65cfdfb387fe50c8b0",   // 할인율(discountRate)
+            3, "affbe8ce0a2a392172a97fc4d0d1d2c189e8d43a470f3d80d870106edd01339a");  // 행동 지표(찜·리뷰·별점·판매량·행동 점수)
 
     @Test
     @DisplayName("인덱스 설정·매핑을 바꿨다면 mappings._meta.version도 올렸다")

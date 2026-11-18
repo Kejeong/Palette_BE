@@ -1,6 +1,7 @@
 package com.backend.boundedContext.product.app;
 
 import com.backend.boundedContext.product.domain.OptionStock;
+import com.backend.boundedContext.product.domain.ProductBehaviorScore;
 import com.backend.boundedContext.product.domain.Product;
 import com.backend.boundedContext.product.domain.ProductErrorCode;
 import com.backend.boundedContext.product.domain.ProductPolicy;
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -43,6 +45,7 @@ public class ProductSearchIndexSupport {
     private final ProductDiscountSupport productDiscountSupport;
     private final ProductSearchIndexPort productSearchIndexPort;
     private final ProductPolicy productPolicy;
+    private final ProductBehaviorSupport productBehaviorSupport;
     private final EntityManager entityManager;
 
     /**
@@ -58,9 +61,18 @@ public class ProductSearchIndexSupport {
      */
     private volatile LocalDateTime outdatedSince;
 
+    /**
+     * 재색인 중 컨슈머가 색인한 상품 ID. 그 색인은 이전 인덱스에만 들어가거나 거부되므로 alias를 옮긴 뒤 새 인덱스에 다시 반영한다.
+     * 찜·리뷰·판매량처럼 상품의 수정 시각을 바꾸지 않는 변경은 수정 시각으로 찾는 보정에 걸리지 않아서 따로 모은다
+     */
+    private final Set<Long> indexedWhileRebuilding = ConcurrentHashMap.newKeySet();
+
     /** 상품들을 DB의 지금 값으로 색인한다. 판매 중이 아니거나 없는 상품은 색인에서 지운다 */
     public void indexProducts(Collection<Long> productIds) {
         if (productIds.isEmpty() || !productSearchIndexPort.isEnabled()) return;
+        if (rebuilding.get()) {
+            indexedWhileRebuilding.addAll(productIds);   // 색인이 실패해도(alias 없음) 보정에 넣도록 먼저 모은다
+        }
 
         List<Product> onSale = productRepository.findAllById(productIds).stream()
                 .filter(product -> product.getStatus() == ProductSaleStatus.ON_SALE)
@@ -119,6 +131,7 @@ public class ProductSearchIndexSupport {
      * 재색인 중에 바뀐 상품은 이전 인덱스에만 반영되거나(alias가 있을 때), 쓰지 못하고 버려진다(alias가 없을 때).
      * 그래서 alias를 옮긴 뒤 시작 시각 이후 바뀐 상품과 할인 경계를 지난 상품을 새 인덱스에 한 번 더 반영한다.
      * 그 전부터 인덱스가 최신이 아니었으면(outdatedSince) 그 시각부터 반영한다 (그사이 거부된 색인 쓰기를 채운다).
+     * 수정 시각이 바뀌지 않는 행동 지표(찜·리뷰·판매량) 변경은 재색인 중 컨슈머가 색인한 상품으로 모아 함께 반영한다.
      * 커밋 지연을 고려해 할인 경계와 같은 겹침(discountBoundaryOverlapSeconds)만큼 앞에서부터 찾는다.
      * 보정이 끝나기 전 잠깐은 이전 값이 보일 수 있지만, 그 뒤의 변경은 alias(새 인덱스)로 들어가므로 어긋나지 않는다.
      */
@@ -137,6 +150,7 @@ public class ProductSearchIndexSupport {
     }
 
     private int rebuild() {
+        indexedWhileRebuilding.clear();
         LocalDateTime startedAt = LocalDateTime.now();
         String indexName = productSearchIndexPort.createIndex();
         int batchSize = productPolicy.getSearchIndexBatchSize();
@@ -163,6 +177,8 @@ public class ProductSearchIndexSupport {
                 catchUpFrom.minusSeconds(productPolicy.getDiscountBoundaryOverlapSeconds())));
         changed.addAll(findDiscountBoundaryProductIds(
                 catchUpFrom.minusSeconds(productPolicy.getDiscountBoundaryOverlapSeconds()), LocalDateTime.now()));
+        changed.addAll(indexedWhileRebuilding);   // alias를 옮긴 뒤의 색인은 새 인덱스로 들어가므로 여기까지 모은 것만 다시 반영한다
+        indexedWhileRebuilding.clear();
         indexProducts(changed);   // 묶음마다 1차 캐시를 비웠으므로 DB의 최신 값을 읽는다
         outdatedSince = null;
         log.info("상품 검색 전체 재색인을 마쳤습니다. index={}, 상품 {}개, {} 이후 바뀌어 다시 반영한 상품 {}개",
@@ -170,24 +186,34 @@ public class ProductSearchIndexSupport {
         return indexed;
     }
 
-    /** 상품들의 색인 문서. 품절 여부와 지금 기본가(할인 중이면 할인가)는 검색 화면과 같은 계산을 쓴다 */
+    /** 상품들의 색인 문서. 품절 여부와 지금 기본가(할인 중이면 할인가)는 검색 화면과 같은 계산을 쓰고, 행동 지표는 지금 DB 값으로 다시 계산한다 */
     List<ProductSearchDocument> toDocuments(List<Product> products) {
         if (products.isEmpty()) return List.of();
 
         List<Long> ids = products.stream().map(Product::getId).toList();
         Map<Long, List<OptionStock>> stocks = productSupport.getOptionStocksByProductId(ids);
         Map<Long, ProductPrice> prices = productDiscountSupport.getPrices(products);
+        Map<Long, ProductBehaviorScore> behaviors = productBehaviorSupport.getScores(ids, LocalDateTime.now());
 
         return products.stream()
-                .map(product -> new ProductSearchDocument(
-                        product.getId(),
-                        product.getName(),
-                        product.getCategory().getId(),
-                        product.getStatus().name(),
-                        ProductSupport.isSoldOut(stocks.getOrDefault(product.getId(), List.of())),
-                        prices.get(product.getId()).basePrice(),
-                        discountRateOrZero(prices.get(product.getId())),
-                        product.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()))
+                .map(product -> {
+                    ProductPrice price = prices.get(product.getId());
+                    ProductBehaviorScore behavior = behaviors.get(product.getId());
+                    return new ProductSearchDocument(
+                            product.getId(),
+                            product.getName(),
+                            product.getCategory().getId(),
+                            product.getStatus().name(),
+                            ProductSupport.isSoldOut(stocks.getOrDefault(product.getId(), List.of())),
+                            price.basePrice(),
+                            discountRateOrZero(price),
+                            behavior.wishCount(),
+                            behavior.reviewCount(),
+                            behavior.ratingScore(),
+                            behavior.salesCount(),
+                            behavior.behaviorScore(),
+                            product.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli());
+                })
                 .toList();
     }
 

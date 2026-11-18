@@ -262,6 +262,13 @@ class ProductEsSearchAdapterEsTest {
 
     private static ProductSearchDocument doc(long id, String name, long categoryId, boolean soldOut,
                                              long effectivePrice, int discountRate, long createdAt) {
-        return new ProductSearchDocument(id, name, categoryId, "ON_SALE", soldOut, effectivePrice, discountRate, createdAt);
+        return doc(id, name, categoryId, soldOut, effectivePrice, discountRate, 0, 0, 0, createdAt);
+    }
+
+    private static ProductSearchDocument doc(long id, String name, long categoryId, boolean soldOut, long effectivePrice,
+                                             int discountRate, long wishCount, long salesCount30d, double behaviorScore,
+                                             long createdAt) {
+        return new ProductSearchDocument(id, name, categoryId, "ON_SALE", soldOut, effectivePrice, discountRate,
+                wishCount, 0, 0, salesCount30d, behaviorScore, createdAt);
     }
 }

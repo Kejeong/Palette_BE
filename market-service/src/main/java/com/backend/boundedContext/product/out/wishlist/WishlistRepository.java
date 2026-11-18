@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 
 public interface WishlistRepository extends JpaRepository<Wishlist, Long> {
 
@@ -36,4 +38,16 @@ public interface WishlistRepository extends JpaRepository<Wishlist, Long> {
     @Query(value = "select w from Wishlist w join fetch w.product p join fetch p.category where w.memberId = :memberId",
             countQuery = "select count(w) from Wishlist w where w.memberId = :memberId")
     Page<Wishlist> findPageByMemberId(Long memberId, Pageable pageable);
+
+    /** 상품의 찜 수 (상품 상세) */
+    long countByProductId(Long productId);
+
+    /** 상품별 찜 수. 찜이 없는 상품은 결과에 없다 (상품 검색 색인) */
+    @Query("""
+            select new com.backend.boundedContext.product.out.wishlist.ProductWishCount(w.product.id, count(w))
+            from Wishlist w
+            where w.product.id in :productIds
+            group by w.product.id
+            """)
+    List<ProductWishCount> countByProductIdIn(Collection<Long> productIds);
 }

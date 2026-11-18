@@ -84,6 +84,7 @@ public class ProductFacade {
     private final ProductGetWishlistUseCase productGetWishlistUseCase;
     private final ProductSearchIndexSupport productSearchIndexSupport;
     private final ProductChangeEventSupport productChangeEventSupport;
+    private final ProductBehaviorSupport productBehaviorSupport;
 
     // 내부 API (ProductApiAdapter). 호출한 쪽 트랜잭션에 참여한다
 
@@ -433,6 +434,17 @@ public class ProductFacade {
     public int publishDiscountBoundaryChanges(LocalDateTime lastSucceededAt, LocalDateTime now) {
         List<Long> productIds = productSearchIndexSupport.findDiscountBoundaryProductIds(lastSucceededAt, now);
         productChanged(productIds);
+        return productIds.size();
+    }
+
+    /**
+     * (from, now]에 판매량이 바뀌었을 수 있는 상품(결제·취소·반품, 판매량 집계 구간 밖으로 나간 판매)의 지표 변경 이벤트를 발행하고,
+     * 그 상품 수를 돌려준다 (판매 지표 스케줄러). 색인은 검색 색인 컨슈머가 한다. outbox 저장에 쓰기 트랜잭션이 필요하다
+     */
+    @Transactional
+    public int publishSalesMetricsChanges(LocalDateTime from, LocalDateTime now) {
+        List<Long> productIds = productBehaviorSupport.findProductIdsWithSalesChanged(from, now);
+        productChangeEventSupport.publishMetricsChanged(productIds);
         return productIds.size();
     }
 

@@ -28,12 +28,14 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalInt;
 
 import static com.backend.boundedContext.product.ProductImageFixtures.THUMBNAIL;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
@@ -76,6 +78,9 @@ class ProductSearchIndexTest {
     @Autowired
     private EntityManager entityManager;
 
+    @Autowired
+    private ProductBehaviorSupport productBehaviorSupport;
+
     @MockitoBean
     private MemberApi memberApi;
 
@@ -94,7 +99,7 @@ class ProductSearchIndexTest {
 
         indexPort = new RecordingIndexPort();
         indexSupport = new ProductSearchIndexSupport(productRepository, productDiscountRepository,
-                productSupport, productDiscountSupport, indexPort, productPolicy, entityManager);
+                productSupport, productDiscountSupport, indexPort, productPolicy, productBehaviorSupport, entityManager);
     }
 
     @Test
@@ -114,6 +119,26 @@ class ProductSearchIndexTest {
             assertThat(doc.soldOut()).isFalse();
         });
         assertThat(indexPort.deleted).isEmpty();
+    }
+
+    @Test
+    @DisplayName("색인: 찜 수·최근 판매량·행동 점수를 지금 DB 값으로 계산해 담는다 (리뷰가 없으면 리뷰 수·별점 0)")
+    void documentIncludesBehaviorMetrics() {
+        Long productId = create();
+        productFacade.addWishlist(9_101L, productId);
+        productFacade.addWishlist(9_102L, productId);
+        given(orderApi.getSalesQuantities(any(), any())).willReturn(Map.of(productId, 12L));
+
+        indexSupport.indexProducts(List.of(productId));
+
+        assertThat(indexPort.upserted).singleElement().satisfies(doc -> {
+            assertThat(doc.wishCount()).isEqualTo(2);
+            assertThat(doc.salesCount30d()).isEqualTo(12);
+            assertThat(doc.reviewCount()).isZero();
+            assertThat(doc.ratingScore()).isZero();
+            assertThat(doc.behaviorScore()).isCloseTo(
+                    0.4 * Math.log(3) / Math.log(1_001) + 0.2 * Math.log(13) / Math.log(501), within(1e-9));
+        });
     }
 
     @Test
@@ -231,6 +256,27 @@ class ProductSearchIndexTest {
 
         assertThat(indexPort.bulkIndexed).contains(changedLongAgo);   // 재색인 자체에는 들어간다
         assertThat(afterSwitch()).doesNotContain("upsert:" + changedLongAgo);
+    }
+
+    @Test
+    @DisplayName("재색인 보정: 수정 시각이 바뀌지 않는 변경(찜·리뷰·판매량)으로 재색인 중 컨슈머가 색인한 상품도 alias를 옮긴 뒤 다시 반영한다")
+    void catchUpIncludesProductsIndexedWhileRebuilding() {
+        Long scanned = create();
+        Long wished = create();
+        changedMinutesAgo(scanned, 5);
+        changedMinutesAgo(wished, 5);   // 수정 시각으로는 보정 대상이 아니다
+        // 재색인이 묶음을 넣은 직후 찜 이벤트를 받은 컨슈머가 색인한다 (이전 인덱스로 들어간다)
+        indexPort.afterBulkIndexOf(scanned, () -> indexSupport.indexProducts(List.of(wished)));
+
+        indexSupport.rebuildIndex();
+
+        assertThat(afterSwitch()).contains("upsert:" + wished);
+        assertThat(afterSwitch()).doesNotContain("upsert:" + scanned);
+
+        // 모은 상품은 그 재색인에서만 쓰고 비운다
+        indexPort.events.clear();
+        indexSupport.rebuildIndex();
+        assertThat(afterSwitch()).doesNotContain("upsert:" + wished);
     }
 
     /** 상품과 그 옵션·재고의 마지막 변경 시각(updated_at)을 몇 분 전으로 옮긴다 (보정은 이 시각으로 대상을 찾는다) */
