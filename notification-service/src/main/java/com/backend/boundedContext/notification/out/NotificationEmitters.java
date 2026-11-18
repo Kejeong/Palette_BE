@@ -33,7 +33,11 @@ public class NotificationEmitters {
             return result;
         });
         emitter.onCompletion(() -> remove(memberId, emitter));
-        emitter.onTimeout(() -> remove(memberId, emitter));
+        // 시간 초과도 정상 종료로 끝냄. complete가 없으면 Spring이 AsyncRequestTimeoutException으로 넘김
+        emitter.onTimeout(() -> {
+            remove(memberId, emitter);
+            emitter.complete();
+        });
         emitter.onError(e -> remove(memberId, emitter));
     }
 
