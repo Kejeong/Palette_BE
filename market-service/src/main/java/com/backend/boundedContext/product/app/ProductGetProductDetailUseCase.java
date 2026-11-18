@@ -48,6 +48,7 @@ public class ProductGetProductDetailUseCase {
                 product.getOptionNames(),
                 optionStocks.stream().map(stock -> ProductOptionDto.from(stock, price)).toList(),
                 memberId != null && wishlistRepository.existsByMemberIdAndProductId(memberId, productId),
+                wishlistRepository.countByProductId(productId),
                 product.getIngredientsText());
     }
 

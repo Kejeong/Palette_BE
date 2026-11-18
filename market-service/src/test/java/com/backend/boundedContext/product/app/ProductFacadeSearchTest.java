@@ -297,6 +297,18 @@ class ProductFacadeSearchTest {
     }
 
     @Test
+    @DisplayName("상세: 찜 수는 지금 찜한 회원 수다 (검색 색인 값이 아니라 바로 센다)")
+    void getProductDetailWishCount() {
+        Product product = create(skincare, KEY + " 찜 상세", 25_000, 30);
+        assertThat(productFacade.getProductDetail(product.getId()).wishCount()).isZero();
+
+        productFacade.addWishlist(9_201L, product.getId());
+        productFacade.addWishlist(9_202L, product.getId());
+
+        assertThat(productFacade.getProductDetail(product.getId()).wishCount()).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("상세: 없거나, 판매 중지·삭제됐거나, 카테고리가 사용 중지된 상품은 PRODUCT_NOT_FOUND")
     void getProductDetailNotDisplayable() {
         Product stopped = create(skincare, KEY + " 중지", 10_000, 10);

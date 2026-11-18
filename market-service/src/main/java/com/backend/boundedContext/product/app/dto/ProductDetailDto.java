@@ -17,6 +17,7 @@ import java.util.List;
  * @param optionNames  옵션 이름 (예: 색상, 사이즈). 옵션이 없는 상품이면 빈 목록
  * @param options      삭제되지 않은 옵션 조합 (ID 순)
  * @param wished       로그인한 회원이 찜한 상품이면 true. 로그인하지 않았으면 false
+ * @param wishCount    찜 수 (지금 값)
  * @param ingredientsText 전성분 (판매자 입력 원문). 뷰티가 아니거나 판매자가 아직 넣지 않았으면 null
  */
 public record ProductDetailDto(
@@ -39,6 +40,7 @@ public record ProductDetailDto(
         List<String> optionNames,
         List<ProductOptionDto> options,
         boolean wished,
+        long wishCount,
         String ingredientsText
 ) {
 }
