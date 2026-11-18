@@ -63,6 +63,7 @@ class PaymentTopupConfirmProcessorTest {
         assertThat(topup.getStatus()).isEqualTo(TopupStatus.PROCESSING);
         assertThat(topup.getPaymentKey()).isEqualTo("pk_1");
         assertThat(topup.getConfirmRequestedAt()).isNotNull();
+        assertThat(result.payment()).isEqualTo(PgPaymentRef.from(topup));
     }
 
     @Test

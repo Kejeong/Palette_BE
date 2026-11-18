@@ -86,6 +86,20 @@ class HectoTopupGatewayAdapterTest {
     }
 
     @Test
+    @DisplayName("승인 실패라도 ST50(중복결제)은 앞선 승인이 처리됐다는 뜻이라 거절이 아니라 PgResultUnknownException")
+    void confirm_duplicate() {
+        given(hectoClient.approve(any(), any(), eq(AMOUNT), any())).willReturn(fail("ST50", "중복결제 시도로 실패되었습니다. 잠시 후 다시 시도 부탁드립니다."));
+
+        assertThatThrownBy(() -> adapter.confirm(TRD_NO, ORDER_ID, AMOUNT)).isInstanceOf(PgResultUnknownException.class);
+    }
+
+    @Test
+    @DisplayName("헥토는 두 번째 승인을 거절하므로 처리되지 않은 승인을 다시 보낼 수 있다")
+    void canRetryConfirm() {
+        assertThat(adapter.canRetryConfirm()).isTrue();
+    }
+
+    @Test
     @DisplayName("헥토 결과를 알 수 없으면(응답 없음·해시 불일치 등) PgResultUnknownException")
     void confirm_unknown() {
         given(hectoClient.approve(any(), any(), eq(AMOUNT), any())).willThrow(new HectoResultUnknownException("헥토 승인 응답의 해시가 맞지 않습니다."));

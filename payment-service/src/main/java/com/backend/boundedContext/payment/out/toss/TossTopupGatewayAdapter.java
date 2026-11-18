@@ -117,6 +117,12 @@ public class TossTopupGatewayAdapter implements TopupGatewayPort {
         }
     }
 
+    // 토스는 이미 승인된 결제를 다시 승인하면 ALREADY_PROCESSED_PAYMENT(결과 모름)라 다시 보내도 얻는 것이 없음. 즉시 조회만 함
+    @Override
+    public boolean canRetryConfirm() {
+        return false;
+    }
+
     @Override
     public PgPaymentResult getPayment(PgPaymentRef payment) {
         try {

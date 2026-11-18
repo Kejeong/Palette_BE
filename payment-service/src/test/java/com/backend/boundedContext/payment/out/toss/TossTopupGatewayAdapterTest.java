@@ -53,6 +53,12 @@ class TossTopupGatewayAdapterTest {
     }
 
     @Test
+    @DisplayName("토스는 다시 승인해도 ALREADY_PROCESSED_PAYMENT(결과 모름)라 재승인하지 않는다")
+    void canRetryConfirm() {
+        assertThat(adapter.canRetryConfirm()).isFalse();
+    }
+
+    @Test
     @DisplayName("PG는 토스")
     void provider() {
         assertThat(adapter.provider()).isEqualTo(PgProvider.TOSS);

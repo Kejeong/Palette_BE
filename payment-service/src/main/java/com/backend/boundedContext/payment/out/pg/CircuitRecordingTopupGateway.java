@@ -39,6 +39,11 @@ class CircuitRecordingTopupGateway implements TopupGatewayPort {
     }
 
     @Override
+    public boolean canRetryConfirm() {
+        return delegate.canRetryConfirm();
+    }
+
+    @Override
     public PgPaymentResult getPayment(PgPaymentRef payment) {
         return circuitBreakers.record(provider(), () -> delegate.getPayment(payment));
     }

@@ -27,6 +27,12 @@ public interface TopupGatewayPort {
     // 결제 승인. 결제창 인증을 마친 결제를 최종 승인하며, 성공하면 실제로 돈이 빠져나감
     PgPaymentResult confirm(String paymentKey, String orderId, long amount);
 
+    /**
+     * 승인 결과를 모를 때 조회해 거래가 없으면(처리되지 않음) 승인을 한 번 다시 보내도 되는지
+     * PG가 같은 결제의 두 번째 승인을 거절해 이중 결제가 생기지 않는 경우만 true (헥토는 ST50으로 거절함을 테스트베드에서 확인)
+     */
+    boolean canRetryConfirm();
+
     // 결제 조회 (결과를 모르는 PROCESSING·CANCELING 충전 건의 최종 결과 확인용). 결제를 찾는 값은 PG마다 달라 충전 건 정보를 넘김
     PgPaymentResult getPayment(PgPaymentRef payment);
 

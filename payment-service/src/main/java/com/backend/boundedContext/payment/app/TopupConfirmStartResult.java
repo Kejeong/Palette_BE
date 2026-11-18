@@ -2,6 +2,7 @@ package com.backend.boundedContext.payment.app;
 
 import com.backend.boundedContext.payment.app.dto.TopupConfirmDto;
 import com.backend.boundedContext.payment.domain.PgProvider;
+import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
 
 /**
  * 충전 승인 시작(Tx1) 결과. 승인을 보낼 PG(충전 건에 기록된 PG)를 함께 넘김
@@ -13,12 +14,13 @@ public record TopupConfirmStartResult(
         Long topupId,
         PgProvider pgProvider,
         Outcome outcome,
-        TopupConfirmDto replay  // REPLAYED일 때만 있음
+        TopupConfirmDto replay,  // REPLAYED일 때만 있음
+        PgPaymentRef payment     // STARTED일 때만 있음. 승인 결과를 모를 때 바로 PG에 조회하는 데 씀
 ) {
     public enum Outcome { STARTED, AMOUNT_MISMATCH, REPLAYED }
 
     public static TopupConfirmStartResult replayed(TopupConfirmDto replay, PgProvider pgProvider) {
-        return new TopupConfirmStartResult(replay.topupId(), pgProvider, Outcome.REPLAYED, replay);
+        return new TopupConfirmStartResult(replay.topupId(), pgProvider, Outcome.REPLAYED, replay, null);
     }
 
     public boolean isStarted() {

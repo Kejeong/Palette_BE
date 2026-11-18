@@ -74,11 +74,11 @@ public class PaymentTopupConfirmProcessor {
 
         if (topup.getAmount() != amount) {
             topup.fail(TopupStatus.FAILED_AMOUNT_MISMATCH, "충전 준비 금액과 승인 요청 금액이 다릅니다. (준비 " + topup.getAmount() + "원, 요청 " + amount + "원)");
-            return new TopupConfirmStartResult(topup.getId(), topup.getPgProvider(), TopupConfirmStartResult.Outcome.AMOUNT_MISMATCH, null);
+            return new TopupConfirmStartResult(topup.getId(), topup.getPgProvider(), TopupConfirmStartResult.Outcome.AMOUNT_MISMATCH, null, null);
         }
 
         topup.markProcessing(paymentKey, LocalDateTime.now());
-        return new TopupConfirmStartResult(topup.getId(), topup.getPgProvider(), TopupConfirmStartResult.Outcome.STARTED, null);
+        return new TopupConfirmStartResult(topup.getId(), topup.getPgProvider(), TopupConfirmStartResult.Outcome.STARTED, null, PgPaymentRef.from(topup));
     }
 
     /**
