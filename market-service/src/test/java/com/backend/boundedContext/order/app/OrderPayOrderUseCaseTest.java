@@ -253,6 +253,43 @@ class OrderPayOrderUseCaseTest {
     }
 
     @Test
+    @DisplayName("결제 내부 키 오류(503-INTERNAL_API_AUTH_FAILED)는 결제가 없었으므로 PAYMENT_FAILED로 두고 503을 그대로 준다")
+    void internalApiAuthFailed_paymentFailed() {
+        Order order = stubOrder(order(LocalDateTime.now()));
+        given(paymentApi.pay(any())).willThrow(new DomainException(GlobalErrorCode.INTERNAL_API_AUTH_FAILED));
+
+        assertThatThrownBy(() -> useCase().pay(BUYER_ID, ORDER_ID))
+                .extracting("resultCode").isEqualTo("503-INTERNAL_API_AUTH_FAILED");
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAYMENT_FAILED);
+    }
+
+    @Test
+    @DisplayName("결제 결과에 paidAt이 있으면 주문의 paidAt을 그 값(결제 서비스 시각)으로 둔다")
+    void pay_usesPaymentPaidAt() {
+        Order order = stubOrder(order(LocalDateTime.now()));
+        LocalDateTime paymentPaidAt = LocalDateTime.of(2026, 11, 18, 10, 0, 0, 123_456_000);
+        given(paymentApi.pay(any())).willReturn(new PayResultDto(77L, PayResultStatus.PAID, 0, 0, paymentPaidAt));
+
+        OrderPayResponse response = useCase().pay(BUYER_ID, ORDER_ID);
+
+        assertThat(order.getPaidAt()).isEqualTo(paymentPaidAt);
+        assertThat(response.status()).isEqualTo(OrderStatus.PAID);
+        assertThat(response.paidAt()).isEqualTo(paymentPaidAt);
+    }
+
+    @Test
+    @DisplayName("결제 결과에 paidAt이 없으면(이전 버전 payment) 주문의 paidAt은 market 반영 시각")
+    void pay_withoutPaymentPaidAt_usesMarketTime() {
+        Order order = stubOrder(order(LocalDateTime.now()));
+        given(paymentApi.pay(any())).willReturn(new PayResultDto(77L, PayResultStatus.PAID, 0, 0, null));
+        LocalDateTime before = LocalDateTime.now();
+
+        useCase().pay(BUYER_ID, ORDER_ID);
+
+        assertThat(order.getPaidAt()).isAfterOrEqualTo(before).isBeforeOrEqualTo(LocalDateTime.now());
+    }
+
+    @Test
     @DisplayName("결과 반영 트랜잭션이 실패하면 주문을 PAYING으로 두고 결제 확인 중으로 응답한다 (재확인 스케줄러가 다시 반영)")
     void applyFails_respondsPaying() {
         stubOrder(orderWithAddress());

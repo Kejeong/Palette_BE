@@ -6,6 +6,7 @@ import com.backend.boundedContext.order.out.OrderCouponPort;
 import com.backend.boundedContext.order.out.OrderRepository;
 import com.backend.global.eventPublisher.EventPublisher;
 import com.backend.global.exception.DomainException;
+import com.backend.global.exception.GlobalErrorCode;
 import com.backend.shared.order.event.OrderPaidEvent;
 import com.backend.shared.payment.dto.PayCommand;
 import com.backend.shared.payment.dto.PayResultDto;
@@ -111,7 +112,8 @@ public class OrderPaymentSupport {
         switch (result.status()) {
             case PAID -> {
                 orderCouponPort.useReservedCoupons(order.getId(), now);
-                order.completePayment(now);
+                // 결제 시각은 payment가 기록한 값을 쓴다. 이전 버전 payment라 없으면 지금 시각
+                order.completePayment(result.paidAt() != null ? result.paidAt() : now);
                 publishPaidEvent(order);
                 removeCartItems(order);
             }
@@ -153,7 +155,11 @@ public class OrderPaymentSupport {
     }
 
     // payment가 판단해 거절한 요청인지 (4xx). 잠금·동시성 충돌은 같은 키의 다른 요청이 결제됐을 수 있어 결과 불명으로 본다
+    // 내부 키 인증 실패(503-INTERNAL_API_AUTH_FAILED)는 payment 보안 필터에서 막혀 결제가 없으므로 거절로 본다
     private static boolean isRejected(DomainException e) {
+        if (GlobalErrorCode.INTERNAL_API_AUTH_FAILED.resultCode().equals(e.getResultCode())) {
+            return true;
+        }
         int status = e.statusCode();
         return status >= 400 && status < 500 && !UNCERTAIN_REJECTIONS.contains(e.getResultCode());
     }
