@@ -84,7 +84,7 @@ spring:
   task:
     scheduling:
       pool:
-        size: 6          # 스케줄 작업(주문 3, outbox 릴레이 1, 할인 경계 재색인 1, 검색 alias 복구 1)이 서로 기다리지 않게 작업 수만큼
+        size: 7          # 스케줄 작업(주문 4, outbox 릴레이 1, 할인 경계 재색인 1, 검색 alias 복구 1)이 서로 기다리지 않게 작업 수만큼
 
 
 # 정책 값. 코드에 숫자를 직접 쓰지 않고 각 컨텍스트의 <Ctx>Policy에서 읽는다.
@@ -155,6 +155,9 @@ custom:
     payingRecheckSeconds: 30           # 결제 중(PAYING)이 된 뒤 이 시간(초)이 지나면 재확인 스케줄러가 같은 키로 결제를 다시 불러 정리한다
     payingRecheckIntervalSeconds: 30   # 결제 재확인 스케줄러 실행 간격(초). 한 번에 schedulerBatchSize건씩 처리한다
     payingAlertMinutes: 10             # 결제 중 상태가 이 시간(분) 넘게 정리되지 않으면 ERROR 로그로 알린다
+    refundCheckSeconds: 60             # 반품 승인 뒤 이 시간(초)이 지나면 환불 확인 스케줄러가 결제 서비스에 환불 여부를 확인한다
+    refundCheckIntervalSeconds: 300    # 반품 환불 확인 스케줄러 실행 간격(초)
+    refundAlertMinutes: 60             # 반품 승인 후 이 시간(분)이 지나도 환불되지 않으면 ERROR 로그로 알린다(돈이 홀딩에 남아 있음)
     couponEnabled: ${ORDER_COUPON_ENABLED:false}   # 주문에 쿠폰을 반영하는지. 결제(COUPON_SUBSIDY)와 정산(할인 후 금액)이 지원한 뒤에 켠다
     shippingFee: 2500                  # 배송비(원). 주문당 한 번
     freeShippingThreshold: 30000       # 무료 배송 기준(원). 상품 쿠폰 할인 후 상품 금액 합계가 이 금액 이상이면 배송비 0 (장바구니 쿠폰은 기준에 영향 없음)

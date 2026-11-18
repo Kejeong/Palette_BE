@@ -38,6 +38,7 @@ public class OrderFacade {
     private final OrderGetOrderDetailUseCase orderGetOrderDetailUseCase;
     private final OrderPayOrderUseCase orderPayOrderUseCase;
     private final OrderRecheckPayingOrdersUseCase orderRecheckPayingOrdersUseCase;
+    private final OrderCheckRefundsUseCase orderCheckRefundsUseCase;
     private final OrderCancelOrderUseCase orderCancelOrderUseCase;
     private final OrderConfirmOrderUseCase orderConfirmOrderUseCase;
     private final OrderRequestReturnUseCase orderRequestReturnUseCase;
@@ -184,6 +185,17 @@ public class OrderFacade {
     // 결제 재확인 한 건 (스케줄러). 결제 요청이 HTTP라 트랜잭션은 UseCase가 결과 반영 때만 연다
     public boolean recheckPayingOrder(Long orderId, LocalDateTime now) {
         return orderRecheckPayingOrdersUseCase.recheck(orderId, now);
+    }
+
+    // 반품 환불 확인 대상 주문 id 조회 (스케줄러)
+    @Transactional(readOnly = true)
+    public List<Long> findRefundCheckTargetIds(LocalDateTime now, Long afterId, int limit) {
+        return orderCheckRefundsUseCase.findTargetIds(now, afterId, limit);
+    }
+
+    // 반품 환불 확인 한 건 (스케줄러). 결제 조회가 HTTP라 트랜잭션은 UseCase가 기록할 때만 연다
+    public boolean checkRefund(Long orderId, LocalDateTime now) {
+        return orderCheckRefundsUseCase.check(orderId, now);
     }
 
     // 최근 주문 목록 (OrderApi)
