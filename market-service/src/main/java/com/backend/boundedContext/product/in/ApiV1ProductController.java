@@ -80,4 +80,19 @@ public class ApiV1ProductController {
         Long memberId = authMember == null ? null : authMember.memberId();
         return RsData.of("200-1", "상품을 조회했습니다.", productFacade.getProductDetail(productId, memberId));
     }
+
+    @Operation(
+            summary = "비슷한 상품",
+            description = "상품 상세 하단의 비슷한 상품입니다. 같은 대분류에서 상품명·설명이 비슷하고(형태소), 같은 소분류이고, "
+                    + "가격대가 가깝고, 찜·별점·최근 판매량이 높은 상품을 고릅니다. 기준 상품과 품절 상품은 빠집니다. "
+                    + "기준 상품이 없거나 판매 중이 아니면 404입니다. size는 1~20이고 기본 10입니다. "
+                    + "검색 서버가 응답하지 않으면 같은 대분류의 최근 상품을 같은 소분류·가격대 순으로 줍니다.")
+    @GetMapping("/{productId}/similar")
+    public RsData<List<ProductSummaryDto>> getSimilarProducts(
+            @PathVariable Long productId,
+            @Parameter(description = "개수 (1~20, 범위를 넘으면 가까운 값으로 맞춘다)")
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        return RsData.of("200-1", "비슷한 상품을 조회했습니다.", productFacade.getSimilarProducts(productId, size));
+    }
 }
