@@ -2,6 +2,7 @@ package com.backend.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.net.URI;
 import java.util.Base64;
 import java.util.Date;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -12,6 +13,8 @@ import javax.crypto.SecretKey;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
@@ -215,6 +218,26 @@ class GatewayJwtFilterTest {
                 .expectStatus().isOk()
                 .expectHeader().values(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                         values -> assertThat(values).containsExactly(FRONT_ORIGIN));
+    }
+
+    // gateway에선 공개 경로(products/**)로 보이지만 서비스(Tomcat)가 풀면 /api/v1/orders 같은 다른 경로가 되는 주소
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/api/v1/products/../orders",
+            "/api/v1/products/%2e%2e/orders",
+            "/api/v1/products/%2E%2E/orders",
+            "/api/v1/products/..%2forders",
+            "/api/v1/products/./orders",
+            "/api/v1/products/.."
+    })
+    void 다른_경로로_풀리는_주소는_400이고_서비스에_닿지_않는다(String path) {
+        // URI 객체로 넘겨 테스트 클라이언트가 ..를 미리 정리하지 않게 한다
+        client.get().uri(URI.create("http://localhost:" + port + path))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody().jsonPath("$.resultCode").isEqualTo("400-INVALID_REQUEST");
+
+        assertThat(serviceHits).hasValue(0);
     }
 
     private void expectUnauthorized(WebTestClient.ResponseSpec response, String resultCode) {

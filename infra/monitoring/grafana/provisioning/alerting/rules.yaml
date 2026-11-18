@@ -126,13 +126,17 @@ groups:
             Grafana Explore에서 확인:
             {container="{{ $labels.container }}"} | json | log_level="ERROR" | log_logger="{{ $labels.log_logger }}"
 
-      # gateway가 서비스에 연결하지 못한 요청(서비스 컨테이너 꺼짐·재시작 중). ServiceConnectionFailureFilter가 주소 없이 WARN으로 남긴다.
-      # 위 "앱 ERROR 로그"는 ERROR만 보므로, 서비스가 죽어도(로그를 못 남기므로) 알림이 없었다. 이 규칙이 그 빈틈을 메운다.
+      # gateway가 서비스에서 응답을 받지 못한 요청: 연결 실패(서비스 컨테이너 꺼짐·재시작 중, 502)·응답 시간 초과(60초, 504).
+      # ServiceConnectionFailureFilter가 주소 없이 WARN으로 남긴다.
+      # 위 "앱 ERROR 로그"는 ERROR만 보므로, 서비스가 죽거나 멈춰도(로그를 못 남기므로) 알림이 없었다. 이 규칙이 그 빈틈을 메운다.
+      # 2분 연속(1분 검사 2번 모두) 실패가 있을 때만 알린다(for: 1m). 한 번 끊겼다 바로 붙는 일로는 울리지 않는다.
+      #   대신 알림이 1분 늦고, 요청이 드문 시간(밤)엔 실패가 2분 연속 잡히지 않아 놓칠 수 있다
       # 배포로 서비스가 재시작되는 동안은 scripts/deploy.sh가 이 규칙만 Grafana 무음(silence)으로 꺼 둔다.
       #   무음이 풀린 뒤 배포 중 실패가 남아 알림이 가지 않도록 최근 1분만 센다(deploy.sh는 배포가 끝나고 2분 뒤 무음을 푼다)
       #   위 규칙의 keepFiringFor(1시간 유지)도 같은 이유로 두지 않는다
+      # uid·kind는 deploy.sh·templates.yaml이 쓰므로 바꾸면 같이 바꾼다
       - uid: palette-gateway-connection-failure
-        title: gateway 서비스 연결 실패
+        title: gateway 서비스 응답 실패
         condition: C
         data:
           - refId: A
@@ -170,11 +174,11 @@ groups:
                 - evaluator:
                     type: gt
                     params: [0]
-        for: 0s
-        noDataState: OK       # 연결 실패가 없으면 결과가 비어 있으므로 정상으로 본다
+        for: 1m               # 2분 연속일 때만 알린다(위 설명)
+        noDataState: OK       # 실패가 없으면 결과가 비어 있으므로 정상으로 본다
         execErrState: Error   # Loki 조회 자체가 실패하면 그것도 알린다
         labels:
           severity: error
-          kind: gateway-connection-failure   # templates.yaml이 이 값으로 연결 실패용 메시지를 고른다
+          kind: gateway-connection-failure   # templates.yaml이 이 값으로 응답 실패용 메시지를 고른다
         annotations:
-          summary: "gateway가 {{ $labels.route }} 서비스에 최근 1분간 {{ $values.B }}번 연결하지 못했습니다"
+          summary: "gateway가 {{ $labels.route }} 서비스에서 최근 1분간 {{ $values.B }}번 응답을 받지 못했습니다(연결 실패·시간 초과)"

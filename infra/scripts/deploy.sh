@@ -45,7 +45,7 @@ report_failure() {
 }
 trap report_failure EXIT
 
-# 배포하는 동안 "gateway 서비스 연결 실패" 알림(infra/monitoring/grafana/provisioning/alerting/rules.yaml)만 Grafana 무음(silence)으로 꺼 둔다.
+# 배포하는 동안 "gateway 서비스 응답 실패" 알림(infra/monitoring/grafana/provisioning/alerting/rules.yaml)만 Grafana 무음(silence)으로 꺼 둔다.
 # 서비스가 재시작되는 동안 gateway가 연결에 실패하는 건 예상된 일이라서다. 그 밖의 알림(앱 ERROR 로그)은 끄지 않는다.
 #   - 스크립트가 중간에 죽어도 무음이 계속 남지 않게, 걸 때 끝나는 시각을 정해 둔다(배포 대기 상한 + 5분)
 #   - 배포가 끝나면(성공·실패 모두, 위 trap) 끝나는 시각을 2분 뒤로 당긴다. 규칙이 최근 1분만 세므로 배포 중 실패가 빠진 뒤에 풀린다
@@ -69,7 +69,7 @@ put_gateway_alert_silence() {
 end_gateway_alert_silence() {
     [ -z "$GATEWAY_SILENCE_ID" ] && return 0
     put_gateway_alert_silence "$GATEWAY_SILENCE_ID" 120 > /dev/null \
-        || echo "⚠ gateway 연결 실패 알림 무음의 끝 시각을 바꾸지 못했습니다. 처음 정한 시각에 풀립니다"
+        || echo "⚠ gateway 응답 실패 알림 무음의 끝 시각을 바꾸지 못했습니다. 처음 정한 시각에 풀립니다"
 }
 
 # 스크립트 전체를 함수로 읽은 뒤 실행한다. 실행 중 git이 이 파일을 바꿔도 영향받지 않게 하기 위함이다.
@@ -108,12 +108,12 @@ main() {
     else
         echo "▶ 빌드: 바뀐 앱이 없어 건너뜁니다"
     fi
-    # 재시작하는 동안 gateway 연결 실패 알림을 끈다(위 put_gateway_alert_silence 설명 참고)
+    # 재시작하는 동안 gateway 응답 실패 알림을 끈다(위 put_gateway_alert_silence 설명 참고)
     GATEWAY_SILENCE_ID="$(put_gateway_alert_silence "" $(( wait_limit + 300 )) || true)"
     if [ -n "$GATEWAY_SILENCE_ID" ]; then
-        echo "▶ gateway 연결 실패 알림 무음 (배포가 끝나고 2분 뒤 풀림)"
+        echo "▶ gateway 응답 실패 알림 무음 (배포가 끝나고 2분 뒤 풀림)"
     else
-        echo "⚠ gateway 연결 실패 알림을 무음으로 하지 못했습니다(Grafana 확인). 배포는 계속합니다"
+        echo "⚠ gateway 응답 실패 알림을 무음으로 하지 못했습니다(Grafana 확인). 배포는 계속합니다"
     fi
 
     # 이미지나 설정(compose.prod.yaml)이 바뀐 컨테이너만 다시 만든다. 그대로인 앱은 재시작되지 않는다

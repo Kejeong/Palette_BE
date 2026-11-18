@@ -3,6 +3,7 @@ package com.backend.gateway;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Stream;
 
 import javax.crypto.SecretKey;
@@ -72,6 +73,13 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     private static final byte[] TOKEN_EXPIRED_BODY =
             "{\"resultCode\":\"401-AUTH_TOKEN_EXPIRED\",\"msg\":\"로그인이 만료되었습니다. 다시 로그인해 주세요.\",\"data\":null}"
                     .getBytes(StandardCharsets.UTF_8);
+    private static final byte[] INVALID_REQUEST_BODY =
+            "{\"resultCode\":\"400-INVALID_REQUEST\",\"msg\":\"요청 형식이 올바르지 않습니다.\",\"data\":null}"
+                    .getBytes(StandardCharsets.UTF_8);
+
+    // 서비스(Tomcat)가 풀어서 다른 경로로 바꾸는 주소 조각. 디코딩 전 원문에서 찾는다(소문자로 바꿔 %2E·%2F도 잡는다)
+    // 예: /api/v1/products/../orders는 gateway에선 공개 경로(products/**)로 보이지만 서비스에선 /api/v1/orders가 된다
+    private static final List<String> PATH_TRAVERSAL_PARTS = List.of("/../", "/./", "//", "\\", "%2e", "%2f", "%5c");
 
     private final SecretKey key;
 
@@ -97,20 +105,24 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
+        // 공개 경로 판단을 속이는 주소는 서비스로 넘기지 않는다. 정상 화면·API는 이런 주소를 쓰지 않는다
+        if (hasPathTraversal(request.getPath().value())) {
+            return reject(exchange.getResponse(), HttpStatus.BAD_REQUEST, INVALID_REQUEST_BODY);
+        }
         if (isPublic(request)) {
             return chain.filter(exchange);
         }
 
         String header = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (header == null || !header.startsWith(BEARER_PREFIX)) {
-            return reject(exchange.getResponse(), UNAUTHORIZED_BODY);
+            return reject(exchange.getResponse(), HttpStatus.UNAUTHORIZED, UNAUTHORIZED_BODY);
         }
         try {
             Jwts.parser().verifyWith(key).build().parseSignedClaims(header.substring(BEARER_PREFIX.length()));
         } catch (ExpiredJwtException e) {
-            return reject(exchange.getResponse(), TOKEN_EXPIRED_BODY);
+            return reject(exchange.getResponse(), HttpStatus.UNAUTHORIZED, TOKEN_EXPIRED_BODY);
         } catch (JwtException | IllegalArgumentException e) {
-            return reject(exchange.getResponse(), UNAUTHORIZED_BODY);
+            return reject(exchange.getResponse(), HttpStatus.UNAUTHORIZED, UNAUTHORIZED_BODY);
         }
         return chain.filter(exchange);
     }
@@ -131,8 +143,13 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         return HttpMethod.POST.equals(method) && matchesAny(PUBLIC_POST_PATHS, path);
     }
 
-    private static Mono<Void> reject(ServerHttpResponse response, byte[] body) {
-        response.setStatusCode(HttpStatus.UNAUTHORIZED);
+    private static boolean hasPathTraversal(String rawPath) {
+        String path = rawPath.toLowerCase(Locale.ROOT);
+        return path.endsWith("/..") || path.endsWith("/.") || PATH_TRAVERSAL_PARTS.stream().anyMatch(path::contains);
+    }
+
+    private static Mono<Void> reject(ServerHttpResponse response, HttpStatus status, byte[] body) {
+        response.setStatusCode(status);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
         return response.writeWith(Mono.just(response.bufferFactory().wrap(body)));
     }
