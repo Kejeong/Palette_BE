@@ -521,9 +521,9 @@ public interface CouponApi {
   (상품불량·기타는 전액, 단순변심은 처음 배송비를 뺀 상품값),
   장바구니 쿠폰 지원금은 반품 환불 때 홀딩에서 관리자 지갑으로 돌려받는다(COUPON_SUBSIDY_CANCEL).
   결제 전 취소·만료는 지금처럼 예약 쿠폰을 해제해 복원한다(releaseReservedCoupons).
-- 쿠폰은 설정 custom.order.couponEnabled(환경변수 ORDER_COUPON_ENABLED, 기본 false)가 켜져 있을 때만 주문에 반영한다.
-  꺼져 있을 때 쿠폰을 보내면 409-ORDER_COUPON_NOT_AVAILABLE이라 결제 금액은 상품 금액 합계와 같다.
-  결제 서비스의 장바구니 쿠폰 지원금(COUPON_SUBSIDY)과 정산의 상품 쿠폰 할인 후 금액 반영이 끝난 뒤에 켠다.
+- 쿠폰은 설정 custom.order.couponEnabled(환경변수 ORDER_COUPON_ENABLED, 기본 true)가 켜져 있을 때만 주문에 반영한다.
+  결제의 장바구니 쿠폰 지원금(COUPON_SUBSIDY), 정산의 상품 쿠폰 할인 후 금액, 반품 환불의 지원금 회수가 모두 지원해 기본으로 켠다.
+  문제가 생기면 ORDER_COUPON_ENABLED=false로 끈다. 꺼져 있을 때 쿠폰을 보내면 409-ORDER_COUPON_NOT_AVAILABLE이라 결제 금액은 상품 금액 합계와 같다.
 
 - 쿠폰 컨텍스트가 부르는 다른 기능은 모두 쿠폰 쪽 포트를 거친다: CouponSellerPort(MemberApi), CouponProductPort(ProductApi), CouponOrderPort(OrderApi).
 - 인플루언서(CouponInfluencerPort)와 pick(InfluencerPickPort)은 아직 구현이 없어 임시 구현체가 "인플루언서 아님", "pick 안 함"으로 답한다. 인플루언서와 pick이 생기면 구현체만 바꾼다.
