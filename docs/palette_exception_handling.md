@@ -213,7 +213,8 @@ if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
 - 토스 충전 승인의 오류 처리:
   - 401·`INVALID_API_KEY`·`UNAUTHORIZED_KEY`(키 오류) → 충전 FAILED_SYSTEM_ERROR, `502-EXTERNAL_SERVICE_ERROR`
   - 그 밖의 4xx(카드 거절 등) → 충전 FAILED_PG_DECLINED, `400-TOPUP_PAYMENT_DECLINED`(`data.code`·`message`)
-  - 5xx·`ALREADY_PROCESSED_PAYMENT`·승인 후 DB 반영 실패 → 충전 PROCESSING, `200-1` + `data.status: "PROCESSING"`
+  - 5xx·`ALREADY_PROCESSED_PAYMENT`(결과 모름) → 바로 조회해 승인됐으면 반영, 아니면 충전 PROCESSING, `200-1` + `data.status: "PROCESSING"` (아래 "승인 결과를 모를 때")
+  - 승인 후 DB 반영 실패 → 충전 PROCESSING, `200-1` + `data.status: "PROCESSING"`
   - 승인됐지만 허용하지 않은 결제 수단(카드·간편결제·계좌이체 외) → 예치금에 반영하지 않고 토스 전액 취소, `400-TOPUP_METHOD_NOT_ALLOWED`. 취소 결과를 모르거나 실패하면 충전 METHOD_CANCELING으로 두고 대사 스케줄러가 다시 취소(`TOPUP-{id}-METHOD-CANCEL-{회차}`, 첫 시도 포함 최대 3회. 3회 모두 실패하면 ERROR 로그 한 번 후 사람이 확인)
   - 연결 5초·응답 30초 제한 (`custom.toss`)
 - 토스 충전 취소의 오류 처리 (취소 시작 때 잔액을 먼저 빼고, 확정 실패면 되돌린다):
@@ -225,11 +226,23 @@ if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
 - 헥토(신용카드, 인증 분리 승인)는 성공·실패 모두 HTTP 200에 `outStatCd`(`0021` 성공, `0031` 실패)와 `outRsltCd`로 알려 준다. 어댑터가 이 코드를 토스와 같은 PG 중립 결과·예외로 바꾸므로 충전 로직의 처리(충전 상태·응답 코드)는 토스와 같다
   - 공통: 응답 없음·HTTP 오류·해석할 수 없는 응답 → 결과 모름. 암호화 키가 없어 요청을 만들지 못함 → 키 오류(`502-EXTERNAL_SERVICE_ERROR`, 헥토에 요청이 가지 않음)
   - 충전 준비: 결제창 요청 값(금액 암호화·해시)을 저장 전에 만든다. 키 오류면 충전 건을 만들지 않고 `502-EXTERNAL_SERVICE_ERROR`
-  - 승인: `0031` → 충전 FAILED_PG_DECLINED, `400-TOPUP_PAYMENT_DECLINED`(`data.code`: 헥토 `outRsltCd`). 결과 모름·**승인 응답 해시 불일치**·승인 후 DB 반영 실패 → 충전 PROCESSING
+  - 승인: `0031` → 충전 FAILED_PG_DECLINED, `400-TOPUP_PAYMENT_DECLINED`(`data.code`: 헥토 `outRsltCd`). 결과 모름·**승인 응답 해시 불일치** → 바로 조회 후 재승인(아래 "승인 결과를 모를 때"), 승인 후 DB 반영 실패 → 충전 PROCESSING
+  - 승인 `ST50`(중복결제)은 `0031`이지만 **거절이 아니라 결과 모름**이다. 같은 인증 거래번호로 두 번째 승인을 보내면 헥토가 `ST50`으로 거절하는데(테스트베드 확인, 며칠 지나면 `ST06`), 앞선 승인이 처리돼 카드는 결제됐다는 뜻이다. 거절로 기록하면 돈은 빠지고 충전은 실패로 끝나므로 PROCESSING으로 두고 대사가 조회로 반영한다
   - 취소: `ST25`(이미 취소 완료)·결과 모름 → 앞선 요청으로 취소됐을 수 있어 되돌리지 않고 충전 CANCELING. 그 밖의 `0031`(`ST57` 취소 금액 초과 등) → 되돌림, `400-TOPUP_CANCEL_DECLINED`
   - **헥토 취소는 멱등 키가 없다.** 취소 회차(`cnclOrd`, 충전 건의 취소 회차)를 보내지만, 이미 성공한 회차를 다시 보내면 또 취소된다(테스트베드 확인). 그래서 결과를 모르는 취소는 다시 요청하지 않고, 대사 스케줄러가 조회한 취소 금액 합계로 확정하거나 되돌린다(토스와 같은 방식)
   - 조회: 주문번호·원거래 일자(충전 건의 결제 요청 시각)·금액으로 한다. `0000` 정상(취소 금액이 있으면 부분 취소) / `0001` 취소 / `0009` 결제 실패, 그 외 결과 코드는 확정되지 않음으로 두고 다음 회차에 다시 확인한다. 실패 `ST06`(거래 없음)은 결제창에서 인증하지 않은 주문이라 "PG에 결제 없음"과 같게 처리하고(PROCESSING이면 FAILED_SYSTEM_ERROR, CANCELING·METHOD_CANCELING이면 ERROR 로그 후 사람이 확인), 그 밖의 실패는 결과 모름으로 둔다
+  - 조회의 원거래 일자: `ST06`이고 승인 요청 시각(`confirm_requested_at`, PROCESSING 선점 때 저장)의 날짜가 결제 요청 날짜와 다르면(자정을 넘긴 충전 건) 그 날짜로 한 번 더 조회한 뒤에 거래 없음으로 본다. 테스트베드는 원거래 일자 ±1일까지 찾아 주지만 문서에 없는 동작이라 기대지 않는다
   - 결제창 결과(`nextUrl`·`cancUrl`)는 브라우저를 거쳐 와서 믿지 않는다. 서버는 프론트 충전 결과 화면으로 넘기기만 하고, 승인 API가 회원·주문번호·금액을 확인한 뒤 헥토 승인 응답으로 확정한다. 결과 알림(`notiUrl`)은 기록만 하고 `OK`로 응답한다
+- 충전 승인 결과를 모를 때 (토스·헥토 공통): 승인 응답을 못 받으면 PROCESSING으로 미루기 전에 그 자리에서 PG에 조회한다. 사용자가 결제창 인증까지 마치고 몇 분 뒤 실패를 받지 않게 하기 위함이다
+  - 조회가 승인됨 → 그 결과로 반영(DONE)
+  - 거래 없음(처리되지 않음)이고 두 번째 승인을 거절하는 PG(헥토) → 승인을 **한 번만** 다시 보낸다. 성공하면 반영, 거절이면 FAILED_PG_DECLINED, 다시 결과 모름(`ST50` 포함)이면 PROCESSING. 토스는 다시 승인해도 `ALREADY_PROCESSED_PAYMENT`(결과 모름)라 재승인하지 않는다(`TopupGatewayPort.canRetryConfirm`)
+  - 그 밖(진행 중, 조회도 결과 모름, 조회만 설정 오류) → PROCESSING, 대사가 정리
+  - 대사는 인증만 된 건을 다시 승인하지 않는다(PROCESSING 대사의 `ST06`은 FAILED_SYSTEM_ERROR). 재승인은 승인 요청 직후, 처리되지 않은 것을 조회로 확인한 경우에만 한 번 한다
+- 충전 PG 서킷 브레이커와 PG 자동 선택: PG별(토스·헥토) 서킷 브레이커(Resilience4j)가 승인·조회·취소 결과를 센다(`resilience4j.circuitbreaker.instances.pg-{PG}`)
+  - 실패로 세는 것은 결과 모름(응답 없음·연결 끊김·5xx)뿐이다. 카드 거절·거래 없음은 PG가 응답한 것이라 성공, 설정 오류는 세지 않는다
+  - 최근 10회 중 실패율 50% 이상(최소 5회)이면 60초 동안 사용 불가(OPEN, ERROR 로그), 그 뒤 저절로 HALF_OPEN이 되고 3회 결과로 다시 정한다. 헥토 테스트베드는 평소 연결의 약 1/3을 끊어서 기준을 그보다 높게 뒀다. 상태·실패율은 `resilience4j.circuitbreaker.*` 메트릭으로 Prometheus에 나간다
+  - 호출을 막지 않고 결과만 센다. 승인은 사용자가 이미 결제창 인증을 마쳤고, 대사·취소는 돈이 걸린 정리 작업이라 장애 중에도 계속한다
+  - 충전 준비는 사용자가 PG를 고르지 않는다. 토스가 기본이고, 토스가 사용 불가(OPEN·FORCED_OPEN)면 헥토, 둘 다 사용 불가면 `503-TOPUP_PG_UNAVAILABLE`(충전 건을 만들지 않음). 프론트는 응답의 `pgProvider`로 결제창을 고른다
   - 연결 5초·응답 30초 제한 (`custom.hecto`)
 - 챗봇(ai-service)의 OpenAI 오류 처리. 챗봇은 답을 못 주는 것보다 FAQ 원문이라도 주는 쪽을 택한다:
   - 검색어 다시 쓰기(채팅) 실패·시간 초과·빈 답 → 예외로 응답하지 않고 원래 질문(같은 대화의 최근 질문 + 이번 질문)으로 FAQ를 찾는다. WARN 로그만 남긴다
@@ -238,7 +251,7 @@ if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
   - OpenAI SDK 재시도는 끈다(`max-retries: 0`). 재시도로 응답이 몇십 초씩 늦어지지 않고 바로 FAQ 답변으로 넘어가게 하기 위함이다
   - 근거 FAQ가 없으면 OpenAI 채팅을 부르지 않고 고객센터 안내 문구(`answerType: "NO_MATCH"`)로 답한다. 근거 없이 지어낸 답을 막기 위함이다
   - 요청 수 제한(Redis)이 실패하면 챗봇을 막지 않고 WARN만 남긴다. 제한은 비용 보호용이라 Redis 장애로 상담까지 막지 않는다
-- **응답 시간 초과는 실패로 단정하지 않는다.** 카드 승인은 이미 됐을 수 있다. 충전을 `PROCESSING`으로 두고 성공 응답 `200-1` + `data.status: "PROCESSING"`(결과 확인 중)으로 돌려준다. 프론트는 `data.status`로 완료와 확인 중을 구분한다. 대사 스케줄러가 토스 조회로 결과를 확정한다.
+- **응답 시간 초과는 실패로 단정하지 않는다.** 카드 승인은 이미 됐을 수 있다. 충전을 `PROCESSING`으로 두고 성공 응답 `200-1` + `data.status: "PROCESSING"`(결과 확인 중)으로 돌려준다. 프론트는 `data.status`로 완료와 확인 중을 구분한다. 그 전에 그 자리에서 PG에 한 번 조회하고(위 "충전 승인 결과를 모를 때"), 그래도 모르면 대사 스케줄러가 PG 조회로 결과를 확정한다.
 - 같은 `Idempotency-Key` + 같은 요청은 오류가 아니라 처음 응답을 그대로 돌려준다. 다른 본문이면 `409-IDEMPOTENCY_KEY_REUSED`다. (주문 생성 `POST /orders`는 구현: 같은 구매자·같은 키면 처음 만든 주문을 돌려주고(그 주문이 취소됐으면 `409-IDEMPOTENCY_KEY_EXPIRED`), 본문은 비교하지 않는다. 그 밖의 API는 헤더 미구현. 충전 승인 `POST /topups/confirm`은 헤더 대신 주문번호(`orderId`)를 키로 쓴다: 같은 회원·주문번호에 결제키·금액이 같은 재요청이면 PG를 다시 부르지 않고 `DONE`(잔액은 지금 지갑 잔액)·`PROCESSING`을 `200-1`로 돌려주고, 결제키·금액이 다르거나 실패·만료·취소된 충전 건이면 `409-TOPUP_ALREADY_PROCESSED`(상태는 `GET /topups/{id}`로 확인). 내부 `PaymentApi.pay()`는 본문 `idempotencyKey`에 처음 결과를 돌려준다)
 
 ### 6.5 스케줄러·Spring Batch·이벤트 리스너
@@ -334,6 +347,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 409-TOPUP_NOT_CANCELABLE | 승인 완료(DONE)가 아니거나 취소할 남은 금액이 없는 충전 건에 취소 요청 |
 | | 400-TOPUP_METHOD_NOT_ALLOWED | 승인된 결제가 충전에 허용하지 않은 결제 수단(카드·간편결제·계좌이체 외). 예치금에 반영하지 않고 결제를 자동 취소 |
 | | 400-TOPUP_CANCEL_DECLINED | PG가 충전 취소를 거절함(환불 기간 지남·부분 취소 불가·헥토 취소 금액 초과 등). 잔액은 되돌림 (`data.code`·`message`: PG 오류 코드·메시지) |
+| | 503-TOPUP_PG_UNAVAILABLE | 충전 준비 때 토스·헥토 모두 사용 불가(서킷 OPEN). 충전 건을 만들지 않음 |
 | | 409-PAYMENT_ALREADY_PAID | 다른 멱등 키로 이미 PAID인 주문을 결제 (내부 `PaymentApi.pay`) |
 | | 404-HOLDING_NOT_FOUND / 409-HOLDING_INSUFFICIENT / 409-TRANSFER_AMOUNT_MISMATCH | 정산 지급(`PaymentApi.transfer`)에서 홀딩 없음 / 홀딩 남은 금액 부족 / 주문별 금액 합 ≠ 지급액 + 수수료 |
 | | 404-TOPUP_NOT_FOUND / 404-WALLET_NOT_FOUND | |
@@ -436,6 +450,7 @@ public RsData<PayResponse> pay(...) { ... }
 | Security `AuthenticationEntryPoint`·`AccessDeniedHandler` | 완료 (`JwtAuthenticationEntryPoint`·`JwtAccessDeniedHandler`) |
 | 토스 연동 예외(`TossPaymentException`·`TossTimeoutException`)·충전 대사 스케줄러(승인·취소·허용하지 않은 결제 수단 취소) | 완료 |
 | 헥토 연동 예외(`HectoResultUnknownException`, 응답 코드 → PG 중립 결과·예외)·결제창 결과 엔드포인트 | 완료 |
+| 충전 승인 결과 모름 시 즉시 조회·1회 재승인, PG별 서킷 브레이커·충전 준비 PG 자동 선택 | 완료 |
 | 챗봇 OpenAI 실패 시 FAQ 답변 대체·요청 수 제한(Redis) | 완료 |
 | 요청별 `traceId`(MDC, `X-Trace-Id` 헤더) | 미구현 |
 | 운영 프로필에서 `show-sql` 끄기 | 미구현 |
