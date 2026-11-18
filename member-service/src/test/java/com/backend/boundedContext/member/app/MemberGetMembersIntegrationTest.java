@@ -18,12 +18,15 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.backend.boundedContext.member.app.dto.AdminMemberDto;
+import com.backend.boundedContext.member.domain.Influencer;
 import com.backend.boundedContext.member.domain.Member;
 import com.backend.boundedContext.member.domain.MemberType;
 import com.backend.boundedContext.member.domain.Seller;
+import com.backend.boundedContext.member.out.InfluencerRepository;
 import com.backend.boundedContext.member.out.MemberRepository;
 import com.backend.boundedContext.member.out.SellerRepository;
 import com.backend.global.page.PageResponse;
+import com.backend.shared.member.dto.InfluencerStatus;
 import com.backend.shared.member.dto.MemberStatus;
 import com.backend.shared.member.dto.SellerStatus;
 
@@ -43,6 +46,9 @@ class MemberGetMembersIntegrationTest {
     @Autowired
     private SellerRepository sellerRepository;
 
+    @Autowired
+    private InfluencerRepository influencerRepository;
+
     private final String keyword = "list-it-" + UUID.randomUUID().toString().substring(0, 8);
     private final List<Member> saved = new ArrayList<>();
 
@@ -60,6 +66,7 @@ class MemberGetMembersIntegrationTest {
 
     @AfterEach
     void cleanUp() {
+        influencerRepository.deleteAll(influencerRepository.findAllByMemberIdIn(saved.stream().map(Member::getId).toList()));
         sellerRepository.deleteAll(sellerRepository.findAllByMemberIdIn(saved.stream().map(Member::getId).toList()));
         memberRepository.deleteAll(saved);
     }
@@ -132,6 +139,41 @@ class MemberGetMembersIntegrationTest {
                 .extracting(AdminMemberDto::name, AdminMemberDto::memberType).containsExactly(tuple("회원G", MemberType.LOGISTICS));
         assertThat(memberFacade.getMembers(keyword, null, MemberType.USER, PageRequest.of(0, 20)).items())
                 .extracting(AdminMemberDto::name).doesNotContain("회원G");
+    }
+
+    @Test
+    @DisplayName("인플루언서 상태: 신청 이력이 없으면 null, 반려 후 다시 신청한 회원은 최신 상태(PENDING)")
+    void influencerStatus() {
+        Member approved = memberRepository.save(Member.signUp(keyword + "-d@palette.test", "encoded", "회원D"));
+        Member rejected = memberRepository.save(Member.signUp(keyword + "-e@palette.test", "encoded", "회원E"));
+        Member reapplied = memberRepository.save(Member.signUp(keyword + "-f@palette.test", "encoded", "회원F"));
+        saved.addAll(List.of(approved, rejected, reapplied));
+
+        Influencer approvedInfluencer = applyInfluencer(approved);
+        approvedInfluencer.approve();
+        influencerRepository.save(approvedInfluencer);
+        Influencer rejectedInfluencer = applyInfluencer(rejected);
+        rejectedInfluencer.reject("활동 내역 부족");
+        influencerRepository.save(rejectedInfluencer);
+        Influencer reappliedInfluencer = applyInfluencer(reapplied);
+        reappliedInfluencer.reject("활동 내역 부족");
+        reappliedInfluencer = influencerRepository.save(reappliedInfluencer);
+        reappliedInfluencer.applyAgain("다시 신청", "https://instagram.com/again", "활동을 더 했습니다");
+        influencerRepository.save(reappliedInfluencer);
+
+        PageResponse<AdminMemberDto> result = memberFacade.getMembers(keyword, null, null, PageRequest.of(0, 20));
+
+        assertThat(result.items())
+                .extracting(AdminMemberDto::name, AdminMemberDto::influencerStatus)
+                .containsExactly(
+                        tuple("회원F", InfluencerStatus.PENDING),
+                        tuple("회원E", InfluencerStatus.REJECTED),
+                        tuple("회원D", InfluencerStatus.APPROVED),
+                        tuple("회원C", null), tuple("회원B", null), tuple("회원A", null));
+    }
+
+    private Influencer applyInfluencer(Member member) {
+        return influencerRepository.save(Influencer.apply(member, member.getName() + " 뷰티", "https://instagram.com/" + member.getId(), "화장품 리뷰"));
     }
 
     private Seller applySeller(Member member) {

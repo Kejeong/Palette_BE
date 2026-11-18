@@ -5,9 +5,9 @@ import java.util.List;
 
 import com.backend.boundedContext.member.domain.Member;
 import com.backend.boundedContext.member.domain.MemberType;
+import com.backend.shared.member.dto.InfluencerStatus;
 import com.backend.shared.member.dto.MemberRole;
 import com.backend.shared.member.dto.MemberStatus;
-import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
 import com.backend.shared.order.dto.OrderStatus;
 import com.backend.shared.order.dto.OrderSummaryDto;
@@ -23,6 +23,7 @@ public record AdminMemberDetailDto(
         MemberStatus status,
         LocalDateTime createdAt,
         SellerStatus sellerStatus,  // 판매자 신청 이력이 없으면 null
+        InfluencerStatus influencerStatus,  // 인플루언서 신청 이력이 없으면 null
         Wallet wallet,                  // 결제를 조회하지 못하거나 지갑이 없으면 null
         List<RecentOrder> recentOrders  // 최신순, 주문이 없으면 빈 목록. 주문을 조회하지 못하면 null
 ) {
@@ -40,12 +41,14 @@ public record AdminMemberDetailDto(
             LocalDateTime orderedAt
     ) {}
 
-    public static AdminMemberDetailDto of(Member member, SellerDto seller, WalletSummaryDto wallet, List<OrderSummaryDto> orders) {
+    public static AdminMemberDetailDto of(Member member, SellerStatus sellerStatus, InfluencerStatus influencerStatus,
+                                          WalletSummaryDto wallet, List<OrderSummaryDto> orders) {
         return new AdminMemberDetailDto(
                 member.getId(), member.getEmail(), member.getName(), member.getRole(),
-                MemberType.of(member.getRole(), seller == null ? null : seller.status()),
+                MemberType.of(member.getRole(), sellerStatus),
                 member.getStatus(), member.getCreatedAt(),
-                seller == null ? null : seller.status(),
+                sellerStatus,
+                influencerStatus,
                 wallet == null ? null : new Wallet(wallet.balance(), wallet.heldAmount()),
                 orders == null ? null : orders.stream()
                         .map(order -> new RecentOrder(order.orderId(), order.status(), order.totalAmount(), order.orderedAt()))

@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 import com.backend.boundedContext.member.domain.Member;
 import com.backend.boundedContext.member.domain.MemberType;
+import com.backend.shared.member.dto.InfluencerStatus;
 import com.backend.shared.member.dto.MemberRole;
 import com.backend.shared.member.dto.MemberStatus;
 import com.backend.shared.member.dto.SellerStatus;
@@ -17,11 +18,12 @@ public record AdminMemberDto(
         MemberType memberType,  // 일반 회원·판매자(판매 중)·관리자
         MemberStatus status,
         LocalDateTime createdAt,
-        SellerStatus sellerStatus  // 판매자 신청 이력이 없으면 null
+        SellerStatus sellerStatus,  // 판매자 신청 이력이 없으면 null
+        InfluencerStatus influencerStatus  // 인플루언서 신청 이력이 없으면 null
 ) {
-    public static AdminMemberDto from(Member member, SellerStatus sellerStatus) {
+    public static AdminMemberDto from(Member member, SellerStatus sellerStatus, InfluencerStatus influencerStatus) {
         return new AdminMemberDto(member.getId(), member.getEmail(), member.getName(), member.getRole(),
                 MemberType.of(member.getRole(), sellerStatus), member.getStatus(),
-                member.getCreatedAt(), sellerStatus);
+                member.getCreatedAt(), sellerStatus, influencerStatus);
     }
 }

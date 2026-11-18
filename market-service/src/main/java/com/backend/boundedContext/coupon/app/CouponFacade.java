@@ -6,8 +6,8 @@ import com.backend.boundedContext.coupon.app.dto.CartCouponCreateCommand;
 import com.backend.boundedContext.coupon.app.dto.CartCouponsDto;
 import com.backend.boundedContext.coupon.app.dto.MyCouponUsageDto;
 import com.backend.boundedContext.coupon.app.dto.PartnershipDto;
-import com.backend.boundedContext.coupon.app.dto.PickedProductDto;
 import com.backend.boundedContext.coupon.app.dto.ProductCouponDto;
+import com.backend.boundedContext.coupon.app.dto.SellerCouponMonthlyStatsDto;
 import com.backend.boundedContext.coupon.app.dto.ProductCouponIssueCommand;
 import com.backend.boundedContext.coupon.app.dto.ProductCouponIssueResultDto;
 import com.backend.boundedContext.coupon.app.dto.ProductCouponUpdateCommand;
@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.Collection;
 import java.util.List;
 
@@ -45,11 +46,11 @@ public class CouponFacade {
     private final PartnershipRequestUseCase partnershipRequestUseCase;
     private final PartnershipChangeStatusUseCase partnershipChangeStatusUseCase;
     private final PartnershipGetPartnershipsUseCase partnershipGetPartnershipsUseCase;
-    private final PartnershipGetPickedProductsUseCase partnershipGetPickedProductsUseCase;
     private final CouponIssueProductCouponUseCase couponIssueProductCouponUseCase;
     private final CouponUpdateProductCouponUseCase couponUpdateProductCouponUseCase;
     private final CouponStopBySellerUseCase couponStopBySellerUseCase;
     private final CouponGetProductCouponsUseCase couponGetProductCouponsUseCase;
+    private final CouponGetSellerCouponStatsUseCase couponGetSellerCouponStatsUseCase;
     private final CouponValidateProductCouponCodeUseCase couponValidateProductCouponCodeUseCase;
     private final CouponStopProductCouponsByProductsUseCase couponStopProductCouponsByProductsUseCase;
 
@@ -135,12 +136,6 @@ public class CouponFacade {
         return partnershipGetPartnershipsUseCase.getForSeller(memberId, status, pageable);
     }
 
-    // 협약 인플루언서가 pick한 내 판매 중 상품 (판매자, 상품 쿠폰 발행 대상)
-    @Transactional(readOnly = true)
-    public List<PickedProductDto> getPickedProducts(Long memberId, Long partnershipId) {
-        return partnershipGetPickedProductsUseCase.getPickedProducts(memberId, partnershipId);
-    }
-
     // 협약 종료 (판매자) → 그 협약의 쿠폰 중지
     @Transactional
     public void endPartnershipBySeller(Long memberId, Long partnershipId) {
@@ -196,6 +191,12 @@ public class CouponFacade {
     @Transactional(readOnly = true)
     public PageResponse<ProductCouponDto> getSellerCoupons(Long memberId, CouponDisplayStatus status, Pageable pageable) {
         return couponGetProductCouponsUseCase.getForSeller(memberId, status, pageable);
+    }
+
+    // 상품 쿠폰 한 달 사용 집계 (판매자 화면의 이번 달 사용, 할인 총액)
+    @Transactional(readOnly = true)
+    public SellerCouponMonthlyStatsDto getSellerCouponMonthlyStats(Long memberId, YearMonth month) {
+        return couponGetSellerCouponStatsUseCase.getMonthlyForSeller(memberId, month);
     }
 
     // 상품 쿠폰 상세 (판매자)
