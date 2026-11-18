@@ -73,7 +73,7 @@ class ApiV1AdminCouponControllerTest {
     @Test
     @DisplayName("쿠폰 목록: 종류와 상태 조건을 그대로 넘기고 PageResponse로 돌려준다")
     void getCoupons() throws Exception {
-        given(couponFacade.getCouponsForAdmin(eq(CouponType.CART), eq(CouponDisplayStatus.SCHEDULED), isNull(), isNull(), any(Pageable.class)))
+        given(couponFacade.getCouponsForAdmin(eq(CouponType.CART), eq(CouponDisplayStatus.SCHEDULED), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .willReturn(new PageResponse<>(List.of(), 0, 20, 0, 0));
 
         perform(MemberRole.ADMIN, get("/api/v1/admin/coupons?type=CART&status=SCHEDULED"))
@@ -85,13 +85,25 @@ class ApiV1AdminCouponControllerTest {
     @Test
     @DisplayName("쿠폰 목록: 조건을 보내지 않으면 null로 넘긴다")
     void getCoupons_noCondition() throws Exception {
-        given(couponFacade.getCouponsForAdmin(isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
+        given(couponFacade.getCouponsForAdmin(isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .willReturn(new PageResponse<>(List.of(), 0, 20, 0, 0));
 
         perform(MemberRole.ADMIN, get("/api/v1/admin/coupons"))
                 .andExpect(status().isOk());
 
-        verify(couponFacade).getCouponsForAdmin(isNull(), isNull(), isNull(), isNull(), any(Pageable.class));
+        verify(couponFacade).getCouponsForAdmin(isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("쿠폰 목록: 쿠폰명 검색어를 그대로 넘긴다")
+    void getCoupons_keyword() throws Exception {
+        given(couponFacade.getCouponsForAdmin(isNull(), isNull(), isNull(), isNull(), eq("장바구니"), any(Pageable.class)))
+                .willReturn(new PageResponse<>(List.of(), 0, 20, 0, 0));
+
+        perform(MemberRole.ADMIN, get("/api/v1/admin/coupons").param("keyword", "장바구니"))
+                .andExpect(status().isOk());
+
+        verify(couponFacade).getCouponsForAdmin(isNull(), isNull(), isNull(), isNull(), eq("장바구니"), any(Pageable.class));
     }
 
     @Test

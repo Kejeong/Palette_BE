@@ -39,6 +39,17 @@ public final class CouponSpecifications {
         return (root, query, cb) -> displayStatusPredicate(root, cb, displayStatus, now);
     }
 
+    /**
+     * 쿠폰명 부분 일치, 대소문자 무시 (없거나 빈 값이면 조건 없음)
+     * 검색어의 %, _, 역슬래시는 글자 그대로 찾도록 이스케이프한다
+     */
+    public static Specification<Coupon> nameContains(String keyword) {
+        if (keyword == null || keyword.isBlank()) return Specification.unrestricted();
+        String escaped = keyword.trim().toLowerCase()
+                .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        return (root, query, cb) -> cb.like(cb.lower(root.<String>get("name")), "%" + escaped + "%", '\\');
+    }
+
     // 상품 쿠폰을 등록한 판매자 (없으면 조건 없음)
     public static Specification<Coupon> sellerEquals(Long sellerId) {
         if (sellerId == null) return Specification.unrestricted();

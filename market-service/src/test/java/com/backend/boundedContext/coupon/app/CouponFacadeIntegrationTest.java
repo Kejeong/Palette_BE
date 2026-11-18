@@ -103,6 +103,27 @@ class CouponFacadeIntegrationTest {
                 .extracting(AdminCouponSummaryDto::couponId).doesNotContainAnyElementsOf(mine);
     }
 
+    @Test
+    @DisplayName("관리자 쿠폰 목록: 쿠폰명 부분 일치(대소문자 무시)로 찾고, %는 글자 그대로 찾는다")
+    void adminCouponsByKeyword() {
+        LocalDateTime now = LocalDateTime.now();
+        String tag = "kw" + System.nanoTime();
+        Long sale = couponRepository.save(CouponFixtures.cartCoupon(tag + " 11월 장바구니 SALE", now.minusDays(1), now.plusDays(1), null)).getId();
+        Long percent = couponRepository.save(CouponFixtures.cartCoupon(tag + " 100%할인", now.minusDays(1), now.plusDays(1), null)).getId();
+        Long other = couponRepository.save(CouponFixtures.cartCoupon(tag + " 1000원할인", now.minusDays(1), now.plusDays(1), null)).getId();
+
+        assertThat(keywordIds(tag + " 11월 장바구니 sale")).containsExactly(sale);   // 대소문자 무시
+        assertThat(keywordIds(tag + " 100%")).containsExactly(percent);              // %는 글자 그대로
+        assertThat(keywordIds(tag)).containsExactlyInAnyOrder(sale, percent, other);
+        assertThat(keywordIds("  ")).contains(sale, percent, other);                // 빈 검색어는 조건 없음
+    }
+
+    private List<Long> keywordIds(String keyword) {
+        return couponFacade.getCouponsForAdmin(null, null, null, null, keyword, FIRST_PAGE).items().stream()
+                .map(AdminCouponSummaryDto::couponId)
+                .toList();
+    }
+
     // 테스트가 만든 쿠폰 중 이 상태로 조회되는 것 (다른 데이터가 있어도 영향받지 않게)
     private List<Long> idsOf(CouponDisplayStatus status, List<Long> mine) {
         PageResponse<AdminCouponSummaryDto> page = couponFacade.getCouponsForAdmin(CouponType.CART, status, null, null, FIRST_PAGE);
