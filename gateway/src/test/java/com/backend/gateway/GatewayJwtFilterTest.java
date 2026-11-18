@@ -1,0 +1,265 @@
+package com.backend.gateway;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.net.URI;
+import java.util.Base64;
+import java.util.Date;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
+import javax.crypto.SecretKey;
+
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.reactive.server.WebTestClient;
+
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import reactor.core.publisher.Mono;
+import reactor.netty.DisposableServer;
+import reactor.netty.http.server.HttpServer;
+
+/**
+ * gateway JWT 검사. 서비스 7개 대신 가짜 서비스 서버 하나로 모든 경로를 받아,
+ * 통과한 요청은 서비스까지 가고 막힌 요청은 서비스에 닿지 않는지 확인한다.
+ */
+// 실제 포트로 띄워 보낸다: CORS·헤더 처리가 운영과 같은 경로(Netty 서버)를 타게
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class GatewayJwtFilterTest {
+
+    // nginx가 넣어 보내는 값. 실제 요청에는 Host가 항상 있다
+    private static final String PUBLIC_HOST = "palette-shop.example";
+
+    // 로컬 프론트 주소. CORS_ALLOWED_ORIGINS 기본값에 들어 있다
+    private static final String FRONT_ORIGIN = "http://localhost:5173";
+
+    // 가짜 서비스: 받은 요청 수와 헤더를 기록하고 200을 돌려준다. 진짜 서비스처럼 Origin이 오면 CORS 허용 헤더를 붙인다
+    private static final AtomicInteger serviceHits = new AtomicInteger();
+    private static final AtomicReference<io.netty.handler.codec.http.HttpHeaders> receivedHeaders = new AtomicReference<>();
+    private static final DisposableServer fakeService = HttpServer.create()
+            .port(0)
+            .handle((request, response) -> {
+                serviceHits.incrementAndGet();
+                receivedHeaders.set(request.requestHeaders().copy());
+                String origin = request.requestHeaders().get(HttpHeaders.ORIGIN);
+                if (origin != null) {
+                    response.header(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+                }
+                return response.sendString(Mono.just("ok"));
+            })
+            .bindNow();
+
+    @DynamicPropertySource
+    static void routeAllServicesToFakeService(DynamicPropertyRegistry registry) {
+        String url = "http://localhost:" + fakeService.port();
+        for (String name : new String[]{"MEMBER", "MARKET", "PAYMENT", "SETTLEMENT", "DELIVERY", "NOTIFICATION", "AI"}) {
+            registry.add(name + "_SERVICE_URL", () -> url);
+        }
+    }
+
+    @AfterAll
+    static void stopFakeService() {
+        fakeService.disposeNow();
+    }
+
+    @Value("${local.server.port}")
+    private int port;
+
+    @Value("${custom.jwt.secret}")
+    private String secret;
+
+    private WebTestClient client;
+
+    @BeforeEach
+    void setUp() {
+        client = WebTestClient.bindToServer().baseUrl("http://localhost:" + port)
+                .defaultHeader(HttpHeaders.HOST, PUBLIC_HOST)
+                .build();
+        serviceHits.set(0);
+        receivedHeaders.set(null);
+    }
+
+    @Test
+    void 공개_경로는_토큰_없이_서비스로_넘긴다() {
+        client.get().uri("/api/v1/products").exchange().expectStatus().isOk();
+        client.post().uri("/api/v1/auth/login").exchange().expectStatus().isOk();
+        client.post().uri("/webhooks/delivery-tracker/secret-token").exchange().expectStatus().isOk();
+        client.get().uri("/api/v1/influencers/3").exchange().expectStatus().isOk();
+
+        assertThat(serviceHits).hasValue(4);
+    }
+
+    @Test
+    void 공개_경로는_만료된_토큰이어도_서비스로_넘긴다() {
+        client.get().uri("/api/v1/products")
+                .header(HttpHeaders.AUTHORIZATION, bearer(expiredToken()))
+                .exchange()
+                .expectStatus().isOk();
+    }
+
+    @Test
+    void 로그인_필요_경로에_토큰이_없으면_401이고_서비스에_닿지_않는다() {
+        expectUnauthorized(client.get().uri("/api/v1/orders").exchange(), "401-UNAUTHORIZED");
+        // 공개는 GET만이라 같은 경로라도 POST는 로그인 필요
+        expectUnauthorized(client.post().uri("/api/v1/products").exchange(), "401-UNAUTHORIZED");
+        // 인플루언서 프로필(/influencers/*)은 공개지만 내 신청 정보(/influencers/me)는 로그인 필요
+        expectUnauthorized(client.get().uri("/api/v1/influencers/me").exchange(), "401-UNAUTHORIZED");
+
+        assertThat(serviceHits).hasValue(0);
+    }
+
+    @Test
+    void 가짜_토큰이면_401_UNAUTHORIZED다() {
+        SecretKey otherKey = Keys.hmacShaKeyFor("another-secret-key-another-secret-key!!".getBytes());
+        String forged = Jwts.builder().subject("1").claim("role", "ADMIN").signWith(otherKey).compact();
+
+        expectUnauthorized(client.get().uri("/api/v1/orders").header(HttpHeaders.AUTHORIZATION, bearer(forged)).exchange(),
+                "401-UNAUTHORIZED");
+        expectUnauthorized(client.get().uri("/api/v1/orders").header(HttpHeaders.AUTHORIZATION, "Bearer not-a-jwt").exchange(),
+                "401-UNAUTHORIZED");
+        assertThat(serviceHits).hasValue(0);
+    }
+
+    @Test
+    void 만료된_토큰이면_401_AUTH_TOKEN_EXPIRED다() {
+        expectUnauthorized(client.get().uri("/api/v1/orders").header(HttpHeaders.AUTHORIZATION, bearer(expiredToken())).exchange(),
+                "401-AUTH_TOKEN_EXPIRED");
+        assertThat(serviceHits).hasValue(0);
+    }
+
+    @Test
+    void 정상_토큰이면_토큰을_그대로_서비스로_넘긴다() {
+        String token = Jwts.builder()
+                .subject("1").claim("role", "USER")
+                .expiration(new Date(System.currentTimeMillis() + 60_000))
+                .signWith(key())
+                .compact();
+
+        client.get().uri("/api/v1/orders").header(HttpHeaders.AUTHORIZATION, bearer(token))
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(receivedHeaders.get().get(HttpHeaders.AUTHORIZATION)).isEqualTo(bearer(token));
+    }
+
+    // 서비스가 보는 도메인·사용자 IP·https 여부가 nginx만 있을 때와 같아야 한다
+    @Test
+    void nginx가_보낸_Host와_X_Forwarded_헤더를_그대로_넘긴다() {
+        client.get().uri("/api/v1/products")
+                .header("X-Forwarded-For", "203.0.113.7")
+                .header("X-Forwarded-Proto", "https")
+                .exchange()
+                .expectStatus().isOk();
+
+        var headers = receivedHeaders.get();
+        assertThat(headers.get(HttpHeaders.HOST)).isEqualTo(PUBLIC_HOST);
+        assertThat(headers.get("X-Forwarded-For")).isEqualTo("203.0.113.7");
+        assertThat(headers.get("X-Forwarded-Proto")).isEqualTo("https");
+    }
+
+    @Test
+    void CORS_확인_요청은_토큰_없이_넘긴다() {
+        client.method(HttpMethod.OPTIONS).uri("/api/v1/orders").exchange().expectStatus().isOk();
+        assertThat(serviceHits).hasValue(1);
+    }
+
+    // 이 헤더가 있어야 nginx가 알림을 모아 두지 않고 바로 브라우저로 흘려보낸다(nginx엔 구독 경로를 적지 않음)
+    @Test
+    void 알림_구독_응답에는_nginx_버퍼링을_끄는_헤더를_붙인다() {
+        String token = Jwts.builder()
+                .subject("1").claim("role", "USER")
+                .expiration(new Date(System.currentTimeMillis() + 60_000))
+                .signWith(key())
+                .compact();
+
+        client.get().uri("/api/v1/notifications/subscribe").header(HttpHeaders.AUTHORIZATION, bearer(token))
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("X-Accel-Buffering", "no");
+    }
+
+    // 다른 주소(로컬 프론트)에서 부를 때: 브라우저는 본 요청 전에 OPTIONS로 허용 여부를 묻는다
+    @Test
+    void CORS_사전_확인은_gateway가_허용_헤더로_답한다() {
+        client.options().uri("/api/v1/orders")
+                .header(HttpHeaders.ORIGIN, FRONT_ORIGIN)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, FRONT_ORIGIN)
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true");
+    }
+
+    // 허용 헤더가 없으면 브라우저가 401 내용을 못 읽어 프론트가 토큰 재발급을 못 한다
+    @Test
+    void gateway가_막은_401에도_CORS_허용_헤더가_붙는다() {
+        client.get().uri("/api/v1/orders").header(HttpHeaders.ORIGIN, FRONT_ORIGIN)
+                .exchange()
+                .expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, FRONT_ORIGIN);
+    }
+
+    // gateway와 서비스가 둘 다 붙이면 헤더가 두 개가 되고, 브라우저는 두 개면 거절한다
+    @Test
+    void 서비스_응답의_CORS_허용_헤더는_하나만_남는다() {
+        client.get().uri("/api/v1/products").header(HttpHeaders.ORIGIN, FRONT_ORIGIN)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().values(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                        values -> assertThat(values).containsExactly(FRONT_ORIGIN));
+    }
+
+    // gateway에선 공개 경로(products/**)로 보이지만 서비스(Tomcat)가 풀면 /api/v1/orders 같은 다른 경로가 되는 주소
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/api/v1/products/../orders",
+            "/api/v1/products/%2e%2e/orders",
+            "/api/v1/products/%2E%2E/orders",
+            "/api/v1/products/..%2forders",
+            "/api/v1/products/./orders",
+            "/api/v1/products/.."
+    })
+    void 다른_경로로_풀리는_주소는_400이고_서비스에_닿지_않는다(String path) {
+        // URI 객체로 넘겨 테스트 클라이언트가 ..를 미리 정리하지 않게 한다
+        client.get().uri(URI.create("http://localhost:" + port + path))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody().jsonPath("$.resultCode").isEqualTo("400-INVALID_REQUEST");
+
+        assertThat(serviceHits).hasValue(0);
+    }
+
+    private void expectUnauthorized(WebTestClient.ResponseSpec response, String resultCode) {
+        response.expectStatus().isUnauthorized()
+                .expectBody()
+                .jsonPath("$.resultCode").isEqualTo(resultCode)
+                .jsonPath("$.msg").isNotEmpty();
+    }
+
+    private String expiredToken() {
+        return Jwts.builder()
+                .subject("1").claim("role", "USER")
+                .expiration(new Date(System.currentTimeMillis() - 60_000))
+                .signWith(key())
+                .compact();
+    }
+
+    private SecretKey key() {
+        return Keys.hmacShaKeyFor(Base64.getDecoder().decode(secret));
+    }
+
+    private static String bearer(String token) {
+        return "Bearer " + token;
+    }
+}

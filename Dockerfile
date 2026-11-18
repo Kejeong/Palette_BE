@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 # 운영 배포용 앱 이미지. JDK 이미지에서 jar를 빌드하고, 실행 이미지에는 JRE와 jar만 담는다.
 #
-# 서비스 7개(compose.prod.yaml의 member·market·payment·settlement·delivery·notification·ai)가 이 파일 하나로 이미지를 만든다.
+# gateway와 서비스 7개(compose.prod.yaml의 gateway·member·market·payment·settlement·delivery·notification·ai)가 이 파일 하나로 이미지를 만든다.
 # 1단계(build)는 MODULE과 상관없이 모든 서비스에서 똑같아서, compose가 여러 개를 같이 빌드하면
 # Docker(BuildKit)가 같은 작업으로 보고 한 번만 실행한다. 2단계에서 MODULE로 자기 jar만 가져간다.
 
-# 1단계: 빌드 (서비스 7개 공통, 한 번만 실행)
+# 1단계: 빌드 (gateway·서비스 공통, 한 번만 실행)
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
 
@@ -24,6 +24,7 @@ COPY ai-service/build.gradle.kts ai-service/
 
 # 서비스가 분리될 때마다 그 모듈의 src를 여기와 아래 SERVICES에 추가한다.
 COPY common/src common/src
+COPY gateway/src gateway/src
 COPY member-service/src member-service/src
 COPY market-service/src market-service/src
 COPY payment-service/src payment-service/src
@@ -41,7 +42,7 @@ COPY ai-service/src ai-service/src
 #   지우려면 서버에서 docker builder prune
 # SERVICES: 만들 jar 목록. 기본은 전부. deploy.sh가 바뀐 앱만 빌드할 때 --build-arg로 그 앱만 넘긴다(예: "market-service").
 #   한 번의 배포에서 빌드하는 이미지는 모두 같은 값을 받으므로, 이 단계는 여전히 한 번만 돈다.
-ARG SERVICES="member-service market-service payment-service settlement-service delivery-service notification-service ai-service"
+ARG SERVICES="gateway member-service market-service payment-service settlement-service delivery-service notification-service ai-service"
 RUN --mount=type=cache,target=/root/.gradle \
     chmod +x gradlew \
     && ./gradlew --no-daemon --parallel --build-cache -x test \
@@ -77,7 +78,7 @@ ENV LOGGING_STRUCTURED_ECS_SERVICE_VERSION=${APP_VERSION}
 # 컨테이너마다 네트워크가 따로라 7개 앱이 같은 9091을 써도 충돌하지 않는다. 로컬 bootRun에는 적용되지 않는다(앱 포트에 뜬다)
 ENV MANAGEMENT_SERVER_PORT=9091
 
-# member-service 8081, market-service 8082, payment-service 8083, settlement-service 8084, delivery-service 8085, notification-service 8086, ai-service 8087
+# gateway 8000, member-service 8081, market-service 8082, payment-service 8083, settlement-service 8084, delivery-service 8085, notification-service 8086, ai-service 8087
 # (각 application.yaml의 server.port). 9091은 관리 포트(위)
-EXPOSE 8081 8082 8083 8084 8085 8086 8087 9091
+EXPOSE 8000 8081 8082 8083 8084 8085 8086 8087 9091
 ENTRYPOINT ["java", "-jar", "app.jar"]
