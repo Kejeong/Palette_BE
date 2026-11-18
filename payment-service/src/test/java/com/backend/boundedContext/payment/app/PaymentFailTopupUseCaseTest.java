@@ -22,6 +22,7 @@ import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.pg.TopupGatewayPort;
 import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
+import com.backend.boundedContext.payment.support.TestPgCircuitBreakers;
 
 class PaymentFailTopupUseCaseTest {
 
@@ -104,7 +105,7 @@ class PaymentFailTopupUseCaseTest {
 
     private static TopupGateways gateways(TopupGatewayPort port) {
         given(port.provider()).willReturn(PgProvider.TOSS);
-        return new TopupGateways(List.of(port));
+        return new TopupGateways(List.of(port), TestPgCircuitBreakers.create());
     }
 
     // 잠금 조회로 돌려줄 READY 충전 건

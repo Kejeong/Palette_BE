@@ -24,6 +24,7 @@ import com.backend.boundedContext.payment.out.TopupRepository;
 import com.backend.boundedContext.payment.out.WalletRepository;
 import com.backend.boundedContext.payment.out.WalletTransactionRepository;
 import com.backend.boundedContext.payment.out.pg.TopupGateways;
+import com.backend.boundedContext.payment.support.TestPgCircuitBreakers;
 
 class PaymentTopupCancelProcessorTest {
 
@@ -38,7 +39,7 @@ class PaymentTopupCancelProcessorTest {
     @DisplayName("취소 시작: 충전 건의 PG가 연동되지 않았으면 취소 중으로 바꾸지 않고 IllegalStateException")
     void start_pgNotSupported() {
         PaymentTopupCancelProcessor processor =
-                new PaymentTopupCancelProcessor(topupRepository, walletRepository, walletTransactionRepository, new TopupGateways(List.of()));
+                new PaymentTopupCancelProcessor(topupRepository, walletRepository, walletTransactionRepository, new TopupGateways(List.of(), TestPgCircuitBreakers.create()));
         Wallet wallet = Wallet.create(MEMBER_ID);
         Topup topup = Topup.create(MEMBER_ID, wallet, 20_000, PgProvider.TOSS, LocalDateTime.now());
         ReflectionTestUtils.setField(topup, "id", TOPUP_ID);

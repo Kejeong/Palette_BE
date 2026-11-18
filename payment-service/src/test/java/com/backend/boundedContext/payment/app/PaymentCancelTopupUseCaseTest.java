@@ -31,6 +31,7 @@ import com.backend.boundedContext.payment.out.pg.TopupGatewayPort;
 import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
 import com.backend.global.exception.GlobalErrorCode;
+import com.backend.boundedContext.payment.support.TestPgCircuitBreakers;
 
 class PaymentCancelTopupUseCaseTest {
 
@@ -51,7 +52,7 @@ class PaymentCancelTopupUseCaseTest {
 
     PaymentCancelTopupUseCaseTest() {
         given(gateway.provider()).willReturn(PgProvider.TOSS);
-        useCase = new PaymentCancelTopupUseCase(processor, new TopupGateways(List.of(gateway)), memberPort);
+        useCase = new PaymentCancelTopupUseCase(processor, new TopupGateways(List.of(gateway), TestPgCircuitBreakers.create()), memberPort);
     }
 
     @Test

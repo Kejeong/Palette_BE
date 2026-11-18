@@ -35,6 +35,7 @@ import com.backend.boundedContext.payment.out.pg.TopupGatewayPort;
 import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
 import com.backend.global.exception.GlobalErrorCode;
+import com.backend.boundedContext.payment.support.TestPgCircuitBreakers;
 
 class PaymentPrepareTopupUseCaseTest {
 
@@ -49,7 +50,7 @@ class PaymentPrepareTopupUseCaseTest {
     void setUp() {
         PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 60, 1L, 2_500);
         paymentPrepareTopupUseCase = new PaymentPrepareTopupUseCase(paymentPolicy, walletRepository, topupRepository, memberPort,
-                new TopupGateways(List.of(toss, hecto)));
+                new TopupGateways(List.of(toss, hecto), TestPgCircuitBreakers.create()));
         given(toss.checkout(any())).willReturn(Optional.empty());
     }
 

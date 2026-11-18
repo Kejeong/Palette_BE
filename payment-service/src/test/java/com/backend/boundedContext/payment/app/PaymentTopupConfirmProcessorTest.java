@@ -35,6 +35,7 @@ import com.backend.boundedContext.payment.out.pg.PgPaymentStatus;
 import com.backend.boundedContext.payment.out.pg.TopupGatewayPort;
 import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
+import com.backend.boundedContext.payment.support.TestPgCircuitBreakers;
 
 class PaymentTopupConfirmProcessorTest {
 
@@ -46,7 +47,7 @@ class PaymentTopupConfirmProcessorTest {
     private final TopupRepository topupRepository = mock(TopupRepository.class);
     private final WalletRepository walletRepository = mock(WalletRepository.class);
     private final WalletTransactionRepository walletTransactionRepository = mock(WalletTransactionRepository.class);
-    private final TopupGateways topupGateways = new TopupGateways(List.of(gateway(PgProvider.TOSS)));
+    private final TopupGateways topupGateways = new TopupGateways(List.of(gateway(PgProvider.TOSS)), TestPgCircuitBreakers.create());
     private final PaymentTopupConfirmProcessor processor =
             new PaymentTopupConfirmProcessor(topupRepository, walletRepository, walletTransactionRepository, topupGateways);
 
@@ -189,7 +190,7 @@ class PaymentTopupConfirmProcessorTest {
     @DisplayName("승인 시작: 충전 건의 PG가 연동되지 않았으면 선점하지 않고 IllegalStateException")
     void start_pgNotSupported() {
         PaymentTopupConfirmProcessor noPgProcessor =
-                new PaymentTopupConfirmProcessor(topupRepository, walletRepository, walletTransactionRepository, new TopupGateways(List.of()));
+                new PaymentTopupConfirmProcessor(topupRepository, walletRepository, walletTransactionRepository, new TopupGateways(List.of(), TestPgCircuitBreakers.create()));
         Topup topup = readyTopup(20_000);
 
         assertThatThrownBy(() -> noPgProcessor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 20_000))

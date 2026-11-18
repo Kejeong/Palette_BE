@@ -11,15 +11,16 @@ import com.backend.boundedContext.payment.domain.PgProvider;
 /**
  * PG별 TopupGatewayPort 모음. 충전 건에 기록된 PG(pgProvider)로 승인·조회할 포트를 찾음
  * 스프링이 등록된 TopupGatewayPort 구현체를 모두 넘겨줌
+ * 여기서 꺼낸 포트로 PG를 부르면 결과가 서킷 브레이커에 기록됨 (호출은 막지 않음)
  */
 @Component
 public class TopupGateways {
 
     private final Map<PgProvider, TopupGatewayPort> gateways = new EnumMap<>(PgProvider.class);
 
-    public TopupGateways(List<TopupGatewayPort> ports) {
+    public TopupGateways(List<TopupGatewayPort> ports, PgCircuitBreakers circuitBreakers) {
         for (TopupGatewayPort port : ports) {
-            if (gateways.putIfAbsent(port.provider(), port) != null) {
+            if (gateways.putIfAbsent(port.provider(), new CircuitRecordingTopupGateway(port, circuitBreakers)) != null) {
                 throw new IllegalStateException("같은 PG의 포트가 두 개 등록됐습니다: " + port.provider());
             }
         }
