@@ -2,6 +2,7 @@ package com.backend.boundedContext.payment.out.pg;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
@@ -50,6 +51,22 @@ class TopupGatewaysTest {
 
         assertThatThrownBy(() -> gateways.get(PgProvider.TOSS))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("충전 준비에 쓸 수 있는 PG: 연동했고 서킷이 OPEN이 아니어야 한다")
+    void isAvailable() {
+        TopupGatewayPort toss = port(PgProvider.TOSS);
+        given(toss.getPayment(any())).willThrow(new PgResultUnknownException(new RuntimeException("Connection reset")));
+        TopupGateways gateways = new TopupGateways(List.of(toss), TestPgCircuitBreakers.create());
+
+        assertThat(gateways.isAvailable(PgProvider.TOSS)).isTrue();
+        assertThat(gateways.isAvailable(PgProvider.HECTO)).isFalse();
+
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> gateways.get(PgProvider.TOSS).getPayment(null)).isInstanceOf(PgResultUnknownException.class);
+        }
+        assertThat(gateways.isAvailable(PgProvider.TOSS)).isFalse();
     }
 
     @Test

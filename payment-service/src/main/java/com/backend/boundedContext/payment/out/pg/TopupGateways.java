@@ -17,8 +17,10 @@ import com.backend.boundedContext.payment.domain.PgProvider;
 public class TopupGateways {
 
     private final Map<PgProvider, TopupGatewayPort> gateways = new EnumMap<>(PgProvider.class);
+    private final PgCircuitBreakers circuitBreakers;
 
     public TopupGateways(List<TopupGatewayPort> ports, PgCircuitBreakers circuitBreakers) {
+        this.circuitBreakers = circuitBreakers;
         for (TopupGatewayPort port : ports) {
             if (gateways.putIfAbsent(port.provider(), new CircuitRecordingTopupGateway(port, circuitBreakers)) != null) {
                 throw new IllegalStateException("같은 PG의 포트가 두 개 등록됐습니다: " + port.provider());
@@ -33,6 +35,11 @@ public class TopupGateways {
             throw new IllegalStateException("연동하지 않은 PG입니다: " + provider);
         }
         return port;
+    }
+
+    // 충전 준비에 쓸 수 있는 PG인지: 연동했고 서킷이 OPEN이 아님
+    public boolean isAvailable(PgProvider provider) {
+        return gateways.containsKey(provider) && circuitBreakers.isAvailable(provider);
     }
 
     // 충전 건을 선점(Tx1)하기 전에 연동 여부만 확인. 선점 뒤에 알면 충전 건이 처리 중 상태로 남아 대사가 매 회차 실패함

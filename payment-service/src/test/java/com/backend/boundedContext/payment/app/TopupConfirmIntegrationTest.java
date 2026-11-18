@@ -32,7 +32,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.backend.boundedContext.payment.app.dto.TopupConfirmDto;
 import com.backend.boundedContext.payment.app.dto.TopupPrepareDto;
-import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Topup;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
@@ -46,6 +45,8 @@ import com.backend.boundedContext.payment.out.toss.TossPaymentResponse;
 import com.backend.boundedContext.payment.out.toss.TossPaymentsClient;
 import com.backend.boundedContext.payment.out.toss.TossTimeoutException;
 import com.backend.global.exception.DomainException;
+import com.backend.boundedContext.payment.support.TestPgCircuitBreakers;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 
 /**
  * 충전 준비 → 승인 흐름을 실제 DB로 확인한다 (토스 클라이언트만 mock, 토스 어댑터·PG 포트는 실제 빈).
@@ -58,6 +59,9 @@ class TopupConfirmIntegrationTest {
     private static final long AMOUNT = 20_000;
     private static final String PAYMENT_KEY = "pk_test_integration";
     private static final OffsetDateTime APPROVED_AT = OffsetDateTime.of(2026, 10, 13, 10, 0, 0, 0, ZoneOffset.ofHours(9));
+
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Autowired
     private PaymentFacade paymentFacade;
@@ -86,10 +90,11 @@ class TopupConfirmIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        TestPgCircuitBreakers.resetAll(circuitBreakerRegistry);
         memberId = randomMemberId();
         paymentKey = PAYMENT_KEY + "-" + memberId;
         wallet = walletRepository.save(Wallet.create(memberId));
-        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, AMOUNT, PgProvider.TOSS);
+        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, AMOUNT);
         orderId = prepared.orderId();
     }
 

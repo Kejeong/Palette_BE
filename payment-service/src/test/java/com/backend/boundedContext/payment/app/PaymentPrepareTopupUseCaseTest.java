@@ -31,6 +31,8 @@ import com.backend.boundedContext.payment.out.WalletRepository;
 import com.backend.boundedContext.payment.out.pg.PgCheckout;
 import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
+import com.backend.boundedContext.payment.out.pg.PgResultUnknownException;
+import com.backend.boundedContext.payment.out.pg.PgCircuitBreakers;
 import com.backend.boundedContext.payment.out.pg.TopupGatewayPort;
 import com.backend.boundedContext.payment.out.pg.TopupGateways;
 import com.backend.global.exception.DomainException;
@@ -44,25 +46,26 @@ class PaymentPrepareTopupUseCaseTest {
     private final PaymentMemberPort memberPort = mock(PaymentMemberPort.class);
     private final TopupGatewayPort toss = gateway(PgProvider.TOSS);
     private final TopupGatewayPort hecto = gateway(PgProvider.HECTO);
+    private final PgCircuitBreakers circuitBreakers = TestPgCircuitBreakers.create();
     private PaymentPrepareTopupUseCase paymentPrepareTopupUseCase;
 
     @BeforeEach
     void setUp() {
         PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 60, 1L, 2_500);
         paymentPrepareTopupUseCase = new PaymentPrepareTopupUseCase(paymentPolicy, walletRepository, topupRepository, memberPort,
-                new TopupGateways(List.of(toss, hecto), TestPgCircuitBreakers.create()));
+                new TopupGateways(List.of(toss, hecto), circuitBreakers));
         given(toss.checkout(any())).willReturn(Optional.empty());
     }
 
     @Test
-    @DisplayName("유효한 금액이면 회원 지갑으로 READY 충전 건을 결제 요청 시각과 함께 저장하고 주문번호를 돌려준다")
+    @DisplayName("유효한 금액이면 기본 PG(토스)로 회원 지갑의 READY 충전 건을 결제 요청 시각과 함께 저장하고 주문번호를 돌려준다")
     void prepareTopup_success() {
         Wallet wallet = Wallet.create(1L);
         given(walletRepository.findByMemberId(1L)).willReturn(Optional.of(wallet));
         given(topupRepository.save(any(Topup.class))).willAnswer(invocation -> invocation.getArgument(0));
 
         LocalDateTime before = LocalDateTime.now();
-        TopupPrepareDto result = paymentPrepareTopupUseCase.prepareTopup(1L, 20_000, PgProvider.TOSS);
+        TopupPrepareDto result = paymentPrepareTopupUseCase.prepareTopup(1L, 20_000);
 
         ArgumentCaptor<Topup> saved = ArgumentCaptor.forClass(Topup.class);
         verify(topupRepository).save(saved.capture());
@@ -79,8 +82,9 @@ class PaymentPrepareTopupUseCaseTest {
     }
 
     @Test
-    @DisplayName("헥토를 고르면 HECTO 충전 건을 저장하고, 충전 건 정보로 만든 결제창 주소·요청 값을 돌려준다")
-    void prepareTopup_hecto() {
+    @DisplayName("토스가 사용 불가(서킷 OPEN)면 HECTO 충전 건을 저장하고, 충전 건 정보로 만든 결제창 주소·요청 값을 돌려준다")
+    void prepareTopup_tossUnavailable_hecto() {
+        open(PgProvider.TOSS);
         given(walletRepository.findByMemberId(1L)).willReturn(Optional.of(Wallet.create(1L)));
         given(topupRepository.save(any(Topup.class))).willAnswer(invocation -> invocation.getArgument(0));
         given(hecto.checkout(any())).willAnswer(invocation -> {
@@ -88,7 +92,7 @@ class PaymentPrepareTopupUseCaseTest {
             return Optional.of(new PgCheckout("https://window", Map.of("mchtTrdNo", payment.orderId())));
         });
 
-        TopupPrepareDto result = paymentPrepareTopupUseCase.prepareTopup(1L, 20_000, PgProvider.HECTO);
+        TopupPrepareDto result = paymentPrepareTopupUseCase.prepareTopup(1L, 20_000);
 
         ArgumentCaptor<Topup> saved = ArgumentCaptor.forClass(Topup.class);
         verify(topupRepository).save(saved.capture());
@@ -102,11 +106,26 @@ class PaymentPrepareTopupUseCaseTest {
     @Test
     @DisplayName("PG 키 설정 오류로 결제창 요청 값을 만들지 못하면 충전 건을 저장하지 않는다")
     void prepareTopup_checkoutNotConfigured() {
+        open(PgProvider.TOSS);
         given(walletRepository.findByMemberId(1L)).willReturn(Optional.of(Wallet.create(1L)));
         given(hecto.checkout(any())).willThrow(new PgConfigurationException("HECTO_CONFIGURATION_ERROR", new IllegalStateException()));
 
-        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000, PgProvider.HECTO))
+        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000))
                 .isInstanceOf(PgConfigurationException.class);
+
+        verify(topupRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("토스·헥토 모두 사용 불가면 503 TOPUP_PG_UNAVAILABLE이고 충전 건을 만들지 않는다")
+    void prepareTopup_allUnavailable() {
+        given(walletRepository.findByMemberId(1L)).willReturn(Optional.of(Wallet.create(1L)));
+        open(PgProvider.TOSS);
+        open(PgProvider.HECTO);
+
+        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("503-TOPUP_PG_UNAVAILABLE");
 
         verify(topupRepository, never()).save(any());
     }
@@ -114,7 +133,7 @@ class PaymentPrepareTopupUseCaseTest {
     @Test
     @DisplayName("금액이 정책에 맞지 않으면 지갑을 조회하지 않고 TOPUP_AMOUNT_INVALID")
     void prepareTopup_invalidAmount() {
-        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 15_000, PgProvider.TOSS))
+        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 15_000))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("400-TOPUP_AMOUNT_INVALID");
 
@@ -127,7 +146,7 @@ class PaymentPrepareTopupUseCaseTest {
     void prepareTopup_withdrawnMember() {
         willThrow(new DomainException(GlobalErrorCode.UNAUTHORIZED)).given(memberPort).checkActiveMember(1L);
 
-        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000, PgProvider.TOSS))
+        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("401-UNAUTHORIZED");
 
@@ -139,11 +158,19 @@ class PaymentPrepareTopupUseCaseTest {
     void prepareTopup_walletNotFound() {
         given(walletRepository.findByMemberId(1L)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000, PgProvider.TOSS))
+        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("404-WALLET_NOT_FOUND");
 
         verify(topupRepository, never()).save(any());
+    }
+
+    // 결과 모름을 최소 호출 수(5회)만큼 기록해 그 PG의 서킷을 OPEN으로 만듦
+    private void open(PgProvider provider) {
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> circuitBreakers.record(provider, () -> { throw new PgResultUnknownException(new RuntimeException("Connection reset")); }))
+                    .isInstanceOf(PgResultUnknownException.class);
+        }
     }
 
     private static TopupGatewayPort gateway(PgProvider provider) {

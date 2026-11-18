@@ -28,7 +28,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.backend.boundedContext.payment.app.dto.TopupPrepareDto;
 import com.backend.boundedContext.payment.app.dto.TopupReconcileResult;
-import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Topup;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
@@ -43,6 +42,8 @@ import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
 import com.backend.boundedContext.payment.out.pg.PgPaymentStatus;
 import com.backend.boundedContext.payment.out.toss.TossPaymentResponse;
 import com.backend.boundedContext.payment.out.toss.TossPaymentsClient;
+import com.backend.boundedContext.payment.support.TestPgCircuitBreakers;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 
 /**
  * PROCESSING 결과 확인(대사)을 실제 DB로 확인한다 (토스 클라이언트만 mock, 토스 어댑터·PG 포트는 실제 빈).
@@ -53,6 +54,9 @@ import com.backend.boundedContext.payment.out.toss.TossPaymentsClient;
 class TopupReconcileIntegrationTest {
 
     private static final long AMOUNT = 20_000;
+
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Autowired
     private PaymentFacade paymentFacade;
@@ -85,6 +89,7 @@ class TopupReconcileIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        TestPgCircuitBreakers.resetAll(circuitBreakerRegistry);
         memberId = randomMemberId();
         wallet = walletRepository.save(Wallet.create(memberId));
     }
@@ -239,7 +244,7 @@ class TopupReconcileIntegrationTest {
 
     // 충전 준비 후 승인 시작(Tx1)까지 진행해 PROCESSING 건을 만든다
     private Processing processing() {
-        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, AMOUNT, PgProvider.TOSS);
+        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, AMOUNT);
         paymentTopupConfirmProcessor.start(memberId, prepared.orderId(), "pk_reconcile_" + prepared.topupId(), AMOUNT);
         return new Processing(prepared.topupId(), prepared.orderId(), "pk_reconcile_" + prepared.topupId());
     }

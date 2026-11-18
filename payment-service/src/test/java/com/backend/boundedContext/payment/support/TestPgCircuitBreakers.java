@@ -6,6 +6,7 @@ import com.backend.boundedContext.payment.out.pg.PgCircuitBreakers;
 import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgResultUnknownException;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 
@@ -33,5 +34,10 @@ public final class TestPgCircuitBreakers {
                 .ignoreExceptions(PgConfigurationException.class)
                 .build();
         return new PgCircuitBreakers(CircuitBreakerRegistry.of(config));
+    }
+
+    // 스프링 컨텍스트의 서킷을 모두 CLOSED로 되돌림. 같은 컨텍스트를 쓰는 앞 테스트가 연 서킷 때문에 충전 준비가 다른 PG를 고르지 않게 함
+    public static void resetAll(CircuitBreakerRegistry registry) {
+        registry.getAllCircuitBreakers().forEach(CircuitBreaker::reset);
     }
 }

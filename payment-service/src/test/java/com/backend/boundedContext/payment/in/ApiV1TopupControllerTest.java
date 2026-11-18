@@ -64,9 +64,9 @@ class ApiV1TopupControllerTest {
     private PaymentFacade paymentFacade;
 
     @Test
-    @DisplayName("충전 준비: PG를 보내지 않으면 토스로 준비하고 충전 ID·주문번호·금액·PG를 돌려준다 (결제창 값 없음)")
+    @DisplayName("충전 준비: 서버가 고른 PG(기본 토스)로 준비하고 충전 ID·주문번호·금액·PG를 돌려준다 (토스는 결제창 값 없음)")
     void prepareTopup_success() throws Exception {
-        given(paymentFacade.prepareTopup(3L, 20_000, PgProvider.TOSS)).willReturn(new TopupPrepareDto(5L, ORDER_ID, 20_000, PgProvider.TOSS, null));
+        given(paymentFacade.prepareTopup(3L, 20_000)).willReturn(new TopupPrepareDto(5L, ORDER_ID, 20_000, PgProvider.TOSS, null));
 
         prepare(3L, "{\"amount\":20000}")
                 .andExpect(status().isOk())
@@ -79,12 +79,12 @@ class ApiV1TopupControllerTest {
     }
 
     @Test
-    @DisplayName("충전 준비: HECTO를 고르면 헥토로 준비하고 결제창 주소·요청 값을 돌려준다")
+    @DisplayName("충전 준비: 토스 장애로 헥토가 골라지면 헥토 결제창 주소·요청 값을 돌려준다")
     void prepareTopup_hecto() throws Exception {
         TopupPrepareDto.Checkout checkout = new TopupPrepareDto.Checkout("https://tbnpg.settlebank.co.kr/card/main.do", Map.of("mchtTrdNo", ORDER_ID, "trdAmt", "enc"));
-        given(paymentFacade.prepareTopup(3L, 20_000, PgProvider.HECTO)).willReturn(new TopupPrepareDto(5L, ORDER_ID, 20_000, PgProvider.HECTO, checkout));
+        given(paymentFacade.prepareTopup(3L, 20_000)).willReturn(new TopupPrepareDto(5L, ORDER_ID, 20_000, PgProvider.HECTO, checkout));
 
-        prepare(3L, "{\"amount\":20000,\"pgProvider\":\"HECTO\"}")
+        prepare(3L, "{\"amount\":20000}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.pgProvider").value("HECTO"))
                 .andExpect(jsonPath("$.data.checkout.url").value("https://tbnpg.settlebank.co.kr/card/main.do"))
@@ -93,18 +93,29 @@ class ApiV1TopupControllerTest {
     }
 
     @Test
-    @DisplayName("충전 준비: 지원하지 않는 PG 값이면 400이고 충전 건을 만들지 않는다")
-    void prepareTopup_unknownPg() throws Exception {
-        prepare(3L, "{\"amount\":20000,\"pgProvider\":\"KAKAO\"}")
-                .andExpect(status().isBadRequest());
+    @DisplayName("충전 준비: 예전처럼 pgProvider를 보내도 무시하고 서버가 PG를 고른다")
+    void prepareTopup_pgProviderIgnored() throws Exception {
+        given(paymentFacade.prepareTopup(3L, 20_000)).willReturn(new TopupPrepareDto(5L, ORDER_ID, 20_000, PgProvider.TOSS, null));
 
-        verify(paymentFacade, never()).prepareTopup(anyLong(), anyLong(), any());
+        prepare(3L, "{\"amount\":20000,\"pgProvider\":\"HECTO\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.pgProvider").value("TOSS"));
+    }
+
+    @Test
+    @DisplayName("충전 준비: 토스·헥토 모두 장애면 503 TOPUP_PG_UNAVAILABLE")
+    void prepareTopup_pgUnavailable() throws Exception {
+        given(paymentFacade.prepareTopup(3L, 20_000)).willThrow(new DomainException(PaymentErrorCode.TOPUP_PG_UNAVAILABLE));
+
+        prepare(3L, "{\"amount\":20000}")
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.resultCode").value("503-TOPUP_PG_UNAVAILABLE"));
     }
 
     @Test
     @DisplayName("충전 준비: 금액이 정책에 맞지 않으면 400 TOPUP_AMOUNT_INVALID")
     void prepareTopup_invalidAmount() throws Exception {
-        given(paymentFacade.prepareTopup(3L, 15_000, PgProvider.TOSS))
+        given(paymentFacade.prepareTopup(3L, 15_000))
                 .willThrow(new DomainException(PaymentErrorCode.TOPUP_AMOUNT_INVALID));
 
         prepare(3L, "{\"amount\":15000}")
@@ -119,7 +130,7 @@ class ApiV1TopupControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.resultCode").value("400-VALIDATION_FAILED"));
 
-        verify(paymentFacade, never()).prepareTopup(anyLong(), anyLong(), any());
+        verify(paymentFacade, never()).prepareTopup(anyLong(), anyLong());
     }
 
     @Test

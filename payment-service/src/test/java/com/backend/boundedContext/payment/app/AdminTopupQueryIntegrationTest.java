@@ -24,7 +24,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.backend.boundedContext.payment.app.dto.AdminTopupDto;
 import com.backend.boundedContext.payment.app.dto.TopupPrepareDto;
-import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.out.PaymentMemberPort;
 import com.backend.boundedContext.payment.out.TopupRepository;
@@ -33,6 +32,8 @@ import com.backend.global.page.PageResponse;
 import com.backend.shared.member.dto.MemberDto;
 import com.backend.shared.member.dto.MemberRole;
 import com.backend.shared.member.dto.MemberStatus;
+import com.backend.boundedContext.payment.support.TestPgCircuitBreakers;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 
 /**
  * 관리자 결제 조회 충전 탭을 실제 DB로 확인한다 (이메일·충전번호 앞부분·기간 검색, 최신순, 이메일 채우기).
@@ -41,6 +42,9 @@ import com.backend.shared.member.dto.MemberStatus;
  */
 @SpringBootTest(properties = "custom.scheduling.enabled=false")   // 테스트 중 스케줄러가 테스트 데이터를 바꾸지 않게 끔
 class AdminTopupQueryIntegrationTest {
+
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Autowired
     private PaymentFacade paymentFacade;
@@ -67,6 +71,7 @@ class AdminTopupQueryIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        TestPgCircuitBreakers.resetAll(circuitBreakerRegistry);
         MemberDto member = new MemberDto(memberId, email, "충전조회", MemberRole.USER, MemberStatus.ACTIVE);
         given(memberPort.findMemberByEmail(email)).willReturn(Optional.of(member));
         given(memberPort.getMembers(anyCollection())).willReturn(List.of(member));
@@ -167,7 +172,7 @@ class AdminTopupQueryIntegrationTest {
     }
 
     private TopupPrepareDto prepare(long amount) {
-        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, amount, PgProvider.TOSS);
+        TopupPrepareDto prepared = paymentFacade.prepareTopup(memberId, amount);
         topupIds.add(prepared.topupId());
         return prepared;
     }

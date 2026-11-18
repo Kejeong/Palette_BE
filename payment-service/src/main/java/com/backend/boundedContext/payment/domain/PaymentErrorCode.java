@@ -27,6 +27,7 @@ public enum PaymentErrorCode implements ErrorCode {
     TOPUP_NOT_CANCELABLE(409, "취소할 수 있는 충전 금액이 없습니다."),
     TOPUP_CANCEL_DECLINED(400, "충전 취소가 거절되었습니다."),
     TOPUP_METHOD_NOT_ALLOWED(400, "충전에 사용할 수 없는 결제 수단입니다. 결제는 자동으로 취소됩니다."),
+    TOPUP_PG_UNAVAILABLE(503, "결제사 장애로 지금은 충전할 수 없습니다. 잠시 후 다시 시도해 주세요."),
 
     // 결제
     PAYMENT_ALREADY_PAID(409, "이미 결제된 주문입니다."),
