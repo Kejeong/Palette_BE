@@ -19,6 +19,7 @@ import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
 import com.backend.shared.member.out.MemberApi;
 import com.backend.shared.order.dto.OrderCancelType;
+import com.backend.shared.order.dto.OrderStatus;
 import com.backend.shared.product.dto.OptionSnapshotDto;
 import com.backend.shared.product.dto.StockChangeDto;
 import com.backend.shared.product.out.ProductApi;
@@ -139,6 +140,7 @@ class OrderCreateOrderUseCaseTest {
         assertThat(response.orderId()).isEqualTo(ORDER_ID);
         assertThat(response.totalPrice()).isEqualTo(35000);
         assertThat(response.orderNumber()).startsWith("ORD-");
+        assertThat(response.status()).isEqualTo(OrderStatus.CREATED);
         assertThat(response.expiresAt()).isAfter(LocalDateTime.now().plusMinutes(14));
         verify(productApi).deductStock(List.of(
                 new StockChangeDto(ORDER_ID, 1L, 100L, 2),
@@ -245,6 +247,22 @@ class OrderCreateOrderUseCaseTest {
         assertThat(response).isEqualTo(OrderCreateResponse.from(existing));
         verify(orderRepository, never()).save(any());
         verify(productApi, never()).deductStock(any());
+    }
+
+    @Test
+    @DisplayName("같은 멱등 키의 주문이 이미 결제됐으면 응답 status는 그 주문의 지금 상태(PAID)")
+    void sameIdempotencyKey_paidStatus() {
+        Order existing = Order.create(BUYER_ID, "key-1", List.of(new OrderItemSpec(
+                1L, 10L, 100L, SELLER_ID, "상품100", "기본", "테스트상점", 15000, 1)), LocalDateTime.now(), 15);
+        ReflectionTestUtils.setField(existing, "id", ORDER_ID);
+        existing.pay(LocalDateTime.now());
+        given(orderSupport.getCartForUpdate(BUYER_ID)).willReturn(cartWith(100L, 1));
+        given(orderRepository.findByBuyerIdAndIdempotencyKey(BUYER_ID, "key-1")).willReturn(Optional.of(existing));
+
+        OrderCreateResponse response = useCase.create(BUYER_ID, "key-1", List.of(1L), 15000, null);
+
+        assertThat(response.status()).isEqualTo(OrderStatus.PAID);
+        assertThat(response.orderId()).isEqualTo(ORDER_ID);
     }
 
     @Test
