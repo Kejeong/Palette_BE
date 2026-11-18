@@ -19,7 +19,6 @@ import com.backend.boundedContext.coupon.out.CouponInfluencer;
 import com.backend.boundedContext.coupon.out.CouponInfluencerPort;
 import com.backend.boundedContext.coupon.out.CouponProductPort;
 import com.backend.boundedContext.coupon.out.CouponRepository;
-import com.backend.boundedContext.coupon.out.InfluencerPickPort;
 import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
 import com.backend.shared.member.out.MemberApi;
@@ -47,7 +46,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 
@@ -75,7 +73,6 @@ class ProductCouponIntegrationTest {
     @MockitoBean private MemberApi memberApi;
     @MockitoBean private OrderApi orderApi;
     @MockitoBean private CouponInfluencerPort couponInfluencerPort;
-    @MockitoBean private InfluencerPickPort influencerPickPort;
     @MockitoBean private CouponProductPort couponProductPort;
 
     @BeforeEach
@@ -88,7 +85,6 @@ class ProductCouponIntegrationTest {
                 .willReturn(Optional.of(new CouponInfluencer(INFLUENCER_ID, INFLUENCER_MEMBER_ID, "뷰티언니", true)));
         given(couponInfluencerPort.getApprovedInfluencerIdByMemberId(INFLUENCER_MEMBER_ID)).willReturn(INFLUENCER_ID);
         given(couponInfluencerPort.getActivityNames(anyCollection())).willReturn(Map.of(INFLUENCER_ID, "뷰티언니"));
-        given(influencerPickPort.isPicked(eq(INFLUENCER_ID), anyLong())).willReturn(true);
         List<ProductSnapshotDto> products = List.of(
                 new ProductSnapshotDto(PRODUCT_ID, SELLER_ID, "립스틱", 20_000, true, null),
                 new ProductSnapshotDto(OTHER_PRODUCT_ID, SELLER_ID, "아이섀도", 30_000, true, null));

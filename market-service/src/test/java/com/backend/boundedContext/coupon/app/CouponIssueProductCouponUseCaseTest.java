@@ -12,7 +12,6 @@ import com.backend.boundedContext.coupon.domain.ProductCoupon;
 import com.backend.boundedContext.coupon.out.CouponProductPort;
 import com.backend.boundedContext.coupon.out.CouponRepository;
 import com.backend.boundedContext.coupon.out.CouponSellerPort;
-import com.backend.boundedContext.coupon.out.InfluencerPickPort;
 import com.backend.boundedContext.coupon.out.ProductCouponRepository;
 import com.backend.global.exception.DomainException;
 import com.backend.shared.product.dto.ProductSnapshotDto;
@@ -52,7 +51,6 @@ class CouponIssueProductCouponUseCaseTest {
     @Mock CouponSupport couponSupport;
     @Mock CouponSellerPort couponSellerPort;
     @Mock CouponProductPort couponProductPort;
-    @Mock InfluencerPickPort influencerPickPort;
     @Mock CouponRepository couponRepository;
     @Mock ProductCouponRepository productCouponRepository;
     @Mock CouponCodeGenerator couponCodeGenerator;
@@ -78,11 +76,10 @@ class CouponIssueProductCouponUseCaseTest {
     }
 
     @Test
-    @DisplayName("협약 → 상품 잠금 → pick → 기간 겹침을 확인한 뒤 쿠폰과 상품 쿠폰을 저장하고 코드를 돌려준다")
+    @DisplayName("협약 → 상품 잠금(판매 중인 내 상품) → 기간 겹침을 확인한 뒤 쿠폰과 상품 쿠폰을 저장하고 코드를 돌려준다 (인플루언서 pick 조건 없음)")
     void issue() {
         givenPartnership();
         givenProduct(SELLER_ID, true);
-        given(influencerPickPort.isPicked(INFLUENCER_ID, PRODUCT_ID)).willReturn(true);
         given(couponCodeGenerator.generate()).willReturn("DUPLICATE2", "ABCDEFGH23");
         given(productCouponRepository.existsByCode("DUPLICATE2")).willReturn(true);
         given(productCouponRepository.existsByCode("ABCDEFGH23")).willReturn(false);
@@ -146,22 +143,10 @@ class CouponIssueProductCouponUseCaseTest {
     }
 
     @Test
-    @DisplayName("협약 인플루언서가 pick하지 않은 상품이면 400-PRODUCT_NOT_PICKED (지금 임시 구현체는 항상 이 응답)")
-    void productNotPicked() {
-        givenPartnership();
-        givenProduct(SELLER_ID, true);
-        given(influencerPickPort.isPicked(INFLUENCER_ID, PRODUCT_ID)).willReturn(false);
-
-        assertThatThrownBy(() -> useCase.issue(MEMBER_ID, command())).extracting("resultCode").isEqualTo("400-PRODUCT_NOT_PICKED");
-        verify(couponRepository, never()).save(any());
-    }
-
-    @Test
     @DisplayName("기간이 겹치는 쿠폰이 있으면 409-COUPON_PERIOD_OVERLAPPED이고 저장하지 않는다")
     void overlapped() {
         givenPartnership();
         givenProduct(SELLER_ID, true);
-        given(influencerPickPort.isPicked(INFLUENCER_ID, PRODUCT_ID)).willReturn(true);
         given(couponCodeGenerator.generate()).willReturn("ABCDEFGH23");
         willThrow(new DomainException(CouponErrorCode.COUPON_PERIOD_OVERLAPPED))
                 .given(couponSupport).checkNotOverlapped(any(), any(), any(), any(), any());
@@ -177,7 +162,6 @@ class CouponIssueProductCouponUseCaseTest {
     void codeRetryLimit() {
         givenPartnership();
         givenProduct(SELLER_ID, true);
-        given(influencerPickPort.isPicked(INFLUENCER_ID, PRODUCT_ID)).willReturn(true);
         given(couponCodeGenerator.generate()).willReturn("ABCDEFGH23");
         given(productCouponRepository.existsByCode(anyString())).willReturn(true);
 

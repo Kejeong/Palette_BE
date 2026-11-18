@@ -373,12 +373,11 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 409-COUPON_PERIOD_OVERLAPPED | 같은 인플루언서와 상품으로 유효 기간이 겹치는 운영 중 쿠폰이 있음 (발행, 수정) |
 | | 409-COUPON_NOT_EDITABLE | 시작 후 쿠폰을 종료 일시 연장 말고 다르게 수정, 끝났거나 중지된 쿠폰 수정 |
 | | 400-PRODUCT_NOT_OWNED | 상품 쿠폰 대상이 본인 상품이 아니거나 없는 상품 |
-| | 400-PRODUCT_NOT_PICKED | 상품 쿠폰 대상이 협약 인플루언서가 pick한 상품이 아님 |
 | | 409-PRODUCT_NOT_ON_SALE | 상품 쿠폰 대상 상품이 판매 중이 아님 |
 | | 404-PARTNERSHIP_NOT_FOUND | 없는 협약 |
 | | 409-PARTNERSHIP_ALREADY_EXISTS | 같은 인플루언서와 요청 중이거나 진행 중인 협약이 있음 (동시 요청은 부분 유니크 인덱스 위반을 이 코드로 바꿈) |
 | | 409-PARTNERSHIP_STATE_INVALID | 요청 중이 아닌 협약 수락, 거절이나 진행 중이 아닌 협약 종료 |
-| | 409-PARTNERSHIP_NOT_ACTIVE | 진행 중이 아닌 협약으로 쿠폰 발행, pick 상품 조회 |
+| | 409-PARTNERSHIP_NOT_ACTIVE | 진행 중이 아닌 협약으로 쿠폰 발행 |
 | | 404-INFLUENCER_NOT_FOUND | 협약 요청 대상 인플루언서가 없음 |
 | | 409-INFLUENCER_STATE_INVALID | 승인되지 않은 인플루언서에게 협약 요청 |
 | | 403-INFLUENCER_NOT_APPROVED | 승인된 인플루언서가 아닌 회원이 인플루언서 API 호출 |

@@ -43,9 +43,9 @@ public class ApiV1SellerCouponController {
 
     @Operation(
             summary = "상품 쿠폰 발행",
-            description = "진행 중인 협약의 인플루언서가 pick한 내 판매 중 상품 1개에 쿠폰을 발행하고 코드를 만듭니다(대문자와 숫자 10자리). "
+            description = "진행 중인 협약의 인플루언서용으로, 판매 중인 내 상품 1개에 쿠폰을 발행하고 코드를 만듭니다(대문자와 숫자 10자리). "
                     + "할인은 판매자가 부담합니다. 유효 기간은 시작 포함, 종료 미포함입니다.")
-    @ApiResponse(responseCode = "400", description = "400-VALIDATION_FAILED / 400-COUPON_PERIOD_INVALID / 400-PRODUCT_NOT_OWNED / 400-PRODUCT_NOT_PICKED")
+    @ApiResponse(responseCode = "400", description = "400-VALIDATION_FAILED / 400-COUPON_PERIOD_INVALID / 400-PRODUCT_NOT_OWNED")
     @ApiResponse(responseCode = "403", description = "403-SELLER_NOT_APPROVED / 403-FORBIDDEN 내 협약이 아님")
     @ApiResponse(responseCode = "404", description = "404-PARTNERSHIP_NOT_FOUND")
     @ApiResponse(responseCode = "409", description = "409-PARTNERSHIP_NOT_ACTIVE / 409-PRODUCT_NOT_ON_SALE / 409-COUPON_PERIOD_OVERLAPPED")
