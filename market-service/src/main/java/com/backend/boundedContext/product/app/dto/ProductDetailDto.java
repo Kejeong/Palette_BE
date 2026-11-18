@@ -41,6 +41,8 @@ public record ProductDetailDto(
         List<ProductOptionDto> options,
         boolean wished,
         long wishCount,
+        long reviewCount,
+        double averageRating,
         String ingredientsText
 ) {
 }

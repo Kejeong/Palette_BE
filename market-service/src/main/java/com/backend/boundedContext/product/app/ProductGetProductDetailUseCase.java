@@ -8,6 +8,8 @@ import com.backend.boundedContext.product.domain.Product;
 import com.backend.boundedContext.product.domain.ProductPrice;
 import com.backend.boundedContext.product.domain.OptionStock;
 import com.backend.boundedContext.product.out.wishlist.WishlistRepository;
+import com.backend.shared.review.dto.ProductRatingStatsDto;
+import com.backend.shared.review.out.ReviewApi;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -21,6 +23,7 @@ public class ProductGetProductDetailUseCase {
     private final ProductImageSupport productImageSupport;
     private final ProductDiscountSupport productDiscountSupport;
     private final WishlistRepository wishlistRepository;
+    private final ReviewApi reviewApi;
 
     /**
      * 구매자용 상품 상세. 판매 중지·삭제된 상품이나 사용 중지된 카테고리의 상품은 404.
@@ -37,6 +40,8 @@ public class ProductGetProductDetailUseCase {
         String businessName = productSupport.getBusinessNames(Set.of(product.getSellerId()))
                 .get(product.getSellerId());
         ProductPrice price = productDiscountSupport.getPrice(product);
+        ProductRatingStatsDto rating = reviewApi.getRatingStats(List.of(productId))
+                .getOrDefault(productId, ProductRatingStatsDto.empty(productId));
 
         return new ProductDetailDto(
                 product.getId(), product.getName(), product.getDescription(), product.getPrice(),
@@ -49,6 +54,7 @@ public class ProductGetProductDetailUseCase {
                 optionStocks.stream().map(stock -> ProductOptionDto.from(stock, price)).toList(),
                 memberId != null && wishlistRepository.existsByMemberIdAndProductId(memberId, productId),
                 wishlistRepository.countByProductId(productId),
+                rating.reviewCount(), rating.averageRating(),
                 product.getIngredientsText());
     }
 

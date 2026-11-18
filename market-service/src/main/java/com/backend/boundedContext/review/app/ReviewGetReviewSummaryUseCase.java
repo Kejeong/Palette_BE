@@ -4,6 +4,7 @@ import com.backend.boundedContext.review.app.dto.ReviewSummaryDto;
 import com.backend.boundedContext.review.domain.Review;
 import com.backend.boundedContext.review.out.RatingCount;
 import com.backend.boundedContext.review.out.ReviewRepository;
+import com.backend.shared.review.dto.ProductRatingStatsDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -35,7 +36,7 @@ public class ReviewGetReviewSummaryUseCase {
             reviewCount += entry.getValue();
             ratingSum += entry.getKey() * entry.getValue();
         }
-        double average = reviewCount == 0 ? 0.0 : Math.round(ratingSum * 10.0 / reviewCount) / 10.0;
+        double average = new ProductRatingStatsDto(productId, reviewCount, ratingSum).averageRating();
 
         return new ReviewSummaryDto(average, reviewCount, ratingCounts);
     }

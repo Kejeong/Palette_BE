@@ -420,12 +420,15 @@ package com.backend.shared.review.out;
 
 public interface ReviewApi {
 
-    /** 상품별 리뷰 수·별점 합(삭제한 리뷰 제외). 리뷰가 없는 상품은 키가 없다. 상품 검색 색인의 별점 점수 계산용 (TRSS-290) */
+    /** 상품별 리뷰 수·별점 합(삭제한 리뷰 제외). 리뷰가 없는 상품은 키가 없다. 상품 목록·상세의 리뷰 수·평균 별점과 검색 색인의 별점 점수 계산용 (TRSS-290) */
     Map<Long, ProductRatingStatsDto> getRatingStats(Collection<Long> productIds);
 }
 
 // com.backend.shared.review.dto
-public record ProductRatingStatsDto(Long productId, long reviewCount, long ratingSum) { }
+public record ProductRatingStatsDto(Long productId, long reviewCount, long ratingSum) {
+    static ProductRatingStatsDto empty(Long productId);   // 리뷰 없음
+    double averageRating();                               // 소수 첫째 자리 반올림, 리뷰가 없으면 0.0 (리뷰 평점 요약과 같은 값)
+}
 ```
 
 | 부르는 Api | 용도 |
