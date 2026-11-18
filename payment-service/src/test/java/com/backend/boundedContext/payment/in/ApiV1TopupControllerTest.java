@@ -251,7 +251,7 @@ class ApiV1TopupControllerTest {
     @DisplayName("충전 취소: 결과 확인 중이면 200-1에 status CANCELING, 취소된 금액·잔액은 null")
     void cancelTopup_canceling() throws Exception {
         given(paymentFacade.cancelTopup(3L, 5L)).willReturn(TopupCancelDto.canceling(
-                new TopupCancelStartResult(5L, PgProvider.TOSS, new PgPaymentRef(ORDER_ID, "pk_1", 20_000, LocalDateTime.of(2026, 11, 15, 10, 0)), 20_000, 1, "TOPUP-5-CANCEL-1")));
+                new TopupCancelStartResult(5L, PgProvider.TOSS, new PgPaymentRef(ORDER_ID, "pk_1", 20_000, LocalDateTime.of(2026, 11, 15, 10, 0), null), 20_000, 1, "TOPUP-5-CANCEL-1")));
 
         cancel(3L, 5L)
                 .andExpect(status().isOk())

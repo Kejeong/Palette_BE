@@ -64,12 +64,12 @@ class TopupRepositoryFindDelayedTest {
     @Test
     @DisplayName("결과 확인 대기는 기준 시각 이전 것만, 실패는 시스템 오류·금액 불일치만, 기간 안에서 최신순으로 나온다")
     void findDelayed() {
-        Long processing = saved(t -> t.markProcessing(pk()), DAY.plusHours(10));
-        saved(t -> { t.markProcessing(pk()); t.approve(DAY); t.startCancel(); }, DAY.plusHours(13));   // 기준 시각(12시) 이후 CANCELING
-        Long systemError = saved(t -> { t.markProcessing(pk()); t.fail(TopupStatus.FAILED_SYSTEM_ERROR, "PG 인증에 실패했습니다."); }, DAY.plusHours(14));
-        saved(t -> { t.markProcessing(pk()); t.fail(TopupStatus.FAILED_PG_DECLINED, "카드 거절"); }, DAY.plusHours(15));
+        Long processing = saved(t -> t.markProcessing(pk(), LocalDateTime.now()), DAY.plusHours(10));
+        saved(t -> { t.markProcessing(pk(), LocalDateTime.now()); t.approve(DAY); t.startCancel(); }, DAY.plusHours(13));   // 기준 시각(12시) 이후 CANCELING
+        Long systemError = saved(t -> { t.markProcessing(pk(), LocalDateTime.now()); t.fail(TopupStatus.FAILED_SYSTEM_ERROR, "PG 인증에 실패했습니다."); }, DAY.plusHours(14));
+        saved(t -> { t.markProcessing(pk(), LocalDateTime.now()); t.fail(TopupStatus.FAILED_PG_DECLINED, "카드 거절"); }, DAY.plusHours(15));
         saved(t -> t.fail(TopupStatus.FAILED_USER_CANCEL, "사용자 취소"), DAY.plusHours(16));
-        saved(t -> { t.markProcessing(pk()); t.approve(DAY); }, DAY.plusHours(9));   // DONE
+        saved(t -> { t.markProcessing(pk(), LocalDateTime.now()); t.approve(DAY); }, DAY.plusHours(9));   // DONE
         saved(t -> t.fail(TopupStatus.FAILED_AMOUNT_MISMATCH, "금액 다름"), DAY.plusDays(1).plusHours(1));   // 기간 밖
 
         Page<Topup> page = topupRepository.findDelayed(PENDING, DAY.plusHours(12), FAILED,

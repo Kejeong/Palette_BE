@@ -81,7 +81,7 @@ class PaymentFailTopupUseCaseTest {
     @DisplayName("승인 중(PROCESSING)인 충전 건은 결제창 실패로 덮어쓰지 않고 409")
     void failTopup_processing() {
         Topup topup = readyTopup();
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", LocalDateTime.now());
 
         assertThatThrownBy(() -> useCase.failTopup(MEMBER_ID, TOPUP_ID, "PAY_PROCESS_CANCELED", "취소"))
                 .isInstanceOf(DomainException.class)
@@ -93,7 +93,7 @@ class PaymentFailTopupUseCaseTest {
     @DisplayName("이미 완료(DONE)된 충전 건은 409")
     void failTopup_done() {
         Topup topup = readyTopup();
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", LocalDateTime.now());
         topup.approve(LocalDateTime.of(2026, 10, 14, 10, 0));
 
         assertThatThrownBy(() -> useCase.failTopup(MEMBER_ID, TOPUP_ID, "PAY_PROCESS_CANCELED", "취소"))

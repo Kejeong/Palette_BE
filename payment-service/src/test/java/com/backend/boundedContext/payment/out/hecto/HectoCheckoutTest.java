@@ -21,7 +21,7 @@ class HectoCheckoutTest {
     @Test
     @DisplayName("결제 요청 시각을 요청 일시로, 금액은 암호화하고 해시를 붙여 결제창 요청 값을 만든다")
     void create() {
-        PgPaymentRef payment = new PgPaymentRef(ORDER_ID, null, 20_000, LocalDateTime.of(2026, 11, 15, 9, 5, 7));
+        PgPaymentRef payment = new PgPaymentRef(ORDER_ID, null, 20_000, LocalDateTime.of(2026, 11, 15, 9, 5, 7), null);
 
         PgCheckout result = checkout.create(payment);
 

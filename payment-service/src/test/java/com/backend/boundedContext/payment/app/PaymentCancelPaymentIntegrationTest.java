@@ -260,7 +260,7 @@ class PaymentCancelPaymentIntegrationTest {
 
     private Topup doneTopup(long amount) {
         Topup topup = Topup.create(buyerMemberId, wallet, amount, PgProvider.TOSS, LocalDateTime.now());
-        topup.markProcessing("TEST-PK-" + UUID.randomUUID());
+        topup.markProcessing("TEST-PK-" + UUID.randomUUID(), LocalDateTime.now());
         topup.approve(LocalDateTime.now().minusDays(1));
         Topup saved = topupRepository.save(topup);
         topups.add(saved);

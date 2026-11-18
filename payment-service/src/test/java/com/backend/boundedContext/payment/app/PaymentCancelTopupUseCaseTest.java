@@ -41,7 +41,7 @@ class PaymentCancelTopupUseCaseTest {
     private static final long CANCEL_AMOUNT = 15_000;
     private static final int ATTEMPT = 1;
     private static final String CANCEL_KEY = "TOPUP-7-CANCEL-1";
-    private static final PgPaymentRef PAYMENT = new PgPaymentRef(ORDER_ID, PAYMENT_KEY, 20_000, LocalDateTime.of(2026, 11, 15, 10, 0));
+    private static final PgPaymentRef PAYMENT = new PgPaymentRef(ORDER_ID, PAYMENT_KEY, 20_000, LocalDateTime.of(2026, 11, 15, 10, 0), null);
     private static final PgCancelRequest CANCEL_REQUEST = new PgCancelRequest(PAYMENT, CANCEL_AMOUNT, "예치금 충전 취소", ATTEMPT, CANCEL_KEY);
 
     private final PaymentTopupCancelProcessor processor = mock(PaymentTopupCancelProcessor.class);

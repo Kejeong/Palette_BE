@@ -42,7 +42,7 @@ class TopupUsageTest {
 
     private Topup doneTopup(long amount) {
         Topup topup = Topup.create(3L, wallet, amount, PgProvider.TOSS, LocalDateTime.now());
-        topup.markProcessing("pk_" + amount);
+        topup.markProcessing("pk_" + amount, LocalDateTime.now());
         topup.approve(NOW);
         return topup;
     }

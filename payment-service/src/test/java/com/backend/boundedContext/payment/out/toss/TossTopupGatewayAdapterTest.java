@@ -35,7 +35,7 @@ class TossTopupGatewayAdapterTest {
     private static final String PAYMENT_KEY = "pk_1";
     private static final String ORDER_ID = "TOPUP-123e4567-e89b-12d3-a456-426614174000";
     private static final long AMOUNT = 20_000;
-    private static final PgPaymentRef PAYMENT = new PgPaymentRef(ORDER_ID, PAYMENT_KEY, AMOUNT, LocalDateTime.of(2026, 11, 15, 10, 0));
+    private static final PgPaymentRef PAYMENT = new PgPaymentRef(ORDER_ID, PAYMENT_KEY, AMOUNT, LocalDateTime.of(2026, 11, 15, 10, 0), null);
     private static final String REASON = "충전 취소";
     private static final String CANCEL_KEY = "TOPUP-7-CANCEL-0";
     private static final PgCancelRequest CANCEL_REQUEST = new PgCancelRequest(PAYMENT, 15_000, REASON, 0, CANCEL_KEY);

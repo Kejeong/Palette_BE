@@ -51,7 +51,7 @@ class PaymentTopupConfirmProcessorTest {
             new PaymentTopupConfirmProcessor(topupRepository, walletRepository, walletTransactionRepository, topupGateways);
 
     @Test
-    @DisplayName("승인 시작: READY 충전 건을 잠금 조회해 PROCESSING으로 바꾸고 결제키를 저장한다")
+    @DisplayName("승인 시작: READY 충전 건을 잠금 조회해 PROCESSING으로 바꾸고 결제키·승인 요청 시각을 저장한다")
     void start_success() {
         Topup topup = readyTopup(20_000);
 
@@ -61,6 +61,7 @@ class PaymentTopupConfirmProcessorTest {
         assertThat(result.pgProvider()).isEqualTo(PgProvider.TOSS);
         assertThat(topup.getStatus()).isEqualTo(TopupStatus.PROCESSING);
         assertThat(topup.getPaymentKey()).isEqualTo("pk_1");
+        assertThat(topup.getConfirmRequestedAt()).isNotNull();
     }
 
     @Test
@@ -91,7 +92,7 @@ class PaymentTopupConfirmProcessorTest {
     @DisplayName("승인 재요청: PROCESSING 충전 건에 같은 결제키·금액이 오면 결과 확인 중으로 돌려주고 상태는 그대로다")
     void start_replayProcessing() {
         Topup topup = readyTopup(20_000);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", LocalDateTime.now());
 
         TopupConfirmStartResult result = processor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 20_000);
 
@@ -110,7 +111,7 @@ class PaymentTopupConfirmProcessorTest {
         Wallet wallet = Wallet.create(MEMBER_ID);
         TestWalletCharger.charge(wallet, 5_000);
         Topup topup = readyTopup(wallet, 20_000);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", LocalDateTime.now());
         topup.approve(APPROVED_AT);
 
         TopupConfirmStartResult result = processor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 20_000);
@@ -125,7 +126,7 @@ class PaymentTopupConfirmProcessorTest {
     @DisplayName("승인 재요청: 결제키가 다르면 같은 요청이 아니므로 409 TOPUP_ALREADY_PROCESSED")
     void start_replayDifferentPaymentKey() {
         Topup topup = readyTopup(20_000);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", LocalDateTime.now());
 
         assertThatThrownBy(() -> processor.start(MEMBER_ID, topup.getOrderId(), "pk_other", 20_000))
                 .isInstanceOf(DomainException.class)
@@ -137,7 +138,7 @@ class PaymentTopupConfirmProcessorTest {
     @DisplayName("승인 재요청: 실패한 충전 건은 처음 오류 응답을 다시 만들 수 없어 409 TOPUP_ALREADY_PROCESSED")
     void start_replayFailed() {
         Topup topup = readyTopup(20_000);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", LocalDateTime.now());
         topup.fail(TopupStatus.FAILED_PG_DECLINED, "카드 거절");
 
         assertThatThrownBy(() -> processor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 20_000))
@@ -150,7 +151,7 @@ class PaymentTopupConfirmProcessorTest {
     @DisplayName("승인 재요청: 취소가 시작된 충전 건은 승인 완료로 답할 수 없어 409 TOPUP_ALREADY_PROCESSED")
     void start_replayCanceling() {
         Topup topup = readyTopup(20_000);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", LocalDateTime.now());
         topup.approve(APPROVED_AT);
         topup.startCancel();
 
@@ -164,7 +165,7 @@ class PaymentTopupConfirmProcessorTest {
     @DisplayName("승인 시작: 상태가 READY가 아니면 금액이 달라도 실패로 바꾸지 않는다")
     void start_notReadyWithDifferentAmount() {
         Topup topup = readyTopup(20_000);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", LocalDateTime.now());
 
         assertThatThrownBy(() -> processor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 10_000))
                 .isInstanceOf(DomainException.class)
@@ -347,7 +348,7 @@ class PaymentTopupConfirmProcessorTest {
     private Topup processingTopup(Wallet wallet, long amount) {
         Topup topup = Topup.create(MEMBER_ID, wallet, amount, PgProvider.TOSS, LocalDateTime.now());
         ReflectionTestUtils.setField(topup, "id", TOPUP_ID);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", LocalDateTime.now());
         given(topupRepository.findByIdForUpdate(TOPUP_ID)).willReturn(Optional.of(topup));
         given(walletRepository.findByMemberIdForUpdate(MEMBER_ID)).willReturn(Optional.of(wallet));
         return topup;

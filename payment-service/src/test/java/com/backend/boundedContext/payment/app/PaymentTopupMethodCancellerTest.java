@@ -31,7 +31,7 @@ class PaymentTopupMethodCancellerTest {
 
     private static final Long TOPUP_ID = 7L;
     private static final long AMOUNT = 20_000;
-    private static final PgPaymentRef PAYMENT = new PgPaymentRef("TOPUP-7", "pk_1", AMOUNT, LocalDateTime.of(2026, 11, 15, 10, 0));
+    private static final PgPaymentRef PAYMENT = new PgPaymentRef("TOPUP-7", "pk_1", AMOUNT, LocalDateTime.of(2026, 11, 15, 10, 0), null);
 
     private final PaymentTopupConfirmProcessor processor = mock(PaymentTopupConfirmProcessor.class);
     private final TopupGateways topupGateways = mock(TopupGateways.class);

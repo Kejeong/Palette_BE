@@ -104,9 +104,17 @@ public class HectoTopupGatewayAdapter implements TopupGatewayPort {
                 response.amount(), 0, PgPaymentMethod.CARD, response.transactedAt());
     }
 
+    /**
+     * 거래 조회. 원거래 일자는 결제 요청 날짜로 보냄
+     * 거래가 없고(ST06) 승인 요청 날짜가 다르면(자정을 넘긴 충전 건) 그 날짜로 한 번 더 조회한 뒤에 거래 없음으로 봄
+     * (테스트베드는 원거래 일자 ±1일까지 찾아 주지만 문서에 없는 동작이라 기대지 않음)
+     */
     @Override
     public PgPaymentResult getPayment(PgPaymentRef payment) {
-        HectoResponse response = call(() -> hectoClient.inquiry(payment.orderId(), payment.paymentKey(), payment.amount(), payment.requestedAt(), LocalDateTime.now()));
+        HectoResponse response = inquiry(payment, payment.requestedAt());
+        if (NOT_FOUND.equals(response.outRsltCd()) && isOtherDay(payment.requestedAt(), payment.confirmRequestedAt())) {
+            response = inquiry(payment, payment.confirmRequestedAt());
+        }
 
         if (!response.isSuccess()) {
             if (NOT_FOUND.equals(response.outRsltCd())) {
@@ -142,6 +150,14 @@ public class HectoTopupGatewayAdapter implements TopupGatewayPort {
 
         return new PgPaymentResult(payment.paymentKey(), payment.orderId(), status, response.outRsltCd(),
                 payment.amount(), payment.amount() - balanceAmount, PgPaymentMethod.CARD, null);
+    }
+
+    private HectoResponse inquiry(PgPaymentRef payment, LocalDateTime orgTradeAt) {
+        return call(() -> hectoClient.inquiry(payment.orderId(), payment.paymentKey(), payment.amount(), orgTradeAt, LocalDateTime.now()));
+    }
+
+    private static boolean isOtherDay(LocalDateTime requestedAt, LocalDateTime confirmRequestedAt) {
+        return confirmRequestedAt != null && !confirmRequestedAt.toLocalDate().equals(requestedAt.toLocalDate());
     }
 
     // 조회 결과 코드 → PG 결제 상태. 알 수 없는 코드는 원래 값을 로그로 남기고 PENDING

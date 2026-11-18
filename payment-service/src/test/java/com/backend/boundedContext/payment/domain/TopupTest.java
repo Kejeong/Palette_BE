@@ -42,13 +42,14 @@ class TopupTest {
     }
 
     @Test
-    @DisplayName("READY 충전 건은 결제키를 저장하고 PROCESSING이 된다")
+    @DisplayName("READY 충전 건은 결제키·승인 요청 시각을 저장하고 PROCESSING이 된다")
     void markProcessing() {
         Topup topup = Topup.create(1L, wallet, 10_000, PgProvider.TOSS, NOW);
 
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", NOW.plusMinutes(3));
 
         assertThat(topup.getPaymentKey()).isEqualTo("pk_1");
+        assertThat(topup.getConfirmRequestedAt()).isEqualTo(NOW.plusMinutes(3));
         assertThat(topup.getStatus()).isEqualTo(TopupStatus.PROCESSING);
     }
 
@@ -56,9 +57,9 @@ class TopupTest {
     @DisplayName("READY가 아닌 충전 건은 PROCESSING으로 바꿀 수 없다")
     void markProcessing_notReady() {
         Topup topup = Topup.create(1L, wallet, 10_000, PgProvider.TOSS, NOW);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", NOW);
 
-        assertThatThrownBy(() -> topup.markProcessing("pk_2"))
+        assertThatThrownBy(() -> topup.markProcessing("pk_2", NOW))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("409-TOPUP_ALREADY_PROCESSED");
     }
@@ -67,7 +68,7 @@ class TopupTest {
     @DisplayName("승인되면 DONE이 되고 충전 금액 전체가 남은 금액이 된다")
     void approve() {
         Topup topup = Topup.create(1L, wallet, 30_000, PgProvider.TOSS, NOW);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", NOW);
 
         topup.approve(NOW);
 
@@ -92,7 +93,7 @@ class TopupTest {
     void fail() {
         Topup ready = Topup.create(1L, wallet, 10_000, PgProvider.TOSS, NOW);
         Topup processing = Topup.create(1L, wallet, 10_000, PgProvider.TOSS, NOW);
-        processing.markProcessing("pk_1");
+        processing.markProcessing("pk_1", NOW);
 
         ready.fail(TopupStatus.FAILED_USER_CANCEL, "사용자가 결제를 취소했습니다.");
         processing.fail(TopupStatus.FAILED_PG_DECLINED, "카드사 승인 거절");
@@ -107,7 +108,7 @@ class TopupTest {
     @DisplayName("이미 완료된 충전 건은 실패로 바꿀 수 없다")
     void fail_alreadyDone() {
         Topup topup = Topup.create(1L, wallet, 10_000, PgProvider.TOSS, NOW);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", NOW);
         topup.approve(NOW);
 
         assertThatThrownBy(() -> topup.fail(TopupStatus.FAILED_SYSTEM_ERROR, "오류"))
@@ -172,7 +173,7 @@ class TopupTest {
     @DisplayName("DONE이 아니거나 남은 금액이 없으면 409 TOPUP_NOT_CANCELABLE")
     void startCancel_notCancelable() {
         Topup processing = Topup.create(1L, wallet, 10_000, PgProvider.TOSS, NOW);
-        processing.markProcessing("pk_1");
+        processing.markProcessing("pk_1", NOW);
         Topup usedUp = doneTopup(10_000);
         usedUp.use(10_000);
         Topup canceling = doneTopup(20_000);
@@ -355,7 +356,7 @@ class TopupTest {
     @DisplayName("허용하지 않은 결제 수단으로 승인되면 예치금에 반영하지 않고 METHOD_CANCELING이 되며 취소 회차가 1이 된다")
     void startMethodCancel() {
         Topup topup = Topup.create(1L, wallet, 30_000, PgProvider.TOSS, NOW);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", NOW);
 
         topup.startMethodCancel();
 
@@ -380,7 +381,7 @@ class TopupTest {
     void retryMethodCancel() {
         Topup topup = Topup.create(1L, wallet, 30_000, PgProvider.TOSS, NOW);
         ReflectionTestUtils.setField(topup, "id", 7L);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", NOW);
         topup.startMethodCancel();
         String first = topup.methodCancelIdempotencyKey();
 
@@ -397,7 +398,7 @@ class TopupTest {
     @DisplayName("전액 취소가 확정되면 FAILED_METHOD_NOT_ALLOWED가 되고 취소된 금액·사유가 남는다")
     void completeMethodCancel() {
         Topup topup = Topup.create(1L, wallet, 30_000, PgProvider.TOSS, NOW);
-        topup.markProcessing("pk_1");
+        topup.markProcessing("pk_1", NOW);
         topup.startMethodCancel();
 
         topup.completeMethodCancel("허용하지 않은 결제 수단(OTHER)이라 PG에서 취소했습니다.", NOW);
@@ -424,7 +425,7 @@ class TopupTest {
 
     private Topup doneTopup(long amount) {
         Topup topup = Topup.create(1L, wallet, amount, PgProvider.TOSS, NOW);
-        topup.markProcessing("pk_" + amount);
+        topup.markProcessing("pk_" + amount, NOW);
         topup.approve(NOW);
         return topup;
     }

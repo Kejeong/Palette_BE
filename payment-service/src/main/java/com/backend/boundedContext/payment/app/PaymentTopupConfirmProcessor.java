@@ -77,7 +77,7 @@ public class PaymentTopupConfirmProcessor {
             return new TopupConfirmStartResult(topup.getId(), topup.getPgProvider(), TopupConfirmStartResult.Outcome.AMOUNT_MISMATCH, null);
         }
 
-        topup.markProcessing(paymentKey);
+        topup.markProcessing(paymentKey, LocalDateTime.now());
         return new TopupConfirmStartResult(topup.getId(), topup.getPgProvider(), TopupConfirmStartResult.Outcome.STARTED, null);
     }
 

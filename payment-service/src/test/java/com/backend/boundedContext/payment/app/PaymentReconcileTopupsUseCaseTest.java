@@ -176,6 +176,6 @@ class PaymentReconcileTopupsUseCaseTest {
 
     // PG 조회에 넘기는 충전 건 정보. 같은 결제키면 같은 값이라 목 설정과 대상이 맞물림
     private static PgPaymentRef ref(String paymentKey) {
-        return new PgPaymentRef(paymentKey.replace("pk_", "TOPUP-"), paymentKey, 20_000, UPDATED_AT);
+        return new PgPaymentRef(paymentKey.replace("pk_", "TOPUP-"), paymentKey, 20_000, UPDATED_AT, null);
     }
 }

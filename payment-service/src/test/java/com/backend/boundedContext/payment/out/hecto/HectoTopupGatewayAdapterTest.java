@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -34,7 +36,7 @@ class HectoTopupGatewayAdapterTest {
     private static final long AMOUNT = 20_000;
     private static final LocalDateTime REQUESTED_AT = LocalDateTime.of(2026, 11, 15, 10, 0);
     private static final LocalDateTime TRANSACTED_AT = LocalDateTime.of(2026, 11, 15, 10, 1, 5);
-    private static final PgPaymentRef PAYMENT = new PgPaymentRef(ORDER_ID, TRD_NO, AMOUNT, REQUESTED_AT);
+    private static final PgPaymentRef PAYMENT = new PgPaymentRef(ORDER_ID, TRD_NO, AMOUNT, REQUESTED_AT, null);
 
     private final HectoClient hectoClient = mock(HectoClient.class);
     private final HectoCheckout hectoCheckout = mock(HectoCheckout.class);
@@ -128,6 +130,38 @@ class HectoTopupGatewayAdapterTest {
         given(hectoClient.inquiry(any(), any(), eq(AMOUNT), any(), any())).willReturn(fail("ST06", "거래번호 정보가 존재하지 않습니다."));
 
         assertThatThrownBy(() -> adapter.getPayment(PAYMENT)).isInstanceOf(PgPaymentNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("자정을 넘긴 충전 건: 결제 요청 날짜로 거래가 없으면 승인 요청 날짜로 한 번 더 조회한다")
+    void getPayment_otherDay_found() {
+        LocalDateTime confirmRequestedAt = LocalDateTime.of(2026, 11, 16, 0, 1);
+        PgPaymentRef overMidnight = new PgPaymentRef(ORDER_ID, TRD_NO, AMOUNT, REQUESTED_AT, confirmRequestedAt);
+        given(hectoClient.inquiry(eq(ORDER_ID), eq(TRD_NO), eq(AMOUNT), eq(REQUESTED_AT), any())).willReturn(fail("ST06", "거래번호 정보가 존재하지 않습니다."));
+        given(hectoClient.inquiry(eq(ORDER_ID), eq(TRD_NO), eq(AMOUNT), eq(confirmRequestedAt), any())).willReturn(success("0000", AMOUNT, 0L, null));
+
+        assertThat(adapter.getPayment(overMidnight).status()).isEqualTo(PgPaymentStatus.APPROVED);
+    }
+
+    @Test
+    @DisplayName("자정을 넘긴 충전 건: 두 날짜 모두 거래가 없어야 PgPaymentNotFoundException")
+    void getPayment_otherDay_notFound() {
+        PgPaymentRef overMidnight = new PgPaymentRef(ORDER_ID, TRD_NO, AMOUNT, REQUESTED_AT, LocalDateTime.of(2026, 11, 16, 0, 1));
+        given(hectoClient.inquiry(any(), any(), eq(AMOUNT), any(), any())).willReturn(fail("ST06", "거래번호 정보가 존재하지 않습니다."));
+
+        assertThatThrownBy(() -> adapter.getPayment(overMidnight)).isInstanceOf(PgPaymentNotFoundException.class);
+        verify(hectoClient, times(2)).inquiry(any(), any(), eq(AMOUNT), any(), any());
+    }
+
+    @Test
+    @DisplayName("승인 요청 날짜가 같거나 없으면 다시 조회하지 않는다")
+    void getPayment_sameDay_noRetry() {
+        PgPaymentRef sameDay = new PgPaymentRef(ORDER_ID, TRD_NO, AMOUNT, REQUESTED_AT, REQUESTED_AT.plusMinutes(3));
+        given(hectoClient.inquiry(any(), any(), eq(AMOUNT), any(), any())).willReturn(fail("ST06", "거래번호 정보가 존재하지 않습니다."));
+
+        assertThatThrownBy(() -> adapter.getPayment(sameDay)).isInstanceOf(PgPaymentNotFoundException.class);
+        assertThatThrownBy(() -> adapter.getPayment(PAYMENT)).isInstanceOf(PgPaymentNotFoundException.class);
+        verify(hectoClient, times(2)).inquiry(any(), any(), eq(AMOUNT), eq(REQUESTED_AT), any());
     }
 
     @Test
