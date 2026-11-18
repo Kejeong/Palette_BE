@@ -96,7 +96,12 @@ class ProductEsSimilarAdapterEsTest {
                 List.of(new ProductSimilarCandidate(7, SKINCARE, 10_000, 0, 0)));
         given(fallback.findCandidates(any())).willReturn(fromDb);
 
-        assertThat(similarAdapter.findCandidates(query())).isSameAs(fromDb);
+        ProductSimilarCandidates result = similarAdapter.findCandidates(query());
+
+        assertThat(result.candidates()).isEqualTo(fromDb.candidates());
+        assertThat(result.degraded()).isTrue();   // ES 대신 쓴 결과라 추천 계산이 저장하지 않는다
+    }
+
     }
 
     private static ProductSimilarQuery query() {
