@@ -82,10 +82,10 @@ public interface TopupRepository extends JpaRepository<Topup, Long>, JpaSpecific
             """)
     List<TopupStuckCount> countStale(@Param("statuses") Collection<TopupStatus> statuses, @Param("cutoff") LocalDateTime cutoff);
 
-    // 관리자 실패 거래의 충전 확인 지연: 결과 확인 대기 상태로 기준 시각 이전부터 남은 건과 실패 상태인 건 중 지금 상태가 된 시각(updatedAt)이 기간 안인 것 (정렬·페이지는 Pageable)
+    // 관리자 실패 거래의 충전 확인 지연: 결과 확인 대기 상태로 기준 시각 이전부터 남은 건(수동 확인으로 표시된 건은 시각과 관계없이)과 실패 상태인 건 중 지금 상태가 된 시각(updatedAt)이 기간 안인 것 (정렬·페이지는 Pageable)
     @Query("""
             select t from Topup t
-             where ((t.status in :pendingStatuses and t.updatedAt < :pendingCutoff) or t.status in :failedStatuses)
+             where ((t.status in :pendingStatuses and (t.updatedAt < :pendingCutoff or t.manualCheckReason is not null)) or t.status in :failedStatuses)
                and t.updatedAt >= :from
                and t.updatedAt < :to
             """)

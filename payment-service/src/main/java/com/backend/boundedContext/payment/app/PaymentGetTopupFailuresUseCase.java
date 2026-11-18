@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 
 import com.backend.boundedContext.payment.domain.PaymentPolicy;
 import com.backend.boundedContext.payment.domain.Topup;
+import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.out.PaymentMemberPort;
 import com.backend.boundedContext.payment.out.TopupRepository;
@@ -31,6 +32,7 @@ import lombok.RequiredArgsConstructor;
  * 관리자 실패 거래 화면의 충전 확인 지연(TOPUP_DELAYED) 행. 공통 형식(AdminFailureItem)으로 돌려줌
  * - 결과 확인 대기: PROCESSING·CANCELING·METHOD_CANCELING으로 결과 확인 대기 시간(topupReconcileDelay)보다 오래 남은 건
  *   오래 남은 건 경고 기준(topupStuckWarnAfter) 이하는 자동 확인 대기, 넘으면 확인 필요
+ *   수동 확인으로 표시된 건은 대사가 더 보지 않으므로 시간과 관계없이 확인 필요이고, 원인 문구에 수동 확인 사유를 붙임
  * - 실패: 사람이 볼 실패(시스템 오류, 금액 불일치)만. 사용자 취소·만료·카드 거절·결제 수단 자동 취소는 정상 흐름이라 뺌
  * occurredAt은 지금 상태가 된 시각(updatedAt). 기간은 그 날짜로 거름(from, to 포함, 한국 시간)
  */
@@ -71,9 +73,9 @@ public class PaymentGetTopupFailuresUseCase {
                 .collect(Collectors.toMap(MemberDto::id, MemberDto::email, (a, b) -> a));
     }
 
-    // stuckCutoff 이전부터 결과 확인 대기로 남은 건은 대사가 오래 못 정한 것이라 확인 필요
+    // stuckCutoff 이전부터 결과 확인 대기로 남은 건은 대사가 오래 못 정한 것이라 확인 필요. 수동 확인으로 표시된 건도 확인 필요
     static AdminFailureItem toItem(Topup topup, String email, LocalDateTime stuckCutoff) {
-        boolean autoRecheck = PENDING_STATUSES.contains(topup.getStatus()) && !topup.getUpdatedAt().isBefore(stuckCutoff);
+        boolean autoRecheck = PENDING_STATUSES.contains(topup.getStatus()) && !topup.needsManualCheck() && !topup.getUpdatedAt().isBefore(stuckCutoff);
         return new AdminFailureItem(
                 AdminFailureType.TOPUP_DELAYED,
                 topup.getUpdatedAt(),
@@ -99,7 +101,19 @@ public class PaymentGetTopupFailuresUseCase {
             case FAILED_AMOUNT_MISMATCH -> "금액 불일치";
             default -> topup.getStatus().name();
         };
+        if (topup.needsManualCheck()) {
+            return label + " (수동 확인: " + manualCheckLabel(topup.getManualCheckReason()) + ")";
+        }
         boolean hasReason = topup.getStatus().isFailure() && topup.getFailReason() != null && !topup.getFailReason().isBlank();
         return hasReason ? label + " (" + topup.getFailReason() + ")" : label;
+    }
+
+    private static String manualCheckLabel(TopupManualCheckReason reason) {
+        return switch (reason) {
+            case CANCEL_AMOUNT_MISMATCH -> "PG 취소 금액이 기록과 다름";
+            case PG_PAYMENT_NOT_FOUND -> "PG에 결제 없음";
+            case METHOD_CANCEL_PARTIAL -> "일부만 취소됨";
+            case METHOD_CANCEL_RETRY_EXHAUSTED -> "PG 취소 재시도 모두 실패";
+        };
     }
 }
