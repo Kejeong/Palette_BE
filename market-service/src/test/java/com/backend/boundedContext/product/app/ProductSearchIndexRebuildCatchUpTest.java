@@ -20,7 +20,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -43,7 +42,6 @@ class ProductSearchIndexRebuildCatchUpTest {
 
     private static final long SELLER_ID = 12L;
 
-    @Autowired private ApplicationEventPublisher eventPublisher;
     @Autowired private ProductRepository productRepository;
     @Autowired private ProductDiscountRepository productDiscountRepository;
     @Autowired private ProductSupport productSupport;
@@ -93,7 +91,7 @@ class ProductSearchIndexRebuildCatchUpTest {
         Long kept = productIds.get(0);
         Long stopped = productIds.get(1);
         RecordingIndexPort indexPort = new RecordingIndexPort();
-        ProductSearchIndexSupport indexSupport = new ProductSearchIndexSupport(eventPublisher, productRepository,
+        ProductSearchIndexSupport indexSupport = new ProductSearchIndexSupport(productRepository,
                 productDiscountRepository, productSupport, productDiscountSupport, indexPort, productPolicy, entityManager);
 
         // 그 상품이 든 묶음을 새 인덱스에 넣은 직후(재색인 트랜잭션이 상품을 읽은 뒤) 관리자가 중지하고 커밋한다

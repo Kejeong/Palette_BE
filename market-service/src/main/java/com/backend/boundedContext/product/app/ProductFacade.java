@@ -100,12 +100,12 @@ public class ProductFacade {
 
     @Transactional
     public void deductStock(List<StockChangeDto> items) {
-        productSearchIndexSupport.requestIndex(productDeductStockUseCase.deductStock(items));
+        productChanged(productDeductStockUseCase.deductStock(items));   // 품절 여부가 바뀐 상품만
     }
 
     @Transactional
     public void restoreStock(List<StockChangeDto> items, StockRestoreReason reason) {
-        productSearchIndexSupport.requestIndex(productRestoreStockUseCase.restoreStock(items, reason));
+        productChanged(productRestoreStockUseCase.restoreStock(items, reason));   // 품절 여부가 바뀐 상품만
     }
 
     /** 호출한 쪽 트랜잭션이 끝날 때까지 잠금을 유지해야 하므로 트랜잭션 없이 부르면 예외가 난다 */
@@ -254,7 +254,7 @@ public class ProductFacade {
     public Long addOption(Long memberId, Long productId, ProductOptionSpec spec) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
         Long optionId = productAddOptionUseCase.addOption(sellerId, productId, spec).getId();
-        productSearchIndexSupport.requestIndex(productId);   // 재고 있는 옵션이 생기면 품절이 풀린다
+        productChanged(Set.of(productId));   // 재고 있는 옵션이 생기면 품절이 풀린다
         return optionId;
     }
 
@@ -270,7 +270,7 @@ public class ProductFacade {
     public void deleteOption(Long memberId, Long productId, Long optionId) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
         productDeleteOptionUseCase.deleteOption(sellerId, productId, optionId);
-        productSearchIndexSupport.requestIndex(productId);   // 재고 있는 옵션을 지우면 품절이 될 수 있다
+        productChanged(Set.of(productId));   // 재고 있는 옵션을 지우면 품절이 될 수 있다
     }
 
     /** 승인된 판매자가 본인 상품에 기간 할인을 걸고, 만든 할인 ID를 돌려준다. */
@@ -278,7 +278,7 @@ public class ProductFacade {
     public Long createDiscount(Long memberId, Long productId, long salePrice, LocalDateTime startsAt, LocalDateTime endsAt) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
         Long discountId = productCreateDiscountUseCase.createDiscount(sellerId, productId, salePrice, startsAt, endsAt).getId();
-        productSearchIndexSupport.requestIndex(productId);
+        productChanged(Set.of(productId));
         return discountId;
     }
 
@@ -288,7 +288,7 @@ public class ProductFacade {
                                LocalDateTime startsAt, LocalDateTime endsAt) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
         productModifyDiscountUseCase.modifyDiscount(sellerId, productId, discountId, salePrice, startsAt, endsAt);
-        productSearchIndexSupport.requestIndex(productId);
+        productChanged(Set.of(productId));
     }
 
     /** 승인된 판매자가 본인 상품의 시작 전인 할인을 지운다. */
@@ -296,7 +296,7 @@ public class ProductFacade {
     public void deleteDiscount(Long memberId, Long productId, Long discountId) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
         productDeleteDiscountUseCase.deleteDiscount(sellerId, productId, discountId);
-        productSearchIndexSupport.requestIndex(productId);
+        productChanged(Set.of(productId));
     }
 
     /** 승인된 판매자가 본인 상품의 진행 중인 할인을 지금 끝낸다. */
@@ -304,7 +304,7 @@ public class ProductFacade {
     public void endDiscount(Long memberId, Long productId, Long discountId) {
         Long sellerId = productSupport.getSellableSellerId(memberId);
         productEndDiscountUseCase.endDiscount(sellerId, productId, discountId);
-        productSearchIndexSupport.requestIndex(productId);
+        productChanged(Set.of(productId));
     }
 
     /** 승인된 판매자가 자기 상품 옵션의 재고를 증감량만큼 조정하고, 조정 후 재고를 돌려준다. */
@@ -314,7 +314,7 @@ public class ProductFacade {
         OptionStock stock = productAdjustStockUseCase.adjustStock(sellerId, productId, optionId, changeQty);
         boolean wasSoldOut = stock.getStock() - changeQty == 0;
         if (wasSoldOut != stock.isSoldOut()) {
-            productSearchIndexSupport.requestIndex(productId);
+            productChanged(Set.of(productId));
         }
         return OptionStockDto.from(stock);
     }
@@ -372,7 +372,13 @@ public class ProductFacade {
 
     @Transactional
     public CategoryDto modifyCategory(Long categoryId, String name, Boolean active) {
-        return CategoryDto.from(productModifyCategoryUseCase.modifyCategory(categoryId, name, active));
+        CategoryDto before = CategoryDto.from(productSupport.getCategory(categoryId));   // 수정하면 같은 엔티티가 바뀌므로 값을 먼저 담는다
+        CategoryDto category = CategoryDto.from(productModifyCategoryUseCase.modifyCategory(categoryId, name, active));
+        if (!before.name().equals(category.name()) || before.active() != category.active()) {
+            // 상품 변경 이벤트의 소분류 이름·판매 여부(onSale = 판매 중이고 카테고리 사용 중)가 바뀌었을 때만 그 소분류의 상품을 다시 알린다
+            productChanged(productSupport.getNotDeletedProductIdsInCategory(categoryId));
+        }
+        return category;
     }
 
     /**
@@ -397,12 +403,10 @@ public class ProductFacade {
     }
 
     /**
-     * 상품의 내용이나 판매 상태가 바뀌었을 때 부른다(등록·수정·삭제·판매 중지·중지 해제).
-     * 검색 색인을 요청하고, 같은 트랜잭션에서 상품 변경 이벤트(AI 추천용)를 outbox에 저장한다.
-     * 재고·옵션·할인만 바뀐 경우는 검색 색인만 요청한다(requestIndex).
+     * 상품의 내용·판매 상태·품절 여부·옵션·할인·카테고리가 바뀌었을 때 부른다.
+     * 같은 트랜잭션에서 상품 변경 이벤트를 outbox에 저장한다. AI 추천과 검색 색인 컨슈머가 Kafka로 받는다.
      */
     private void productChanged(Collection<Long> productIds) {
-        productSearchIndexSupport.requestIndex(productIds);
         productChangeEventSupport.publishChanged(productIds);
     }
 
@@ -414,20 +418,21 @@ public class ProductFacade {
 
     // 상품 검색 색인 (ES). 변경한 트랜잭션이 커밋된 뒤에 부른다
 
-    /** 상품들을 DB의 지금 값으로 다시 색인한다. 커밋 뒤 리스너에서 부르므로 새 트랜잭션에서 읽는다 */
+    /** 상품들을 DB의 지금 값으로 다시 색인한다 (검색 색인 컨슈머). 새 트랜잭션에서 읽는다 */
     @Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
     public void indexProducts(Collection<Long> productIds) {
         productSearchIndexSupport.indexProducts(productIds);
     }
 
     /**
-     * 지난 성공 실행 뒤로 할인이 시작했거나 끝난 상품을 다시 색인하고, 그 상품 수를 돌려준다 (할인 경계 스케줄러).
+     * 지난 성공 실행 뒤로 할인이 시작했거나 끝난 상품의 상품 변경 이벤트를 발행하고, 그 상품 수를 돌려준다 (할인 경계 스케줄러).
+     * 직접 색인하지 않고 이벤트만 남기므로 색인은 검색 색인 컨슈머 한 곳에서만 한다. outbox 저장에 쓰기 트랜잭션이 필요하다.
      * lastSucceededAt이 null이면(기동 후 첫 실행) 정해 둔 구간만큼 돌아본다
      */
-    @Transactional(readOnly = true)
-    public int reindexDiscountBoundaries(LocalDateTime lastSucceededAt, LocalDateTime now) {
+    @Transactional
+    public int publishDiscountBoundaryChanges(LocalDateTime lastSucceededAt, LocalDateTime now) {
         List<Long> productIds = productSearchIndexSupport.findDiscountBoundaryProductIds(lastSucceededAt, now);
-        productSearchIndexSupport.indexProducts(productIds);
+        productChanged(productIds);
         return productIds.size();
     }
 
