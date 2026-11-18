@@ -22,6 +22,8 @@ public record ProductSummaryDto(
         String businessName,
         String thumbnailUrl,
         boolean soldOut,
-        Integer remainingStock
+        Integer remainingStock,
+        long reviewCount,
+        double averageRating
 ) {
 }

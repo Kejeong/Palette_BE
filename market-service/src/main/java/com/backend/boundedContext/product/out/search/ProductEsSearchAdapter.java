@@ -108,6 +108,9 @@ public class ProductEsSearchAdapter implements ProductSearchPort {
             case PRICE_ASC -> List.of(field("effectivePrice", SortOrder.Asc), byId);
             case PRICE_DESC -> List.of(field("effectivePrice", SortOrder.Desc), byId);
             case DISCOUNT_RATE -> List.of(field("discountRate", SortOrder.Desc), latest, byId);
+            case POPULAR -> List.of(field("behaviorScore", SortOrder.Desc), latest, byId);
+            case WISH -> List.of(field("wishCount", SortOrder.Desc), latest, byId);
+            case SALES -> List.of(field("salesCount30d", SortOrder.Desc), latest, byId);
         };
     }
 

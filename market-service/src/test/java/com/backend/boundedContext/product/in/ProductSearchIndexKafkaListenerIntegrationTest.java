@@ -52,7 +52,7 @@ import static org.mockito.Mockito.verify;
         "custom.product.search.indexConsumer.retryInitialIntervalMillis=100",
         "custom.product.search.indexConsumer.retryMaxIntervalMillis=200"
 })
-@EmbeddedKafka(topics = "product.events", partitions = 3, bootstrapServersProperty = "spring.kafka.bootstrap-servers")
+@EmbeddedKafka(topics = {"product.events", "review.events"}, partitions = 3, bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 class ProductSearchIndexKafkaListenerIntegrationTest {
 
     private static final Duration WAIT = Duration.ofSeconds(20);
@@ -119,11 +119,11 @@ class ProductSearchIndexKafkaListenerIntegrationTest {
     }
 
     @Test
-    @DisplayName("같은 토픽의 다른 이벤트(찜)는 색인하지 않고, 그 뒤 상품 변경 이벤트는 색인한다")
+    @DisplayName("다루지 않는 이벤트는 색인하지 않고, 그 뒤 상품 변경 이벤트는 색인한다")
     void ignoresOtherEventTypes() {
         doNothing().when(indexAdapter).upsert(anyList());
 
-        send(String.valueOf(productId), "WishAddedEvent");
+        send(String.valueOf(productId), "OtherProductEvent");
         send(String.valueOf(productId), "ProductChangedEvent");   // 같은 키라 같은 파티션에서 뒤에 처리된다
 
         await().atMost(WAIT).until(() -> upsertCalls() >= 1);
@@ -171,6 +171,26 @@ class ProductSearchIndexKafkaListenerIntegrationTest {
         return option;
     }
 
+    @Test
+    @DisplayName("행동 지표가 바뀌는 이벤트(찜, 판매 지표, review.events의 리뷰)도 그 상품을 다시 색인한다")
+    void indexesOnBehaviorEvents() {
+        doNothing().when(indexAdapter).upsert(anyList());
+
+        send(String.valueOf(productId), "WishAddedEvent");
+        send("review.events", String.valueOf(otherProductId), "ReviewCreatedEvent");
+
+        await().atMost(WAIT).until(() -> upsertedIds().containsAll(List.of(productId, otherProductId)));
+    }
+
+    /** upsert에 들어간 모든 상품 ID */
+    private List<Long> upsertedIds() {
+        return mockingDetails(indexAdapter).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("upsert"))
+                .flatMap(invocation -> invocation.<List<ProductSearchDocument>>getArgument(0).stream())
+                .map(ProductSearchDocument::productId)
+                .toList();
+    }
+
     private long upsertCalls() {
         return mockingDetails(indexAdapter).getInvocations().stream()
                 .filter(invocation -> invocation.getMethod().getName().equals("upsert"))
@@ -179,7 +199,11 @@ class ProductSearchIndexKafkaListenerIntegrationTest {
 
     /** 릴레이와 같은 키·헤더로 보낸다. 검색 색인 컨슈머는 payload를 읽지 않으므로 본문은 비워 둔다 */
     private void send(String key, String eventType) {
-        ProducerRecord<String, String> record = new ProducerRecord<>("product.events", key, "{}");
+        send("product.events", key, eventType);
+    }
+
+    private void send(String topic, String key, String eventType) {
+        ProducerRecord<String, String> record = new ProducerRecord<>(topic, key, "{}");
         record.headers().add("eventType", eventType.getBytes(StandardCharsets.UTF_8));
         kafkaTemplate.send(record).join();
     }

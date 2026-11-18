@@ -33,6 +33,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import com.backend.boundedContext.review.domain.Review;
+import com.backend.boundedContext.review.out.ReviewRepository;
+import com.backend.shared.review.out.ReviewApi;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,6 +62,12 @@ class ProductFacadeSearchTest {
 
     @Autowired
     private ProductFacade productFacade;
+
+    @Autowired
+    private ReviewApi reviewApi;
+
+    @Autowired
+    private ReviewRepository reviewRepository;
 
     @Autowired
     private CategoryRepository categoryRepository;
@@ -297,6 +306,46 @@ class ProductFacadeSearchTest {
     }
 
     @Test
+    @DisplayName("상세: 찜 수는 지금 찜한 회원 수다 (검색 색인 값이 아니라 바로 센다)")
+    void getProductDetailWishCount() {
+        Product product = create(skincare, KEY + " 찜 상세", 25_000, 30);
+        assertThat(productFacade.getProductDetail(product.getId()).wishCount()).isZero();
+
+        productFacade.addWishlist(9_201L, product.getId());
+        productFacade.addWishlist(9_202L, product.getId());
+
+        assertThat(productFacade.getProductDetail(product.getId()).wishCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("목록·상세: 리뷰 수와 평균 별점(소수 첫째 자리)을 지금 DB 값으로 주고, 삭제한 리뷰는 빼며, 리뷰가 없으면 0이다")
+    void reviewStatsOnListAndDetail() {
+        Product reviewed = create(skincare, KEY + " 리뷰 있음", 25_000, 30);
+        Product noReview = create(skincare, KEY + " 리뷰 없음", 25_000, 30);
+        review(reviewed, 1, 5);
+        review(reviewed, 2, 4);
+        review(reviewed, 3, 4);
+        review(reviewed, 4, 1).delete(LocalDateTime.now());   // 삭제한 리뷰는 세지 않는다
+
+        assertThat(productFacade.getProductDetail(reviewed.getId()))
+                .extracting(ProductDetailDto::reviewCount, ProductDetailDto::averageRating)
+                .containsExactly(3L, 4.3);   // 13 / 3 = 4.33
+        assertThat(productFacade.getProductDetail(noReview.getId()))
+                .extracting(ProductDetailDto::reviewCount, ProductDetailDto::averageRating)
+                .containsExactly(0L, 0.0);
+
+        List<ProductSummaryDto> items = search(KEY + " 리뷰", null, ProductSort.LATEST, true).items();
+        assertThat(items)
+                .extracting(ProductSummaryDto::productId, ProductSummaryDto::reviewCount, ProductSummaryDto::averageRating)
+                .contains(tuple(reviewed.getId(), 3L, 4.3), tuple(noReview.getId(), 0L, 0.0));
+    }
+
+    private Review review(Product product, long seq, int rating) {
+        return reviewRepository.save(Review.create(9_930_000L + product.getId() * 10 + seq, 9_300L + seq, product.getId(),
+                1L, "기본", "리뷰어", rating, "좋아요"));
+    }
+
+    @Test
     @DisplayName("상세: 없거나, 판매 중지·삭제됐거나, 카테고리가 사용 중지된 상품은 PRODUCT_NOT_FOUND")
     void getProductDetailNotDisplayable() {
         Product stopped = create(skincare, KEY + " 중지", 10_000, 10);
@@ -329,7 +378,7 @@ class ProductFacadeSearchTest {
         ProductSearchPort staleIndex = (query, pageable) -> new PageImpl<>(staleIds, pageable, staleIds.size());
         ProductSearchProductsUseCase useCase = new ProductSearchProductsUseCase(
                 productSupport, productImageSupport, productDiscountSupport, staleIndex, productRepository,
-                productPopularKeywordSupport);
+                productPopularKeywordSupport, reviewApi);
 
         PageResponse<ProductSummaryDto> result = useCase.searchProducts(KEY, null, ProductSort.LATEST, true, false, PageRequest.of(0, 20));
 
@@ -355,7 +404,7 @@ class ProductFacadeSearchTest {
         };
         ProductSearchProductsUseCase useCase = new ProductSearchProductsUseCase(
                 productSupport, productImageSupport, productDiscountSupport, productSearchPort, productRepository,
-                new ProductPopularKeywordSupport(recordingPort, productPolicy));
+                new ProductPopularKeywordSupport(recordingPort, productPolicy), reviewApi);
 
         useCase.searchProducts("  " + KEY.toUpperCase() + " 크림 ", null, null, true, false, PageRequest.of(0, 20));   // 앞뒤 공백, 대문자
         useCase.searchProducts(KEY, null, null, true, false, PageRequest.of(1, 20));          // 다음 페이지

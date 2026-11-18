@@ -4,10 +4,12 @@ import com.backend.boundedContext.review.app.dto.ReviewSummaryDto;
 import com.backend.boundedContext.review.domain.Review;
 import com.backend.boundedContext.review.out.RatingCount;
 import com.backend.boundedContext.review.out.ReviewRepository;
+import com.backend.shared.review.dto.ProductRatingStatsDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -24,7 +26,7 @@ public class ReviewGetReviewSummaryUseCase {
         for (int rating = Review.MAX_RATING; rating >= Review.MIN_RATING; rating--) {
             ratingCounts.put(rating, 0L);
         }
-        for (RatingCount count : reviewRepository.countByRating(productId)) {
+        for (RatingCount count : reviewRepository.countByRating(List.of(productId))) {
             ratingCounts.put(count.rating(), count.count());
         }
 
@@ -34,7 +36,7 @@ public class ReviewGetReviewSummaryUseCase {
             reviewCount += entry.getValue();
             ratingSum += entry.getKey() * entry.getValue();
         }
-        double average = reviewCount == 0 ? 0.0 : Math.round(ratingSum * 10.0 / reviewCount) / 10.0;
+        double average = new ProductRatingStatsDto(productId, reviewCount, ratingSum).averageRating();
 
         return new ReviewSummaryDto(average, reviewCount, ratingCounts);
     }

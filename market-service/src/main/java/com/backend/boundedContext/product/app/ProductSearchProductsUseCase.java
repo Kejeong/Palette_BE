@@ -9,6 +9,8 @@ import com.backend.boundedContext.product.out.ProductRepository;
 import com.backend.boundedContext.product.out.ProductSearchPort;
 import com.backend.boundedContext.product.out.ProductSearchQuery;
 import com.backend.global.page.PageResponse;
+import com.backend.shared.review.dto.ProductRatingStatsDto;
+import com.backend.shared.review.out.ReviewApi;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -34,6 +36,7 @@ public class ProductSearchProductsUseCase {
     private final ProductSearchPort productSearchPort;
     private final ProductRepository productRepository;
     private final ProductPopularKeywordSupport productPopularKeywordSupport;
+    private final ReviewApi reviewApi;
 
     /**
      * 판매 중이고 사용 중인 카테고리의 상품을 검색한다.
@@ -84,18 +87,22 @@ public class ProductSearchProductsUseCase {
                 products.stream().map(Product::getSellerId).collect(Collectors.toSet()));
         Map<Long, String> thumbnailUrls = productImageSupport.getThumbnailUrls(productIds);
         Map<Long, ProductPrice> prices = productDiscountSupport.getPrices(products);
+        // 리뷰 수·평균 별점은 색인 값이 아니라 지금 DB 값이다 (리뷰 직후에도 맞고, DB 검색으로 대신할 때도 같다)
+        Map<Long, ProductRatingStatsDto> ratings = reviewApi.getRatingStats(productIds);
 
         return products.stream()
                 .map(product -> {
                     List<OptionStock> optionStocks = stocks.getOrDefault(product.getId(), List.of());
                     ProductPrice price = prices.get(product.getId());
+                    ProductRatingStatsDto rating = ratings.getOrDefault(product.getId(), ProductRatingStatsDto.empty(product.getId()));
                     return new ProductSummaryDto(
                             product.getId(), product.getName(), product.getPrice(), price.salePrice(), price.discountRate(),
                             product.getCategory().getId(),
                             product.getSellerId(), businessNames.get(product.getSellerId()),
                             thumbnailUrls.get(product.getId()),
                             ProductSupport.isSoldOut(optionStocks),
-                            ProductSupport.getLowStockRemaining(optionStocks));
+                            ProductSupport.getLowStockRemaining(optionStocks),
+                            rating.reviewCount(), rating.averageRating());
                 })
                 .collect(Collectors.toMap(ProductSummaryDto::productId, Function.identity()));
     }

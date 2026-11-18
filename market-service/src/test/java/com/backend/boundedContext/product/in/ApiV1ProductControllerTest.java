@@ -73,7 +73,7 @@ class ApiV1ProductControllerTest {
     @Test
     @DisplayName("상품 검색: 없는 정렬 값이면 400 INVALID_REQUEST")
     void search_invalidSort() throws Exception {
-        mockMvc.perform(get("/api/v1/products").param("sort", "POPULAR"))
+        mockMvc.perform(get("/api/v1/products").param("sort", "NOT_A_SORT"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.resultCode").value("400-INVALID_REQUEST"));
     }

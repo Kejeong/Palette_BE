@@ -12,6 +12,9 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, JpaSpecificationExecutor<OrderItem> {
@@ -34,4 +37,28 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, Jpa
     Optional<ReviewableOrderItemDto> findReviewableItem(@Param("buyerId") Long buyerId,
                                                         @Param("orderItemId") Long orderItemId,
                                                         @Param("status") OrderStatus status);
+
+    /** 상품별로 since 이후 결제한 주문(이 상태들)의 수량 합. 판매가 없는 상품은 결과에 없다 */
+    @Query("""
+            select new com.backend.boundedContext.order.out.ProductSalesQuantity(oi.productId, sum(oi.quantity))
+            from OrderItem oi join oi.order o
+            where oi.productId in :productIds and o.paidAt >= :since and o.status in :statuses
+            group by oi.productId
+            """)
+    List<ProductSalesQuantity> sumQuantityByProductPaidSince(Collection<Long> productIds, LocalDateTime since,
+                                                             Collection<OrderStatus> statuses);
+
+    /** (from, to]에 이 상태들로 바뀐 주문의 상품 ID */
+    @Query("""
+            select distinct oi.productId from OrderStatusHistory h join h.order o join o.items oi
+            where h.createdAt > :from and h.createdAt <= :to and h.toStatus in :statuses
+            """)
+    List<Long> findProductIdsWithStatusChangedBetween(LocalDateTime from, LocalDateTime to, Collection<OrderStatus> statuses);
+
+    /** (from, to]에 결제한 주문(이 상태들)의 상품 ID */
+    @Query("""
+            select distinct oi.productId from OrderItem oi join oi.order o
+            where o.paidAt > :from and o.paidAt <= :to and o.status in :statuses
+            """)
+    List<Long> findProductIdsPaidBetween(LocalDateTime from, LocalDateTime to, Collection<OrderStatus> statuses);
 }

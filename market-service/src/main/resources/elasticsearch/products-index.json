@@ -19,7 +19,7 @@
     }
   },
   "mappings": {
-    "_meta": { "version": 2 },
+    "_meta": { "version": 3 },
     "dynamic": "strict",
     "properties": {
       "productId": { "type": "long" },
@@ -35,6 +35,11 @@
       "soldOut": { "type": "boolean" },
       "effectivePrice": { "type": "long" },
       "discountRate": { "type": "integer" },
+      "wishCount": { "type": "long" },
+      "reviewCount": { "type": "long" },
+      "ratingScore": { "type": "double" },
+      "salesCount30d": { "type": "long" },
+      "behaviorScore": { "type": "double" },
       "createdAt": { "type": "date", "format": "epoch_millis" }
     }
   }

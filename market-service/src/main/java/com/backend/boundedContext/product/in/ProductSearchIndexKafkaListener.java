@@ -4,6 +4,12 @@ import com.backend.boundedContext.product.app.ProductFacade;
 import com.backend.boundedContext.product.out.search.SearchIndexUnavailableException;
 import com.backend.global.outbox.EventMessages;
 import com.backend.shared.product.event.ProductChangedEvent;
+import com.backend.shared.product.event.ProductMetricsChangedEvent;
+import com.backend.shared.product.event.WishAddedEvent;
+import com.backend.shared.product.event.WishRemovedEvent;
+import com.backend.shared.review.event.ReviewCreatedEvent;
+import com.backend.shared.review.event.ReviewDeletedEvent;
+import com.backend.shared.review.event.ReviewModifiedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -20,11 +26,15 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 상품 변경 이벤트(ProductChangedEvent)를 Kafka(product.events)로 받아 검색 색인에 반영한다 (engine=es일 때만).
+ * 상품 색인 값이 바뀌는 이벤트를 Kafka로 받아 검색 색인에 반영한다 (engine=es일 때만). 모두 메시지 키가 상품 ID다.
+ * <ul>
+ *   <li>product.events: 상품 변경(ProductChangedEvent), 행동 지표 변경(ProductMetricsChangedEvent, 판매량), 찜 추가·해제(찜 수)</li>
+ *   <li>review.events: 리뷰 작성·수정·삭제 (리뷰 수·별점)</li>
+ * </ul>
  * <p>
  * 메시지를 묶음으로 받아 상품 ID를 모은 뒤 한 번에 색인한다. payload는 쓰지 않고 상품 ID로 DB를 다시 읽어 문서 전체를 다시 쓴다
  * (판매 중이 아니면 지운다). 같은 이벤트가 다시 오거나 순서가 바뀌어도 결과는 DB의 지금 상태이므로 processed_event로 거르지 않는다.
- * 같은 토픽의 다른 이벤트(찜 등)는 eventType 헤더로 걸러 payload를 읽지 않는다. 헤더가 없으면 봉투를 읽어 거른다.
+ * 그 밖의 이벤트는 eventType 헤더로 걸러 payload를 읽지 않는다. 헤더가 없으면 봉투를 읽어 거른다.
  * <p>
  * 실패는 두 가지로 나눈다.
  * <ul>
@@ -47,12 +57,20 @@ public class ProductSearchIndexKafkaListener {
 
     /** OutboxKafkaSender가 붙이는 이벤트 타입 헤더 */
     private static final String EVENT_TYPE_HEADER = "eventType";
-    private static final String HANDLED_EVENT_TYPE = ProductChangedEvent.class.getSimpleName();
+    private static final Set<String> HANDLED_EVENT_TYPES = Set.of(
+            ProductChangedEvent.class.getSimpleName(),
+            ProductMetricsChangedEvent.class.getSimpleName(),
+            WishAddedEvent.class.getSimpleName(),
+            WishRemovedEvent.class.getSimpleName(),
+            ReviewCreatedEvent.class.getSimpleName(),
+            ReviewModifiedEvent.class.getSimpleName(),
+            ReviewDeletedEvent.class.getSimpleName());
 
     private final ProductFacade productFacade;
     private final EventMessages eventMessages;
 
-    @KafkaListener(topics = "product.events", groupId = CONSUMER, containerFactory = ProductSearchIndexKafkaConfig.LISTENER_FACTORY)
+    @KafkaListener(topics = {"product.events", "review.events"}, groupId = CONSUMER,
+            containerFactory = ProductSearchIndexKafkaConfig.LISTENER_FACTORY)
     public void handle(List<ConsumerRecord<String, String>> records) {
         Set<Long> productIds = new LinkedHashSet<>();
         records.forEach(record -> {
@@ -81,10 +99,10 @@ public class ProductSearchIndexKafkaListener {
         }
     }
 
-    /** 상품 변경 이벤트면 상품 ID, 아니면 null. 키나 봉투가 깨진 메시지는 다시 해도 같으므로 ERROR로 남기고 건너뛴다 */
+    /** 색인에 반영할 이벤트면 상품 ID(메시지 키), 아니면 null. 키나 봉투가 깨진 메시지는 다시 해도 같으므로 ERROR로 남기고 건너뛴다 */
     private Long changedProductId(ConsumerRecord<String, String> record) {
         try {
-            if (!HANDLED_EVENT_TYPE.equals(eventType(record))) return null;
+            if (!HANDLED_EVENT_TYPES.contains(eventType(record))) return null;
             return Long.valueOf(record.key());
         } catch (RuntimeException e) {
             log.error("상품 검색 색인 메시지를 읽지 못해 건너뜁니다. partition={}, offset={}, key={}",

@@ -9,8 +9,8 @@
 | 컨텍스트 | 담당 | 제공하는 Api | 발행하는 이벤트 |
 | --- | --- | --- | --- |
 | member | 시연·지은 | `MemberApi` | `MemberSignedUpEvent`, `SellerSanctionedEvent`, `SellerWithdrawalRequestedEvent`, `SellerWithdrawalRejectedEvent` |
-| product | 유진 | `ProductApi` | `WishAddedEvent`, `WishRemovedEvent`, `ProductChangedEvent` |
-| review | 유진 | - | `ReviewCreatedEvent`, `ReviewModifiedEvent`, `ReviewDeletedEvent` |
+| product | 유진 | `ProductApi` | `WishAddedEvent`, `WishRemovedEvent`, `ProductChangedEvent`, `ProductMetricsChangedEvent` |
+| review | 유진 | `ReviewApi` | `ReviewCreatedEvent`, `ReviewModifiedEvent`, `ReviewDeletedEvent` |
 | order | 은정 | `OrderApi` | `OrderPaidEvent`, `OrderConfirmedEvent`, `OrderReturnedEvent` |
 | payment | 지은·시연 | `PaymentApi` | - |
 | settlement | 다은 | `SettlementApi` | - |
@@ -401,17 +401,35 @@ public record ProductChangedEvent(
 ```
 
 - 찜 추가·해제와 같은 트랜잭션에서 outbox에 저장하고, 릴레이가 Kafka 토픽 `product.events`로 발행한다(키 `productId`, 같은 상품의 찜 이벤트는 순서대로 전달된다).
-- 아직 받는 쪽은 없다. 상품 검색 색인(ES)의 찜 수 반영에 쓸 예정이다(TRSS-167).
+- 받는 쪽은 market 검색 색인 컨슈머다. 키(productId)로 찜 수를 다시 세어 색인한다(TRSS-290). AI 추천은 헤더로 거른다.
 - `ProductChangedEvent`는 상품 등록·수정·삭제, 관리자 판매 중지, 판매 중지 요청 승인, 판매자 철회·제재로 인한 전체 중지와 철회 거절·제재 해지로 인한 재개,
   품절 여부가 바뀐 재고 차감·복원·조정, 옵션 추가·삭제, 할인 등록·수정·삭제·지금 종료, 소분류 이름·사용 여부 변경 때 같은 트랜잭션에서 outbox에 저장한다.
   할인이 시작·종료되는 시각에는 할인 경계 스케줄러가 발행한다(TRSS-279).
   받는 쪽은 AI 추천(ai-service, TRSS-243)과 market 검색 색인(groupId `market-search-index`, 메시지 키로 DB를 다시 읽어 색인)이다.
   AI 추천은 같은 상품의 더 오래된 이벤트(봉투 `occurredAt`)는 버린다.
+- `ProductMetricsChangedEvent(Long productId)`: 상품의 판매량이 바뀌었을 수 있음(결제·취소·반품, 최근 30일 집계 구간 밖으로 나간 판매). 판매 지표 스케줄러가 1분마다 찾아 발행한다(TRSS-290).
+  상품 내용은 그대로라 AI 추천이 받는 `ProductChangedEvent`와 나눴다. 받는 쪽은 market 검색 색인 컨슈머뿐이고, AI 컨슈머는 eventType 헤더로 거른다.
   관리자 API `POST /api/v1/admin/products/change-events`가 판매 중인 상품 전체를 다시 발행한다(AI 서비스를 처음 띄울 때).
 
 ## 3.1 review
 
-리뷰는 market-service 안의 별도 컨텍스트(`boundedContext/review`)다. 다른 컨텍스트에 Api를 제공하지 않고, 아래 공유 Api만 부른다.
+리뷰는 market-service 안의 별도 컨텍스트(`boundedContext/review`)다. 상품 컨텍스트에 리뷰 통계(`ReviewApi`)를 제공하고, 아래 공유 Api를 부른다.
+
+```java
+package com.backend.shared.review.out;
+
+public interface ReviewApi {
+
+    /** 상품별 리뷰 수·별점 합(삭제한 리뷰 제외). 리뷰가 없는 상품은 키가 없다. 상품 목록·상세의 리뷰 수·평균 별점과 검색 색인의 별점 점수 계산용 (TRSS-290) */
+    Map<Long, ProductRatingStatsDto> getRatingStats(Collection<Long> productIds);
+}
+
+// com.backend.shared.review.dto
+public record ProductRatingStatsDto(Long productId, long reviewCount, long ratingSum) {
+    static ProductRatingStatsDto empty(Long productId);   // 리뷰 없음
+    double averageRating();                               // 소수 첫째 자리 반올림, 리뷰가 없으면 0.0 (리뷰 평점 요약과 같은 값)
+}
+```
 
 | 부르는 Api | 용도 |
 | --- | --- |
@@ -436,7 +454,7 @@ public record ReviewDeletedEvent(Long reviewId, Long productId, int rating) impl
 
 - 리뷰 작성·수정·삭제와 같은 트랜잭션에서 outbox에 저장하고, 릴레이가 Kafka 토픽 `review.events`로 발행한다(키 `productId`, 같은 상품의 리뷰 이벤트는 순서대로 전달된다).
 - 별점을 함께 실어서, 받는 쪽은 리뷰를 다시 조회하지 않고 상품별 평점 합계·리뷰 수를 증감할 수 있다.
-- 아직 받는 쪽은 없다. 상품 검색 색인(ES)의 평점·리뷰 수 반영에 쓸 예정이다(TRSS-186).
+- 받는 쪽은 market 검색 색인 컨슈머(groupId `market-search-index`)다. 별점 증감 값은 쓰지 않고 키(productId)로 리뷰 통계를 다시 읽어 색인한다(TRSS-290).
 
 ## 4. order
 
@@ -477,6 +495,18 @@ public interface OrderApi {
      * 판매할 수 없는 항목은 saleable = false, 단가 0원. 내 장바구니 항목이 아니면 404-CART_ITEM_NOT_FOUND.
      */
     List<CartLineDto> getCartLines(Long buyerId, Collection<Long> cartItemIds);
+
+    /**
+     * 상품별 paidSince 이후 결제 수량. 판매량에 세는 상태(PAID·CONFIRMED·RETURN_REQUESTED)만 세므로 결제 뒤 취소·반품된 주문은 빠진다.
+     * 판매가 없는 상품은 키가 없다. 상품 컨텍스트가 검색 색인의 판매량(최근 30일)을 계산할 때 쓴다 (TRSS-290)
+     */
+    Map<Long, Long> getSalesQuantities(Collection<Long> productIds, LocalDateTime paidSince);
+
+    /** (from, to]에 결제·취소·반품(PAID·CANCELED·RETURNED)으로 상태가 바뀐 주문의 상품 ID. 판매 지표 스케줄러용 */
+    List<Long> findProductIdsWithSalesChanged(LocalDateTime from, LocalDateTime to);
+
+    /** (from, to]에 결제한(판매량에 세는) 주문의 상품 ID. 판매량 집계 구간 밖으로 나가는 판매를 찾을 때 쓴다 */
+    List<Long> findProductIdsPaidBetween(LocalDateTime from, LocalDateTime to);
 }
 ```
 

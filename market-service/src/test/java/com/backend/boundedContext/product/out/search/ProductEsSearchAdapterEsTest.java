@@ -188,6 +188,21 @@ class ProductEsSearchAdapterEsTest {
     }
 
     @Test
+    @DisplayName("행동 지표 정렬: 인기순은 행동 점수, 찜 많은순은 찜 수, 판매량순은 최근 판매량 내림차순이고 같으면 최신순이다")
+    void behaviorSorts() throws Exception {
+        createAlias();
+        indexAdapter.upsert(List.of(
+                doc(1, "크림 A", SKINCARE, false, 10_000, 0, 5, 1, 0.30, 1),
+                doc(2, "크림 B", SKINCARE, false, 10_000, 0, 1, 9, 0.10, 2),
+                doc(3, "크림 C", SKINCARE, false, 10_000, 0, 5, 3, 0.50, 3)));
+        refresh();
+
+        assertThat(ids(search(null, ProductSort.POPULAR, false))).containsExactly(3L, 1L, 2L);
+        assertThat(ids(search(null, ProductSort.WISH, false))).containsExactly(3L, 1L, 2L);    // 찜 5 같으면 최신순
+        assertThat(ids(search(null, ProductSort.SALES, false))).containsExactly(2L, 3L, 1L);
+    }
+
+    @Test
     @DisplayName("매핑 버전: alias가 없거나, 지금 인덱스의 매핑 버전이 코드보다 낮으면(_meta 없음 = 1) 최신이 아니다")
     void isCurrentChecksMappingVersion() throws Exception {
         assertThat(indexAdapter.isCurrent()).isFalse();   // alias 없음
@@ -262,6 +277,13 @@ class ProductEsSearchAdapterEsTest {
 
     private static ProductSearchDocument doc(long id, String name, long categoryId, boolean soldOut,
                                              long effectivePrice, int discountRate, long createdAt) {
-        return new ProductSearchDocument(id, name, categoryId, "ON_SALE", soldOut, effectivePrice, discountRate, createdAt);
+        return doc(id, name, categoryId, soldOut, effectivePrice, discountRate, 0, 0, 0, createdAt);
+    }
+
+    private static ProductSearchDocument doc(long id, String name, long categoryId, boolean soldOut, long effectivePrice,
+                                             int discountRate, long wishCount, long salesCount30d, double behaviorScore,
+                                             long createdAt) {
+        return new ProductSearchDocument(id, name, categoryId, "ON_SALE", soldOut, effectivePrice, discountRate,
+                wishCount, 0, 0, salesCount30d, behaviorScore, createdAt);
     }
 }

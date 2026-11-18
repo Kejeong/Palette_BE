@@ -1,7 +1,9 @@
 package com.backend.shared.order.out;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import com.backend.shared.order.dto.CartLineDto;
@@ -25,6 +27,16 @@ public interface OrderApi {
 
     // 구매자의 최근 주문 목록 반환 (없으면 빈 목록)
     List<OrderSummaryDto> getRecentOrders(Long buyerId, int limit);
+
+    // 상품별 paidSince 이후 결제 수량. 결제 뒤 취소·반품된 주문은 빼고 구매확정 전 주문도 센다. 판매가 없는 상품은 키가 없다
+    // 상품 컨텍스트가 검색 색인의 판매량(최근 30일)을 계산할 때 쓴다
+    Map<Long, Long> getSalesQuantities(Collection<Long> productIds, LocalDateTime paidSince);
+
+    // (from, to]에 결제·취소·반품된 주문의 상품 ID. 상품 컨텍스트가 판매량을 다시 계산할 상품을 찾을 때 쓴다
+    List<Long> findProductIdsWithSalesChanged(LocalDateTime from, LocalDateTime to);
+
+    // (from, to]에 결제한(판매량에 세는) 주문의 상품 ID. 상품 컨텍스트가 판매량 집계 구간 밖으로 나가는 판매를 찾을 때 쓴다
+    List<Long> findProductIdsPaidBetween(LocalDateTime from, LocalDateTime to);
 
     // 구매자 본인의 구매 확정된 주문 항목 조회 (리뷰 작성 자격 확인용)
     Optional<ReviewableOrderItemDto> findConfirmedOrderItem(Long buyerId, Long orderItemId);

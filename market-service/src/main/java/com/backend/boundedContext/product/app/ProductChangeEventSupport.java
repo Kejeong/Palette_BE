@@ -6,6 +6,7 @@ import com.backend.boundedContext.product.domain.ProductSaleStatus;
 import com.backend.boundedContext.product.out.ProductRepository;
 import com.backend.global.eventPublisher.EventPublisher;
 import com.backend.shared.product.event.ProductChangedEvent;
+import com.backend.shared.product.event.ProductMetricsChangedEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
@@ -46,6 +47,11 @@ public class ProductChangeEventSupport {
         Map<Long, List<OptionStock>> stocks = productSupport.getOptionStocksByProductId(productIds);
         products.forEach(product -> eventPublisher.publish(toEvent(product, thumbnails.get(product.getId()),
                 ProductSupport.isSoldOut(stocks.getOrDefault(product.getId(), List.of())))));
+    }
+
+    /** 상품들의 행동 지표 변경 이벤트를 발행한다 (검색 색인 컨슈머만 받는다). 상품을 읽지 않고 ID만 담는다 */
+    public void publishMetricsChanged(Collection<Long> productIds) {
+        productIds.stream().distinct().sorted().forEach(id -> eventPublisher.publish(new ProductMetricsChangedEvent(id)));
     }
 
     /**

@@ -1,8 +1,10 @@
 package com.backend.boundedContext.order.in;
 
 import com.backend.shared.order.dto.CartLineDto;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.context.annotation.Lazy;
@@ -44,6 +46,21 @@ public class OrderApiAdapter implements OrderApi {
     @Override
     public List<OrderSummaryDto> getRecentOrders(Long buyerId, int limit) {
         return orderFacade.getRecentOrders(buyerId, limit);
+    }
+
+    @Override
+    public Map<Long, Long> getSalesQuantities(Collection<Long> productIds, LocalDateTime paidSince) {
+        return orderFacade.getSalesQuantities(productIds, paidSince);
+    }
+
+    @Override
+    public List<Long> findProductIdsWithSalesChanged(LocalDateTime from, LocalDateTime to) {
+        return orderFacade.findProductIdsWithSalesChanged(from, to);
+    }
+
+    @Override
+    public List<Long> findProductIdsPaidBetween(LocalDateTime from, LocalDateTime to) {
+        return orderFacade.findProductIdsPaidBetween(from, to);
     }
 
     @Override

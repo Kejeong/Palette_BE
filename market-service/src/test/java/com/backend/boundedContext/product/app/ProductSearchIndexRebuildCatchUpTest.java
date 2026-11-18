@@ -48,6 +48,7 @@ class ProductSearchIndexRebuildCatchUpTest {
     @Autowired private ProductDiscountSupport productDiscountSupport;
     @Autowired private ProductPolicy productPolicy;
     @Autowired private EntityManager entityManager;
+    @Autowired private ProductBehaviorSupport productBehaviorSupport;
     @Autowired private CategoryRepository categoryRepository;
     @Autowired private ProductOptionRepository productOptionRepository;
     @Autowired private OptionStockRepository optionStockRepository;
@@ -92,7 +93,7 @@ class ProductSearchIndexRebuildCatchUpTest {
         Long stopped = productIds.get(1);
         RecordingIndexPort indexPort = new RecordingIndexPort();
         ProductSearchIndexSupport indexSupport = new ProductSearchIndexSupport(productRepository,
-                productDiscountRepository, productSupport, productDiscountSupport, indexPort, productPolicy, entityManager);
+                productDiscountRepository, productSupport, productDiscountSupport, indexPort, productPolicy, productBehaviorSupport, entityManager);
 
         // 그 상품이 든 묶음을 새 인덱스에 넣은 직후(재색인 트랜잭션이 상품을 읽은 뒤) 관리자가 중지하고 커밋한다
         TransactionTemplate otherTransaction = transaction();
