@@ -88,15 +88,76 @@ class PaymentTopupConfirmProcessorTest {
     }
 
     @Test
-    @DisplayName("승인 시작: READY가 아니면 409 TOPUP_ALREADY_PROCESSED이고 상태는 그대로다")
-    void start_notReady() {
+    @DisplayName("승인 재요청: PROCESSING 충전 건에 같은 결제키·금액이 오면 결과 확인 중으로 돌려주고 상태는 그대로다")
+    void start_replayProcessing() {
         Topup topup = readyTopup(20_000);
         topup.markProcessing("pk_1");
+
+        TopupConfirmStartResult result = processor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 20_000);
+
+        assertThat(result.isReplayed()).isTrue();
+        assertThat(result.replay().status()).isEqualTo(TopupStatus.PROCESSING);
+        assertThat(result.replay().orderId()).isEqualTo(topup.getOrderId());
+        assertThat(result.replay().amount()).isEqualTo(20_000);
+        assertThat(result.replay().balance()).isNull();
+        assertThat(topup.getStatus()).isEqualTo(TopupStatus.PROCESSING);
+        verify(topupRepository, never()).existsByPaymentKey(any());
+    }
+
+    @Test
+    @DisplayName("승인 재요청: DONE 충전 건에 같은 결제키·금액이 오면 승인 완료와 지금 지갑 잔액을 돌려준다")
+    void start_replayDone() {
+        Wallet wallet = Wallet.create(MEMBER_ID);
+        TestWalletCharger.charge(wallet, 5_000);
+        Topup topup = readyTopup(wallet, 20_000);
+        topup.markProcessing("pk_1");
+        topup.approve(APPROVED_AT);
+
+        TopupConfirmStartResult result = processor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 20_000);
+
+        assertThat(result.isReplayed()).isTrue();
+        assertThat(result.replay().status()).isEqualTo(TopupStatus.DONE);
+        assertThat(result.replay().balance()).isEqualTo(5_000);
+        verify(walletTransactionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("승인 재요청: 결제키가 다르면 같은 요청이 아니므로 409 TOPUP_ALREADY_PROCESSED")
+    void start_replayDifferentPaymentKey() {
+        Topup topup = readyTopup(20_000);
+        topup.markProcessing("pk_1");
+
+        assertThatThrownBy(() -> processor.start(MEMBER_ID, topup.getOrderId(), "pk_other", 20_000))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("409-TOPUP_ALREADY_PROCESSED");
+        assertThat(topup.getPaymentKey()).isEqualTo("pk_1");
+    }
+
+    @Test
+    @DisplayName("승인 재요청: 실패한 충전 건은 처음 오류 응답을 다시 만들 수 없어 409 TOPUP_ALREADY_PROCESSED")
+    void start_replayFailed() {
+        Topup topup = readyTopup(20_000);
+        topup.markProcessing("pk_1");
+        topup.fail(TopupStatus.FAILED_PG_DECLINED, "카드 거절");
 
         assertThatThrownBy(() -> processor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 20_000))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("409-TOPUP_ALREADY_PROCESSED");
-        assertThat(topup.getStatus()).isEqualTo(TopupStatus.PROCESSING);
+        assertThat(topup.getStatus()).isEqualTo(TopupStatus.FAILED_PG_DECLINED);
+    }
+
+    @Test
+    @DisplayName("승인 재요청: 취소가 시작된 충전 건은 승인 완료로 답할 수 없어 409 TOPUP_ALREADY_PROCESSED")
+    void start_replayCanceling() {
+        Topup topup = readyTopup(20_000);
+        topup.markProcessing("pk_1");
+        topup.approve(APPROVED_AT);
+        topup.startCancel();
+
+        assertThatThrownBy(() -> processor.start(MEMBER_ID, topup.getOrderId(), "pk_1", 20_000))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("409-TOPUP_ALREADY_PROCESSED");
+        assertThat(topup.getStatus()).isEqualTo(TopupStatus.CANCELING);
     }
 
     @Test
@@ -304,7 +365,11 @@ class PaymentTopupConfirmProcessorTest {
 
     // 잠금 조회로 돌려줄 READY 충전 건
     private Topup readyTopup(long amount) {
-        Topup topup = Topup.create(MEMBER_ID, Wallet.create(MEMBER_ID), amount, PgProvider.TOSS, LocalDateTime.now());
+        return readyTopup(Wallet.create(MEMBER_ID), amount);
+    }
+
+    private Topup readyTopup(Wallet wallet, long amount) {
+        Topup topup = Topup.create(MEMBER_ID, wallet, amount, PgProvider.TOSS, LocalDateTime.now());
         given(topupRepository.findByOrderIdAndMemberIdForUpdate(topup.getOrderId(), MEMBER_ID))
                 .willReturn(Optional.of(topup));
         return topup;
