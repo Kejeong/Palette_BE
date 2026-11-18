@@ -55,7 +55,7 @@ public class ReviewCreateReviewUseCase {
             throw new DomainException(ReviewErrorCode.REVIEW_ALREADY_EXISTS, e);
         }
 
-        eventPublisher.publish(new ReviewCreatedEvent(review.getId(), review.getProductId(), review.getRating()));
+        eventPublisher.publish(new ReviewCreatedEvent(review.getId(), review.getProductId(), review.getRating(), review.getMemberId()));
         return review.getId();
     }
 }
