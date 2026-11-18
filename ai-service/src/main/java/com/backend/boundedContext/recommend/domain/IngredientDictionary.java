@@ -1,6 +1,8 @@
 package com.backend.boundedContext.recommend.domain;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
@@ -160,15 +162,17 @@ public final class IngredientDictionary {
         return c == ')' || c == '）';
     }
 
-    // 괄호 안 내용들을 같은 규칙으로 나눈 이름들(정규화). 괄호가 겹쳐 있으면 안쪽까지 모두
+    // 괄호 안 내용들을 같은 규칙으로 나눈 이름들(정규화). 괄호가 겹쳐 있으면 안쪽까지 모두.
+    // 재귀 대신 할 일 목록으로 돈다: 괄호가 수천 겹이어도 스택이 넘치지 않게(StackOverflowError)
     private static List<String> innerNames(List<String> groups) {
         List<String> names = new ArrayList<>();
-        for (String group : groups) {
-            for (String inner : split(group)) {
+        Deque<String> pending = new ArrayDeque<>(groups);
+        while (!pending.isEmpty()) {
+            for (String inner : split(pending.poll())) {
                 Parts parts = parse(inner);
                 String name = clean(parts.outside());
                 if (!name.isEmpty()) names.add(name);
-                names.addAll(innerNames(parts.groups()));
+                pending.addAll(parts.groups());
             }
         }
         return names;
