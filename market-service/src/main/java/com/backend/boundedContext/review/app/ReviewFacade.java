@@ -5,6 +5,7 @@ import com.backend.boundedContext.review.app.dto.ProductReviewDto;
 import com.backend.boundedContext.review.app.dto.ReviewSummaryDto;
 import com.backend.boundedContext.review.domain.ReviewSort;
 import com.backend.global.page.PageResponse;
+import com.backend.shared.review.dto.MemberRatingDto;
 import com.backend.shared.review.dto.ProductRatingStatsDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -27,11 +29,18 @@ public class ReviewFacade {
     private final ReviewGetReviewSummaryUseCase reviewGetReviewSummaryUseCase;
     private final ReviewGetMyReviewsUseCase reviewGetMyReviewsUseCase;
     private final ReviewGetRatingStatsUseCase reviewGetRatingStatsUseCase;
+    private final ReviewGetMemberRatingsUseCase reviewGetMemberRatingsUseCase;
 
     /** 상품별 리뷰 수·별점 합 (ReviewApi, 상품 검색 색인의 별점 점수). 리뷰가 없는 상품은 키가 없다 */
     @Transactional(readOnly = true)
     public Map<Long, ProductRatingStatsDto> getRatingStats(Collection<Long> productIds) {
         return reviewGetRatingStatsUseCase.getRatingStats(productIds);
+    }
+
+    /** 회원이 쓴 리뷰의 별점, 최근 순 (ReviewApi, 개인화 추천) */
+    @Transactional(readOnly = true)
+    public List<MemberRatingDto> getMemberRatings(Long memberId) {
+        return reviewGetMemberRatingsUseCase.getMemberRatings(memberId);
     }
 
     /** 구매 확정된 본인 주문 항목에 리뷰를 쓰고 리뷰 ID를 돌려준다 */
