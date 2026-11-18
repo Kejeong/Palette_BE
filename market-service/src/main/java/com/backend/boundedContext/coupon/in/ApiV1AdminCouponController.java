@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
@@ -50,10 +51,12 @@ public class ApiV1AdminCouponController {
             @RequestParam(required = false) Long sellerId,
             @Parameter(description = "상품 쿠폰을 받은 인플루언서 ID (보내면 장바구니 쿠폰은 빠짐)")
             @RequestParam(required = false) Long influencerId,
+            @Parameter(description = "쿠폰명 검색어 (부분 일치, 대소문자 무시, 최대 50자)")
+            @RequestParam(required = false) @Size(max = 50) String keyword,
             @ParameterObject Pageable pageable
     ) {
         return RsData.of("200-1", "쿠폰 목록을 조회했습니다.",
-                couponFacade.getCouponsForAdmin(type, status, sellerId, influencerId, pageable));
+                couponFacade.getCouponsForAdmin(type, status, sellerId, influencerId, keyword, pageable));
     }
 
     @Operation(

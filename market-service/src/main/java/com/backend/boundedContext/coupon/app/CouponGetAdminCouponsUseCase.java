@@ -22,7 +22,7 @@ import java.util.Map;
 
 /**
  * 관리자 전체 쿠폰 목록 (최신 등록순)
- * 보내지 않은 조건은 적용하지 않는다. sellerId, influencerId는 상품 쿠폰에만 해당하므로 보내면 장바구니 쿠폰은 빠진다. 상태는 조회 시점 기준으로 계산한 화면 상태로 거른다.
+ * 보내지 않은 조건은 적용하지 않는다. keyword는 쿠폰명 부분 일치(대소문자 무시)다. sellerId, influencerId는 상품 쿠폰에만 해당하므로 보내면 장바구니 쿠폰은 빠진다. 상태는 조회 시점 기준으로 계산한 화면 상태로 거른다.
  */
 @Component
 @RequiredArgsConstructor
@@ -33,6 +33,12 @@ public class CouponGetAdminCouponsUseCase {
 
     public PageResponse<AdminCouponSummaryDto> getCoupons(CouponType type, CouponDisplayStatus status,
                                                           Long sellerId, Long influencerId, Pageable pageable) {
+        return getCoupons(type, status, sellerId, influencerId, null, pageable);
+    }
+
+    public PageResponse<AdminCouponSummaryDto> getCoupons(CouponType type, CouponDisplayStatus status,
+                                                          Long sellerId, Long influencerId, String keyword,
+                                                          Pageable pageable) {
         LocalDateTime now = LocalDateTime.now();
         // 요청의 sort는 무시하고 최신 등록순으로만 준다
         Pageable latestFirst = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by(Sort.Direction.DESC, "id"));
@@ -41,7 +47,8 @@ public class CouponGetAdminCouponsUseCase {
                 CouponSpecifications.typeEquals(type)
                         .and(CouponSpecifications.displayStatusEquals(status, now))
                         .and(CouponSpecifications.sellerEquals(sellerId))
-                        .and(CouponSpecifications.influencerEquals(influencerId)),
+                        .and(CouponSpecifications.influencerEquals(influencerId))
+                        .and(CouponSpecifications.nameContains(keyword)),
                 latestFirst);
 
         List<Long> couponIds = coupons.getContent().stream().map(Coupon::getId).toList();
