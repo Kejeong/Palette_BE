@@ -2,7 +2,10 @@ package com.backend.boundedContext.settlement.out;
 
 import com.backend.boundedContext.settlement.out.SettlementExcelWriter.Column;
 import com.backend.boundedContext.settlement.out.SettlementExcelWriter.ColumnType;
+import org.apache.poi.ss.usermodel.BorderStyle;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
 import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 엑셀 파일 쓰기: 임시 파일에 쓴 .xlsx를 다시 읽어 시트·머리글·값·합계·열 너비가 맞는지 본다
@@ -78,6 +83,42 @@ class SettlementExcelWriterTest {
                 assertEquals(9 * 256, sheet.getColumnWidth(4));    // BOOLEAN
                 assertEquals(14 * 256, sheet.getColumnWidth(5));   // TEXT 짧은 머리글: 최소 14
                 assertEquals(("아주 긴 머리글 텍스트 열".length() * 2 + 2) * 256, sheet.getColumnWidth(6));   // TEXT 긴 머리글: 글자 수 × 2 + 2 (내용 길이와 무관)
+            }
+        } finally {
+            Files.deleteIfExists(file);
+        }
+    }
+
+    @Test
+    @DisplayName("합계 행은 합계 앞 열들을 합쳐 라벨을 쓰고, 자동 필터는 데이터 행까지만, 지정 너비와 굵은 열이 들어간다")
+    void totalRowLayoutFilterAndColumnOptions() throws Exception {
+        Path file = Files.createTempFile("settlement-export-test-", ".xlsx");
+        try {
+            try (SettlementExcelWriter.Workbook workbook = new SettlementExcelWriter().open()) {
+                int sheet = workbook.addSheet("정산서", List.of(
+                        new Column("정산월", ColumnType.TEXT), new Column("정산서 ID", ColumnType.ID),
+                        Column.wide("상호명", ColumnType.TEXT, 22),
+                        new Column("판매 대금", ColumnType.AMOUNT), Column.strong("지급액", ColumnType.AMOUNT)));
+                workbook.addRow(sheet, Arrays.asList("2026-09", 31L, "팔레트상점", 30_000L, 27_000L));
+                workbook.addRow(sheet, Arrays.asList("2026-09", 32L, "블라썸 아뜰리에", 10_000L, 9_000L));
+                workbook.addTotalRow(sheet, "합계 (2건)", Map.of(3, 40_000L, 4, 36_000L));
+                workbook.writeTo(file);
+            }
+            try (InputStream in = Files.newInputStream(file); XSSFWorkbook read = new XSSFWorkbook(in)) {
+                Sheet sheet = read.getSheet("정산서");
+                // 합계 라벨: 0~2열을 합친 칸, 오른쪽 정렬, 위 테두리
+                assertEquals("합계 (2건)", sheet.getRow(3).getCell(0).getStringCellValue());
+                assertEquals(1, sheet.getNumMergedRegions());
+                assertEquals("A4:C4", sheet.getMergedRegion(0).formatAsString());
+                assertEquals(HorizontalAlignment.RIGHT, sheet.getRow(3).getCell(0).getCellStyle().getAlignment());
+                assertEquals(BorderStyle.THIN, sheet.getRow(3).getCell(4).getCellStyle().getBorderTop());
+                assertEquals(36_000, (long) sheet.getRow(3).getCell(4).getNumericCellValue());
+                // 자동 필터는 머리글~마지막 데이터 행(합계 행 제외)
+                assertEquals("A1:E3", ((XSSFSheet) sheet).getCTWorksheet().getAutoFilter().getRef());
+                // 지정 너비, 굵은 열
+                assertEquals(22 * 256, sheet.getColumnWidth(2));
+                assertTrue(read.getFontAt(sheet.getRow(1).getCell(4).getCellStyle().getFontIndex()).getBold());
+                assertFalse(read.getFontAt(sheet.getRow(1).getCell(3).getCellStyle().getFontIndex()).getBold());
             }
         } finally {
             Files.deleteIfExists(file);

@@ -34,7 +34,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 지급 완료(PAID) 정산서 엑셀 다운로드 (시트 2개: ① 정산서 ② 품목 내역, 각 시트 맨 아래 합계 행)
+ * 지급 완료(PAID) 정산서 엑셀 다운로드 (시트 2개: ① 정산서 ② 품목 내역, 각 시트 맨 아래 "합계 (N건)" 행)
  *
  * 지급이 끝난 정산 내역을 확인하는 기능이라 PAID 정산서만 담는다(지급 예정·지연·보류는 금액이 바뀔 수 있어 넣지 않는다).
  * 판매자는 본인 정산서만, 관리자는 전체(판매자 ID로 거르기 가능)를 받는다. 월별 개별 다운로드는 from = to.
@@ -58,34 +58,41 @@ public class SettlementExportUseCase {
     private static final String TEMP_FILE_PREFIX = "settlement-export-";
     private static final String TEMP_FILE_SUFFIX = ".xlsx";
 
+    /*
+     * 열 순서: 왼쪽은 "누구에게, 언제"(정산월, ID, 판매자, 지급 일시와 지급 원장), 오른쪽 끝은 "얼마"(건수와 금액).
+     * 합계가 붙는 열이 오른쪽에 모이고, 합계 행 라벨은 그 앞 열들을 합친 칸에 오른쪽 정렬로 들어간다. 지급액은 굵게
+     */
     private static final List<Column> SELLER_STATEMENT_COLUMNS = List.of(
-            new Column("정산서 ID", ColumnType.ID), new Column("정산월", ColumnType.TEXT),
-            new Column("판매 대금", ColumnType.AMOUNT), new Column("수수료", ColumnType.AMOUNT),
-            new Column("지급액", ColumnType.AMOUNT), new Column("품목 수", ColumnType.AMOUNT),
-            new Column("지급 일시", ColumnType.DATETIME));
+            new Column("정산월", ColumnType.TEXT), new Column("정산서 ID", ColumnType.ID),
+            new Column("지급 일시", ColumnType.DATETIME),
+            new Column("품목 수", ColumnType.AMOUNT), new Column("판매 대금", ColumnType.AMOUNT),
+            new Column("수수료", ColumnType.AMOUNT), Column.strong("지급액", ColumnType.AMOUNT));
 
     private static final List<Column> ADMIN_STATEMENT_COLUMNS = List.of(
-            new Column("정산서 ID", ColumnType.ID), new Column("정산월", ColumnType.TEXT),
-            new Column("판매자 ID", ColumnType.ID), new Column("상호명", ColumnType.TEXT),
-            new Column("판매 대금", ColumnType.AMOUNT), new Column("수수료", ColumnType.AMOUNT),
-            new Column("지급액", ColumnType.AMOUNT), new Column("품목 수", ColumnType.AMOUNT),
-            new Column("지급 일시", ColumnType.DATETIME), new Column("지급 원장 ID", ColumnType.ID));
+            new Column("정산월", ColumnType.TEXT), new Column("정산서 ID", ColumnType.ID),
+            new Column("판매자 ID", ColumnType.ID), Column.wide("상호명", ColumnType.TEXT, 22),
+            new Column("지급 일시", ColumnType.DATETIME), new Column("지급 원장 ID", ColumnType.ID),
+            new Column("품목 수", ColumnType.AMOUNT), new Column("판매 대금", ColumnType.AMOUNT),
+            new Column("수수료", ColumnType.AMOUNT), Column.strong("지급액", ColumnType.AMOUNT));
 
+    /* 품목 내역: 정산월 정보(정산서 정산월, 원래 정산월, 이월 여부)를 앞에 모아 "왜 이 달 정산에 들어갔는지"가 보이게 한다 */
     private static final List<Column> SELLER_ITEM_COLUMNS = List.of(
             new Column("정산서 ID", ColumnType.ID), new Column("정산서 정산월", ColumnType.TEXT),
+            new Column("원래 정산월", ColumnType.TEXT), new Column("이월 여부", ColumnType.BOOLEAN),
+            new Column("구매 확정 시각", ColumnType.DATETIME),
             new Column("주문 ID", ColumnType.ID), new Column("주문 항목 ID", ColumnType.ID),
-            new Column("상품명", ColumnType.TEXT), new Column("옵션명", ColumnType.TEXT),
-            new Column("판매가", ColumnType.AMOUNT), new Column("상품 쿠폰 할인액", ColumnType.AMOUNT),
+            Column.wide("상품명", ColumnType.TEXT, 28), Column.wide("옵션명", ColumnType.TEXT, 18),
             new Column("수수료율", ColumnType.PERCENT),
-            new Column("수수료", ColumnType.AMOUNT), new Column("지급액", ColumnType.AMOUNT),
-            new Column("구매 확정 시각", ColumnType.DATETIME), new Column("원래 정산월", ColumnType.TEXT),
-            new Column("이월 여부", ColumnType.BOOLEAN));
+            new Column("판매가", ColumnType.AMOUNT), new Column("상품 쿠폰 할인액", ColumnType.AMOUNT),
+            new Column("수수료", ColumnType.AMOUNT), Column.strong("지급액", ColumnType.AMOUNT));
 
+    /** 관리자 품목 내역: 주문 항목 ID 뒤에 판매자 ID, 상호명 */
     private static final List<Column> ADMIN_ITEM_COLUMNS;
 
     static {
         List<Column> columns = new ArrayList<>(SELLER_ITEM_COLUMNS);
-        columns.add(2, new Column("판매자 ID", ColumnType.ID));
+        columns.add(7, new Column("판매자 ID", ColumnType.ID));
+        columns.add(8, Column.wide("상호명", ColumnType.TEXT, 22));
         ADMIN_ITEM_COLUMNS = List.copyOf(columns);
     }
 
@@ -152,9 +159,10 @@ public class SettlementExportUseCase {
                 for (SettlementExportRow s : chunk.statements()) {
                     workbook.addRow(statementSheet, admin ? adminStatementRow(s, names.get(s.sellerId()))
                             : sellerStatementRow(s));
+                    String businessName = admin ? names.get(s.sellerId()) : null;
                     statementTotals.add(s.totalSalePrice(), s.totalFee(), s.payoutAmount(), s.itemCount());
                     for (SettlementExportItemRow c : chunk.itemsOf(s.id())) {
-                        workbook.addRow(itemSheet, itemRow(s, c, admin));
+                        workbook.addRow(itemSheet, itemRow(s, c, admin, businessName));
                         itemTotals.add(c.salePrice(), c.fee(), c.payoutAmount(), 1);
                         itemTotals.addDiscount(c.productCouponDiscount());
                     }
@@ -164,10 +172,15 @@ public class SettlementExportUseCase {
                 afterId = last.id();
             }
 
-            workbook.addTotalRow(statementSheet, TOTAL_LABEL, admin
-                    ? statementTotals.statementColumns(4, 5, 6, 7) : statementTotals.statementColumns(2, 3, 4, 5));
-            workbook.addTotalRow(itemSheet, TOTAL_LABEL, admin
-                    ? itemTotals.itemColumns(7, 8, 10, 11) : itemTotals.itemColumns(6, 7, 9, 10));
+            List<Column> statementColumns = admin ? ADMIN_STATEMENT_COLUMNS : SELLER_STATEMENT_COLUMNS;
+            List<Column> itemColumns = admin ? ADMIN_ITEM_COLUMNS : SELLER_ITEM_COLUMNS;
+            workbook.addTotalRow(statementSheet, totalLabel(statementTotals.count),
+                    statementTotals.statementColumns(indexOf(statementColumns, "판매 대금"),
+                            indexOf(statementColumns, "수수료"), indexOf(statementColumns, "지급액"),
+                            indexOf(statementColumns, "품목 수")));
+            workbook.addTotalRow(itemSheet, totalLabel(itemTotals.count),
+                    itemTotals.itemColumns(indexOf(itemColumns, "판매가"), indexOf(itemColumns, "상품 쿠폰 할인액"),
+                            indexOf(itemColumns, "수수료"), indexOf(itemColumns, "지급액")));
             workbook.writeTo(file);
             return new ExportResult(file, Files.size(file), statementTotals.count, itemTotals.count);
         } catch (SettlementExcelWriter.TooManyRowsException e) {
@@ -222,22 +235,39 @@ public class SettlementExportUseCase {
     }
 
     private static List<Object> sellerStatementRow(SettlementExportRow s) {
-        return Arrays.asList(s.id(), s.settlementMonth(), s.totalSalePrice(), s.totalFee(), s.payoutAmount(),
-                s.itemCount(), s.paidAt());
+        return Arrays.asList(s.settlementMonth(), s.id(), s.paidAt(),
+                s.itemCount(), s.totalSalePrice(), s.totalFee(), s.payoutAmount());
     }
 
     private static List<Object> adminStatementRow(SettlementExportRow s, String businessName) {
-        return Arrays.asList(s.id(), s.settlementMonth(), s.sellerId(), businessName, s.totalSalePrice(),
-                s.totalFee(), s.payoutAmount(), s.itemCount(), s.paidAt(), s.walletTxId());
+        return Arrays.asList(s.settlementMonth(), s.id(), s.sellerId(), businessName, s.paidAt(), s.walletTxId(),
+                s.itemCount(), s.totalSalePrice(), s.totalFee(), s.payoutAmount());
     }
 
-    private static List<Object> itemRow(SettlementExportRow s, SettlementExportItemRow c, boolean admin) {
-        List<Object> row = new ArrayList<>(Arrays.asList(s.id(), s.settlementMonth(), c.orderId(),
-                c.orderItemId(), c.productName(), c.optionName(), c.salePrice(), c.productCouponDiscount(),
-                c.feeRate(), c.fee(), c.payoutAmount(),
-                c.confirmedAt(), c.settlementMonth(), !c.settlementMonth().equals(s.settlementMonth())));
-        if (admin) row.add(2, s.sellerId());
+    private static List<Object> itemRow(SettlementExportRow s, SettlementExportItemRow c, boolean admin,
+                                        String businessName) {
+        List<Object> row = new ArrayList<>(Arrays.asList(s.id(), s.settlementMonth(), c.settlementMonth(),
+                !c.settlementMonth().equals(s.settlementMonth()), c.confirmedAt(), c.orderId(), c.orderItemId(),
+                c.productName(), c.optionName(), c.feeRate(),
+                c.salePrice(), c.productCouponDiscount(), c.fee(), c.payoutAmount()));
+        if (admin) {
+            row.add(7, s.sellerId());
+            row.add(8, businessName);
+        }
         return row;
+    }
+
+    /** 합계 행 라벨: "합계 (N건)" */
+    private static String totalLabel(long count) {
+        return "%s (%,d건)".formatted(TOTAL_LABEL, count);
+    }
+
+    /** 머리글로 열 번호를 찾는다(열 순서를 바꿔도 합계 위치가 따라간다) */
+    private static int indexOf(List<Column> columns, String header) {
+        for (int i = 0; i < columns.size(); i++) {
+            if (columns.get(i).header().equals(header)) return i;
+        }
+        throw new IllegalStateException("엑셀 열이 없습니다: " + header);
     }
 
     private static String fileName(YearMonth from, YearMonth to) {
