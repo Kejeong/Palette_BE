@@ -7,6 +7,8 @@ import java.util.Map;
 import java.util.Optional;
 
 import com.backend.shared.order.dto.CartLineDto;
+import com.backend.shared.order.dto.CartOptionDto;
+import com.backend.shared.order.dto.PurchasedProductDto;
 import com.backend.shared.order.dto.OrderCancelType;
 import com.backend.shared.order.dto.OrderSummaryDto;
 import com.backend.shared.order.dto.ReviewableOrderItemDto;
@@ -37,6 +39,14 @@ public interface OrderApi {
 
     // (from, to]에 결제한(판매량에 세는) 주문의 상품 ID. 상품 컨텍스트가 판매량 집계 구간 밖으로 나가는 판매를 찾을 때 쓴다
     List<Long> findProductIdsPaidBetween(LocalDateTime from, LocalDateTime to);
+
+    // 구매자가 paidSince 이후 결제한 상품 (결제 뒤 취소·반품된 주문 제외), 최근 결제 순으로 최대 limit개. 같은 상품은 하나로 묶는다
+    // 상품 컨텍스트가 개인화 추천의 기준 상품을 고를 때 쓴다
+    List<PurchasedProductDto> getRecentPurchases(Long buyerId, LocalDateTime paidSince, int limit);
+
+    // 구매자 장바구니에 담긴 옵션 (최근에 담은 순). 장바구니가 없으면 빈 목록
+    // 상품 컨텍스트가 개인화 추천의 기준 상품을 고를 때 쓴다
+    List<CartOptionDto> getCartOptions(Long buyerId);
 
     // 구매자 본인의 구매 확정된 주문 항목 조회 (리뷰 작성 자격 확인용)
     Optional<ReviewableOrderItemDto> findConfirmedOrderItem(Long buyerId, Long orderItemId);
