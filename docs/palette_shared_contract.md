@@ -402,6 +402,7 @@ public record ProductChangedEvent(
 
 - 찜 추가·해제와 같은 트랜잭션에서 outbox에 저장하고, 릴레이가 Kafka 토픽 `product.events`로 발행한다(키 `productId`, 같은 상품의 찜 이벤트는 순서대로 전달된다).
 - 받는 쪽은 market 검색 색인 컨슈머다. 키(productId)로 찜 수를 다시 세어 색인한다(TRSS-290). AI 추천은 헤더로 거른다.
+- market 추천 컨슈머(groupId `market-recommend`)도 받아 `memberId`의 개인화 추천을 다시 계산한다(TRSS-308).
 - `ProductChangedEvent`는 상품 등록·수정·삭제, 관리자 판매 중지, 판매 중지 요청 승인, 판매자 철회·제재로 인한 전체 중지와 철회 거절·제재 해지로 인한 재개,
   품절 여부가 바뀐 재고 차감·복원·조정, 옵션 추가·삭제, 할인 등록·수정·삭제·지금 종료, 소분류 이름·사용 여부 변경 때 같은 트랜잭션에서 outbox에 저장한다.
   할인이 시작·종료되는 시각에는 할인 경계 스케줄러가 발행한다(TRSS-279).
@@ -422,9 +423,14 @@ public interface ReviewApi {
 
     /** 상품별 리뷰 수·별점 합(삭제한 리뷰 제외). 리뷰가 없는 상품은 키가 없다. 상품 목록·상세의 리뷰 수·평균 별점과 검색 색인의 별점 점수 계산용 (TRSS-290) */
     Map<Long, ProductRatingStatsDto> getRatingStats(Collection<Long> productIds);
+
+    /** 회원이 쓴 리뷰의 별점(삭제한 리뷰 제외, 최근 순). 개인화 추천의 기준 상품(4점 이상)과 뺄 상품(2점 이하)을 고를 때 쓴다 (TRSS-308) */
+    List<MemberRatingDto> getMemberRatings(Long memberId);
 }
 
 // com.backend.shared.review.dto
+public record MemberRatingDto(Long productId, int rating, LocalDateTime ratedAt) { }   // ratedAt: 리뷰 수정 시각
+
 public record ProductRatingStatsDto(Long productId, long reviewCount, long ratingSum) {
     static ProductRatingStatsDto empty(Long productId);   // 리뷰 없음
     double averageRating();                               // 소수 첫째 자리 반올림, 리뷰가 없으면 0.0 (리뷰 평점 요약과 같은 값)
@@ -443,18 +449,21 @@ public record ProductRatingStatsDto(Long productId, long reviewCount, long ratin
 package com.backend.shared.review.event;
 
 /** 구매자가 리뷰를 작성함 */
-public record ReviewCreatedEvent(Long reviewId, Long productId, int rating) implements DomainEvent { }                 // aggregateType REVIEW, aggregateId productId
+public record ReviewCreatedEvent(Long reviewId, Long productId, int rating, Long memberId) implements DomainEvent { }                 // aggregateType REVIEW, aggregateId productId
 
 /** 구매자가 리뷰를 수정함. 별점이 그대로여도(내용만 바뀌어도) 발행한다 */
-public record ReviewModifiedEvent(Long reviewId, Long productId, int oldRating, int rating) implements DomainEvent { }  // aggregateType REVIEW, aggregateId productId
+public record ReviewModifiedEvent(Long reviewId, Long productId, int oldRating, int rating, Long memberId) implements DomainEvent { }  // aggregateType REVIEW, aggregateId productId
 
 /** 구매자가 리뷰를 삭제함(소프트 삭제). rating은 삭제 직전 별점 */
-public record ReviewDeletedEvent(Long reviewId, Long productId, int rating) implements DomainEvent { }                 // aggregateType REVIEW, aggregateId productId
+public record ReviewDeletedEvent(Long reviewId, Long productId, int rating, Long memberId) implements DomainEvent { }                 // aggregateType REVIEW, aggregateId productId
 ```
 
 - 리뷰 작성·수정·삭제와 같은 트랜잭션에서 outbox에 저장하고, 릴레이가 Kafka 토픽 `review.events`로 발행한다(키 `productId`, 같은 상품의 리뷰 이벤트는 순서대로 전달된다).
 - 별점을 함께 실어서, 받는 쪽은 리뷰를 다시 조회하지 않고 상품별 평점 합계·리뷰 수를 증감할 수 있다.
-- 받는 쪽은 market 검색 색인 컨슈머(groupId `market-search-index`)다. 별점 증감 값은 쓰지 않고 키(productId)로 리뷰 통계를 다시 읽어 색인한다(TRSS-290).
+- `memberId`는 리뷰를 쓴 회원이다(TRSS-308에서 추가, 래퍼 타입). 이 필드를 더하기 전에 발행한 메시지는 null이다.
+- 받는 쪽
+  - market 검색 색인 컨슈머(groupId `market-search-index`): 별점 증감 값은 쓰지 않고 키(productId)로 리뷰 통계를 다시 읽어 색인한다(TRSS-290).
+  - market 추천 컨슈머(groupId `market-recommend`): `memberId`의 개인화 추천을 다시 계산한다. `memberId`가 null인 예전 메시지는 건너뛴다(TRSS-308).
 
 ## 4. order
 
@@ -507,7 +516,17 @@ public interface OrderApi {
 
     /** (from, to]에 결제한(판매량에 세는) 주문의 상품 ID. 판매량 집계 구간 밖으로 나가는 판매를 찾을 때 쓴다 */
     List<Long> findProductIdsPaidBetween(LocalDateTime from, LocalDateTime to);
+
+    /** 구매자가 paidSince 이후 결제한 상품(판매량에 세는 상태만), 상품마다 가장 최근 결제 시각으로 묶어 최근 순 최대 limit개. 개인화 추천 기준 상품 (TRSS-308) */
+    List<PurchasedProductDto> getRecentPurchases(Long buyerId, LocalDateTime paidSince, int limit);
+
+    /** 구매자 장바구니의 옵션과 담은 시각(최근 순). 장바구니는 옵션 단위라 상품은 상품 컨텍스트가 옵션으로 찾는다. 개인화 추천 기준 상품 (TRSS-308) */
+    List<CartOptionDto> getCartOptions(Long buyerId);
 }
+
+// com.backend.shared.order.dto
+public record PurchasedProductDto(Long productId, LocalDateTime paidAt) { }
+public record CartOptionDto(Long optionId, LocalDateTime addedAt) { }
 ```
 
 ### CouponApi (쿠폰 컨텍스트, market-service)
@@ -586,6 +605,8 @@ public record OrderConfirmedEvent(Long orderId, Long buyerId, LocalDateTime conf
 public record OrderReturnedEvent(Long orderId, Long buyerId, long refundAmount, LocalDateTime returnedAt,
                                  ReturnReasonCode returnReasonCode) implements DomainEvent { }
 ```
+
+- market 추천 컨슈머(groupId `market-recommend`)가 `OrderPaidEvent`·`OrderConfirmedEvent`·`OrderReturnedEvent`를 받아 `buyerId`의 개인화 추천을 다시 계산한다(TRSS-308). 취소 이벤트는 없어, 취소는 저장한 추천이 한 시간 지나 다시 계산될 때 반영된다.
 
 ### DTO
 

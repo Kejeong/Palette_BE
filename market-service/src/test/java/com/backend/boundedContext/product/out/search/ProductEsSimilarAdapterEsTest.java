@@ -96,7 +96,30 @@ class ProductEsSimilarAdapterEsTest {
                 List.of(new ProductSimilarCandidate(7, SKINCARE, 10_000, 0, 0)));
         given(fallback.findCandidates(any())).willReturn(fromDb);
 
-        assertThat(similarAdapter.findCandidates(query())).isSameAs(fromDb);
+        ProductSimilarCandidates result = similarAdapter.findCandidates(query());
+
+        assertThat(result.candidates()).isEqualTo(fromDb.candidates());
+        assertThat(result.degraded()).isTrue();   // ES 대신 쓴 결과라 추천 계산이 저장하지 않는다
+    }
+
+    @Test
+    @DisplayName("기준 상품 여러 개를 한 번에 찾으면 기준 상품마다 따로 후보·기준값을 준다 (msearch 한 번)")
+    void batch() throws Exception {
+        indexAdapter.switchAlias(indexAdapter.createIndex());
+        indexAdapter.upsert(List.of(
+                doc(1, "히알루론 수분 크림", "건조한 피부에 수분을 채우는 보습 크림", SKINCARE, false, 0.1),
+                doc(2, "벨벳 매트 립스틱", "입술에 부드럽게 발리는 매트 립스틱", MAKEUP, false, 0.1),
+                doc(BASE_ID, "촉촉 수분 크림", "건조한 피부를 위한 보습 크림", SKINCARE, false, 0.5),
+                doc(200, "매트 립스틱", "입술에 발리는 립스틱", MAKEUP, false, 0.5)));
+        client.indices().refresh(r -> r.index(alias));
+
+        List<ProductSimilarCandidates> results = similarAdapter.findAllCandidates(List.of(query(),
+                new ProductSimilarQuery(200, "매트 립스틱\n입술에 발리는 립스틱", MAKEUP, List.of(SKINCARE, MAKEUP), 50)));
+
+        assertThat(results).hasSize(2);
+        assertThat(results.get(0).candidates()).extracting(ProductSimilarCandidate::productId).contains(1L).doesNotContain(BASE_ID);
+        assertThat(results.get(1).candidates()).extracting(ProductSimilarCandidate::productId).contains(2L).doesNotContain(200L);
+        assertThat(results).allSatisfy(r -> assertThat(r.referenceTextScore()).isPositive());
     }
 
     private static ProductSimilarQuery query() {

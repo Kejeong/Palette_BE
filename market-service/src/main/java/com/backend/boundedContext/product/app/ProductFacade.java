@@ -13,6 +13,7 @@ import com.backend.boundedContext.product.app.dto.ProductDetailDto;
 import com.backend.boundedContext.product.app.dto.ProductImageFile;
 import com.backend.boundedContext.product.app.dto.ProductOptionSpec;
 import com.backend.boundedContext.product.app.dto.ProductStopRequestDto;
+import com.backend.boundedContext.product.app.dto.MemberRecommendationsDto;
 import com.backend.boundedContext.product.app.dto.ProductSummaryDto;
 import com.backend.boundedContext.product.app.dto.StockHistoryDto;
 import com.backend.boundedContext.product.app.dto.SellerProductFormDto;
@@ -73,6 +74,9 @@ public class ProductFacade {
     private final ProductGetPopularKeywordsUseCase productGetPopularKeywordsUseCase;
     private final ProductGetProductDetailUseCase productGetProductDetailUseCase;
     private final ProductGetSimilarProductsUseCase productGetSimilarProductsUseCase;
+    private final ProductGetMemberRecommendationsUseCase productGetMemberRecommendationsUseCase;
+    private final ProductGetRecentRecommendationsUseCase productGetRecentRecommendationsUseCase;
+    private final ProductRecommendSupport productRecommendSupport;
     private final ProductGetSellerProductsUseCase productGetSellerProductsUseCase;
     private final ProductModifyProductUseCase productModifyProductUseCase;
     private final ProductGetAdminProductsUseCase productGetAdminProductsUseCase;
@@ -140,6 +144,21 @@ public class ProductFacade {
     /** 상품 상세의 비슷한 상품 (속성 + 행동 점수). ES 조회를 트랜잭션 밖에서 하려고 트랜잭션을 잡지 않는다 (유스케이스가 나눠 잡는다) */
     public List<ProductSummaryDto> getSimilarProducts(Long productId, int size) {
         return productGetSimilarProductsUseCase.getSimilarProducts(productId, size);
+    }
+
+    /** 회원 추천 (회원님을 위한 추천 + 기준 상품별 섹션). 로그인하지 않았으면 인기순. 트랜잭션은 유스케이스가 나눠 잡는다 */
+    public MemberRecommendationsDto getMemberRecommendations(Long memberId, int size) {
+        return productGetMemberRecommendationsUseCase.getRecommendations(memberId, size);
+    }
+
+    /** 최근 본 상품 기반 추천. 트랜잭션은 유스케이스가 나눠 잡는다 */
+    public List<ProductSummaryDto> getRecentRecommendations(List<Long> recentViewIds, int size) {
+        return productGetRecentRecommendationsUseCase.getRecommendations(recentViewIds, size);
+    }
+
+    /** 회원 추천을 다시 계산해 저장한다 (찜·주문·리뷰 이벤트를 받은 컨슈머) */
+    public void refreshMemberRecommendations(Long memberId) {
+        productRecommendSupport.compute(memberId);
     }
 
     /** 로그인하지 않은 구매자의 상품 상세 (찜 여부는 false) */

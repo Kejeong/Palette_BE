@@ -22,6 +22,6 @@ public class ReviewModifyReviewUseCase {
 
         review.modify(rating, content);
 
-        eventPublisher.publish(new ReviewModifiedEvent(review.getId(), review.getProductId(), oldRating, review.getRating()));
+        eventPublisher.publish(new ReviewModifiedEvent(review.getId(), review.getProductId(), oldRating, review.getRating(), review.getMemberId()));
     }
 }

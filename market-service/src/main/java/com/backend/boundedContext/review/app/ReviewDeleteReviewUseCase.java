@@ -23,6 +23,6 @@ public class ReviewDeleteReviewUseCase {
 
         review.delete(LocalDateTime.now());
 
-        eventPublisher.publish(new ReviewDeletedEvent(review.getId(), review.getProductId(), review.getRating()));
+        eventPublisher.publish(new ReviewDeletedEvent(review.getId(), review.getProductId(), review.getRating(), review.getMemberId()));
     }
 }

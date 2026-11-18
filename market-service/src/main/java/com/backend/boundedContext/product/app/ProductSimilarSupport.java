@@ -26,7 +26,8 @@ class ProductSimilarSupport {
         return new SimilarBase(query, productDiscountSupport.getPrice(product).basePrice());
     }
 
-    private static String likeText(Product product) {
+    /** 비슷한 상품을 찾을 기준 텍스트 (상품명 + 설명) */
+    static String likeText(Product product) {
         String description = product.getDescription();
         return description == null ? product.getName() : product.getName() + "\n" + description;
     }

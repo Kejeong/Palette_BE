@@ -1,5 +1,7 @@
 package com.backend.boundedContext.order.app;
 
+import com.backend.shared.order.dto.CartOptionDto;
+import com.backend.shared.order.dto.PurchasedProductDto;
 import com.backend.shared.order.dto.CartLineDto;
 import com.backend.boundedContext.order.domain.ReturnFilter;
 import com.backend.boundedContext.order.domain.ReturnItemDecision;
@@ -31,6 +33,7 @@ public class OrderFacade {
 
     private final OrderGetCartUseCase orderGetCartUseCase;
     private final OrderSalesStatsUseCase orderSalesStatsUseCase;
+    private final OrderGetBuyerProductsUseCase orderGetBuyerProductsUseCase;
     private final OrderAddCartItemUseCase orderAddCartItemUseCase;
     private final OrderUpdateCartItemUseCase orderUpdateCartItemUseCase;
     private final OrderSelectAllCartItemsUseCase orderSelectAllCartItemsUseCase;
@@ -234,6 +237,18 @@ public class OrderFacade {
     @Transactional(readOnly = true)
     public List<Long> findProductIdsPaidBetween(LocalDateTime from, LocalDateTime to) {
         return orderSalesStatsUseCase.findProductIdsPaidBetween(from, to);
+    }
+
+    // 구매자가 결제한 상품, 최근 순 (OrderApi, 개인화 추천)
+    @Transactional(readOnly = true)
+    public List<PurchasedProductDto> getRecentPurchases(Long buyerId, LocalDateTime paidSince, int limit) {
+        return orderGetBuyerProductsUseCase.getRecentPurchases(buyerId, paidSince, limit);
+    }
+
+    // 구매자 장바구니의 옵션 (OrderApi, 개인화 추천)
+    @Transactional(readOnly = true)
+    public List<CartOptionDto> getCartOptions(Long buyerId) {
+        return orderGetBuyerProductsUseCase.getCartOptions(buyerId);
     }
 
     // 구매자 본인의 구매 확정 주문 항목 (OrderApi)

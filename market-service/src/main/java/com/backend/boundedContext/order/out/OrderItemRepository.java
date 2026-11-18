@@ -2,6 +2,7 @@ package com.backend.boundedContext.order.out;
 
 import com.backend.boundedContext.order.domain.OrderItem;
 import com.backend.shared.order.dto.OrderStatus;
+import com.backend.shared.order.dto.PurchasedProductDto;
 import com.backend.shared.order.dto.ReviewableOrderItemDto;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -9,6 +10,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -61,4 +63,15 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long>, Jpa
             where o.paidAt > :from and o.paidAt <= :to and o.status in :statuses
             """)
     List<Long> findProductIdsPaidBetween(LocalDateTime from, LocalDateTime to, Collection<OrderStatus> statuses);
+
+    /** 구매자가 since 이후 결제한(이 상태들) 상품. 상품마다 가장 최근 결제 시각으로 묶어 최근 순 */
+    @Query("""
+            select new com.backend.shared.order.dto.PurchasedProductDto(oi.productId, max(o.paidAt))
+            from OrderItem oi join oi.order o
+            where o.buyerId = :buyerId and o.paidAt >= :since and o.status in :statuses
+            group by oi.productId
+            order by max(o.paidAt) desc
+            """)
+    List<PurchasedProductDto> findRecentPurchases(Long buyerId, LocalDateTime since, Collection<OrderStatus> statuses,
+                                                  Limit limit);
 }

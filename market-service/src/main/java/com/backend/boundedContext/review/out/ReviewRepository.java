@@ -1,6 +1,7 @@
 package com.backend.boundedContext.review.out;
 
 import com.backend.boundedContext.review.domain.Review;
+import com.backend.shared.review.dto.MemberRatingDto;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -34,4 +35,13 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
             group by r.productId, r.rating
             """)
     List<RatingCount> countByRating(@Param("productIds") Collection<Long> productIds);
+
+    /** 회원의 삭제되지 않은 리뷰 별점 (최근에 정한 순) */
+    @Query("""
+            select new com.backend.shared.review.dto.MemberRatingDto(r.productId, r.rating, r.updatedAt)
+            from Review r
+            where r.memberId = :memberId and r.deletedAt is null
+            order by r.updatedAt desc
+            """)
+    List<MemberRatingDto> findRatingsByMemberId(@Param("memberId") Long memberId);
 }

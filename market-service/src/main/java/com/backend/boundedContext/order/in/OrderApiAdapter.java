@@ -1,5 +1,7 @@
 package com.backend.boundedContext.order.in;
 
+import com.backend.shared.order.dto.CartOptionDto;
+import com.backend.shared.order.dto.PurchasedProductDto;
 import com.backend.shared.order.dto.CartLineDto;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -61,6 +63,16 @@ public class OrderApiAdapter implements OrderApi {
     @Override
     public List<Long> findProductIdsPaidBetween(LocalDateTime from, LocalDateTime to) {
         return orderFacade.findProductIdsPaidBetween(from, to);
+    }
+
+    @Override
+    public List<PurchasedProductDto> getRecentPurchases(Long buyerId, LocalDateTime paidSince, int limit) {
+        return orderFacade.getRecentPurchases(buyerId, paidSince, limit);
+    }
+
+    @Override
+    public List<CartOptionDto> getCartOptions(Long buyerId) {
+        return orderFacade.getCartOptions(buyerId);
     }
 
     @Override
