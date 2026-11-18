@@ -3,7 +3,7 @@
 # 이미 된 단계는 건너뛰므로 여러 번 실행해도 결과가 같다. 버전을 바꾸려면 K3S_VERSION만 고치고 다시 실행한다(제자리 업그레이드).
 #
 # 실행(EC2-A, 레포 루트에서): sudo bash infra/scripts/setup-k3s.sh
-# 끝나면 sudo 없이 kubectl을 쓸 수 있다: kubectl get nodes
+# 끝나면 sudo를 실행한 계정(ubuntu)이 sudo 없이 kubectl을 쓸 수 있다: kubectl get nodes
 #
 # Docker(Compose)와 같은 서버에서 같이 돈다. k3s는 Docker가 아니라 자기 containerd로 파드를 돌려서 서로의 컨테이너가 섞이지 않는다.
 
@@ -13,7 +13,6 @@ set -euo pipefail
 # 2026-11-18 k3s stable 채널 버전
 K3S_VERSION="v1.37.2+k3s1"
 CONFIG_FILE="/etc/rancher/k3s/config.yaml"
-KUBECONFIG_SRC="/etc/rancher/k3s/k3s.yaml"
 
 main() {
     if [[ $EUID -ne 0 ]]; then
@@ -24,7 +23,6 @@ main() {
     write_config
     install_k3s
     wait_node_ready
-    copy_kubeconfig
 
     echo
     echo "✔ 준비 완료"
@@ -34,12 +32,18 @@ main() {
 }
 
 write_config() {
+    # kubeconfig(관리자 열쇠, /etc/rancher/k3s/k3s.yaml)를 root와 sudo를 실행한 계정의 그룹(보통 ubuntu)만 읽게 한다.
+    # 배포 스크립트(deploy.sh)가 ubuntu 계정으로 kubectl을 부르기 때문이다.
+    # 복사본(~/.kube/config)을 두지 않는다: k3s의 kubectl은 이 파일이 있으면 이걸 먼저 읽어서, 복사본이 있어도 권한 오류가 난다
+    local group
+    group="$(id -gn "${SUDO_USER:-root}")"
+
     # 설치 옵션을 명령줄이 아니라 설정 파일에 둔다. 서버에서 무엇을 껐는지 파일로 남고, 재시작·업그레이드 때도 같은 옵션이 쓰인다
     local new
-    new="$(cat <<'EOF'
+    new="$(cat <<EOF
 # setup-k3s.sh가 만든 파일. 고칠 때는 스크립트를 고치고 다시 실행한다
-# kubeconfig(관리자 열쇠)를 root만 읽게 한다. ubuntu 계정에는 스크립트가 따로 복사해 준다
-write-kubeconfig-mode: "0600"
+write-kubeconfig-mode: "0640"
+write-kubeconfig-group: "${group}"
 disable:
   # Traefik(입구)·servicelb(로드밸런서)는 서버의 80·443을 잡으려 해 nginx와 부딪힌다. 이번 구조(NodePort)에선 안 쓴다
   - traefik
@@ -89,21 +93,6 @@ wait_node_ready() {
     done
     echo "✖ 2분 안에 노드가 Ready가 되지 않았습니다: journalctl -u k3s -n 50 으로 원인을 보세요" >&2
     exit 1
-}
-
-copy_kubeconfig() {
-    # sudo를 실행한 사람(보통 ubuntu)이 sudo 없이 kubectl을 쓰게 관리자 열쇠를 복사한다.
-    # 배포 스크립트(deploy.sh)가 ubuntu 계정으로 kubectl을 부르기 때문이다. 다시 실행하면 최신 열쇠로 덮어쓴다
-    local user="${SUDO_USER:-}"
-    if [[ -z "$user" || "$user" == "root" ]]; then
-        echo "• sudo로 실행하지 않아 kubeconfig 복사를 건너뜀 (root는 ${KUBECONFIG_SRC}를 바로 쓴다)"
-        return
-    fi
-    local home
-    home="$(getent passwd "$user" | cut -d: -f6)"
-    install -d -m 700 -o "$user" -g "$user" "$home/.kube"
-    install -m 600 -o "$user" -g "$user" "$KUBECONFIG_SRC" "$home/.kube/config"
-    echo "• ${user}에게 kubeconfig 복사 (${home}/.kube/config, 권한 600)"
 }
 
 main "$@"
