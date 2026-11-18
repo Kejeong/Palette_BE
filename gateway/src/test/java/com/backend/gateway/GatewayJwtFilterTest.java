@@ -170,6 +170,21 @@ class GatewayJwtFilterTest {
         assertThat(serviceHits).hasValue(1);
     }
 
+    // 이 헤더가 있어야 nginx가 알림을 모아 두지 않고 바로 브라우저로 흘려보낸다(nginx엔 구독 경로를 적지 않음)
+    @Test
+    void 알림_구독_응답에는_nginx_버퍼링을_끄는_헤더를_붙인다() {
+        String token = Jwts.builder()
+                .subject("1").claim("role", "USER")
+                .expiration(new Date(System.currentTimeMillis() + 60_000))
+                .signWith(key())
+                .compact();
+
+        client.get().uri("/api/v1/notifications/subscribe").header(HttpHeaders.AUTHORIZATION, bearer(token))
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("X-Accel-Buffering", "no");
+    }
+
     // 다른 주소(로컬 프론트)에서 부를 때: 브라우저는 본 요청 전에 OPTIONS로 허용 여부를 묻는다
     @Test
     void CORS_사전_확인은_gateway가_허용_헤더로_답한다() {

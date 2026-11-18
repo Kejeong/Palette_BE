@@ -81,7 +81,7 @@ class GatewayRouteTest {
             "/webhooks/delivery-tracker/secret-token, delivery",
             // notification
             "/api/v1/notifications/unread-count, notification",
-            "/api/v1/notifications/subscribe, notification",   // 알림 실시간 구독(SSE)
+            "/api/v1/notifications/subscribe, notification-subscribe",   // 알림 실시간 구독(SSE): nginx 버퍼링을 끄는 헤더를 붙인다
             // ai (관리자 FAQ는 admin/ 아래지만 ai)
             "/api/v1/ai/recommendations, ai",
             "/api/v1/ai/faqs, ai",

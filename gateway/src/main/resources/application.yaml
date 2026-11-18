@@ -102,6 +102,16 @@ spring:
               filters:
                 - RewritePath=^/v3/api-docs/delivery$, /v3/api-docs
 
+            # 알림 실시간 구독(SSE). 연결을 열어 두고 이벤트가 생기면 바로 흘려보낸다
+            # X-Accel-Buffering: no → nginx가 이 응답만 모아 두지 않고 바로 브라우저로 보낸다(nginx에 경로를 적지 않아도 됨)
+            # 앱 heartbeat(30초)가 nginx 대기(60초) 안에 계속 와서 연결이 끊기지 않는다
+            - id: notification-subscribe
+              uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+              predicates:
+                - Path=/api/v1/notifications/subscribe
+              filters:
+                - AddResponseHeader=X-Accel-Buffering, no
+
             # 구매자 알림 목록·안 읽은 개수·읽음 처리
             - id: notification
               uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
