@@ -3,6 +3,10 @@
 # 값은 같은 폴더(infra/)의 .env에서 읽는다(.env.prod.example 참고). .env는 서버에만 두고 커밋하지 않는다.
 # 이 파일의 상대 경로(./nginx, ./monitoring, ..)는 이 파일이 있는 infra/ 기준이다.
 # 외부에는 nginx 80(HTTP)·443(HTTPS)번만 연다. app·postgres·redis는 Docker 내부 네트워크로만 통신한다.
+#
+# 데이터 서버 전환(TRSS-320): .env에 DATA_HOST(데이터 서버 내부 IP)를 넣으면 앱이 이 파일의 postgres·redis·kafka 대신
+# 데이터 서버(compose.data.yaml)에 붙는다. 비워 두면 지금처럼 이 파일의 컨테이너를 쓴다.
+# 데이터 서버 Redis는 비밀번호가 있으므로 REDIS_PASSWORD도 DATA_HOST와 같이 넣는다(이 파일의 redis는 비밀번호가 없어서, 먼저 넣으면 접속이 실패한다).
 name: palette
 
 # 컨테이너 로그(docker logs) 파일 크기 제한. 없으면 서버 디스크(50GB)를 계속 차지한다.
@@ -125,12 +129,14 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      DB_HOST: postgres
+      DB_HOST: ${DATA_HOST:-postgres}
       DB_PORT: 5432
       # 이메일 인증코드·로그인 실패 횟수·Refresh Token을 Redis에 둔다
-      REDIS_HOST: redis
+      REDIS_HOST: ${DATA_HOST:-redis}
       REDIS_PORT: 6379
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # Spring이 spring.data.redis.password로 읽는다. 비어 있으면 비밀번호 없이 접속한다
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       MEMBER_DB_USERNAME: ${MEMBER_DB_USERNAME:?MEMBER_DB_USERNAME이 .env에 없습니다}
       # 회원이 부르는 다른 서비스 내부 API 주소. Docker 내부망으로 직접 부른다
@@ -172,12 +178,13 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      DB_HOST: postgres
+      DB_HOST: ${DATA_HOST:-postgres}
       DB_PORT: 5432
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
       # 인기 검색어(시간 단위 ZSET)를 Redis에 둔다. 키는 product:popular-keyword:로 시작해 회원 키와 섞이지 않는다
-      REDIS_HOST: redis
+      REDIS_HOST: ${DATA_HOST:-redis}
       REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-}   # member와 같다
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       MARKET_DB_USERNAME: ${MARKET_DB_USERNAME:?MARKET_DB_USERNAME이 .env에 없습니다}
       # 회원 내부 API(/internal/v1/members·sellers)를 부르는 member-service 주소
@@ -224,9 +231,9 @@ services:
     env_file: .env
     environment:
       # .env의 값보다 우선한다. 컨테이너끼리는 서비스 이름으로 찾는다.
-      DB_HOST: postgres
+      DB_HOST: ${DATA_HOST:-postgres}
       DB_PORT: 5432
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
       # 비어 있으면 기본값(로컬 계정)으로 접속하므로 반드시 넣는다
       PAYMENT_DB_USERNAME: ${PAYMENT_DB_USERNAME:?PAYMENT_DB_USERNAME이 .env에 없습니다}
       # 결제가 회원 내부 API(/internal/v1/members)를 부를 member-service 주소 (충전 전 회원 확인, 관리자 결제·충전 조회의 이메일)
@@ -268,9 +275,9 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      DB_HOST: postgres
+      DB_HOST: ${DATA_HOST:-postgres}
       DB_PORT: 5432
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       SETTLEMENT_DB_USERNAME: ${SETTLEMENT_DB_USERNAME:?SETTLEMENT_DB_USERNAME이 .env에 없습니다}
       # 회원 내부 API(/internal/v1/sellers)를 부르는 member-service 주소 (판매자 조회, 제재 여부 확인)
@@ -312,9 +319,9 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      DB_HOST: postgres
+      DB_HOST: ${DATA_HOST:-postgres}
       DB_PORT: 5432
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       DELIVERY_DB_USERNAME: ${DELIVERY_DB_USERNAME:?DELIVERY_DB_USERNAME이 .env에 없습니다}
       # 상품 내부 API(/internal/v1/products/options)를 부르는 market-service 주소 (물류 목록·상세의 상품 대표 이미지)
@@ -353,9 +360,9 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      DB_HOST: postgres
+      DB_HOST: ${DATA_HOST:-postgres}
       DB_PORT: 5432
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       NOTIFICATION_DB_USERNAME: ${NOTIFICATION_DB_USERNAME:?NOTIFICATION_DB_USERNAME이 .env에 없습니다}
       SERVER_FORWARD_HEADERS_STRATEGY: native
@@ -391,12 +398,13 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      DB_HOST: postgres
+      DB_HOST: ${DATA_HOST:-postgres}
       DB_PORT: 5432
       # 챗봇 회원별 요청 횟수를 Redis에 둔다
-      REDIS_HOST: redis
+      REDIS_HOST: ${DATA_HOST:-redis}
       REDIS_PORT: 6379
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-}   # member와 같다
+      KAFKA_BOOTSTRAP_SERVERS: ${DATA_HOST:-kafka}:9092
       # 비어 있으면 DB_USERNAME(palette)으로 접속해 테이블 주인이 바뀌므로 반드시 넣는다
       AI_DB_USERNAME: ${AI_DB_USERNAME:?AI_DB_USERNAME이 .env에 없습니다}
       # 크리에이터 추천이 인플루언서 승인 여부를 회원 서비스 내부 API로 확인한다
@@ -517,10 +525,14 @@ services:
     volumes:
       - ./monitoring/loki/config.yaml:/etc/loki/config.yaml:ro
       - loki-data:/loki
+    # 데이터 서버의 Alloy가 로그를 보내는 입구. MONITORING_BIND_IP(이 서버 내부 IP)에만 열고, 보안 그룹이 데이터 서버만 허용한다.
+    # 비워 두면 서버 안(127.0.0.1)에서만 열린다
+    ports:
+      - "${MONITORING_BIND_IP:-127.0.0.1}:3100:3100"
     mem_limit: 512m
 
   # ── 메트릭: Alloy(앱 actuator·cadvisor·호스트 지표 수집) → Prometheus(저장) → Grafana ──
-  # 스크랩하지 않고 Alloy가 보내는 것(remote write)만 받는다. 외부·호스트에 포트를 열지 않는다
+  # 스크랩하지 않고 Alloy가 보내는 것(remote write)만 받는다. 데이터 서버의 Alloy도 보내므로 내부 IP에만 연다(loki와 같은 방식)
   prometheus:
     image: prom/prometheus:v3.5.0   # LTS
     container_name: palette-prometheus
@@ -535,6 +547,8 @@ services:
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus   # 이미지의 /prometheus가 nobody 소유라 새 볼륨도 그 권한(서버 chown 불필요)
+    ports:
+      - "${MONITORING_BIND_IP:-127.0.0.1}:9090:9090"
     mem_limit: 512m
 
   alloy:
