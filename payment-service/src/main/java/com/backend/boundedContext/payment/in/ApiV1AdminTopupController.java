@@ -6,12 +6,14 @@ import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.backend.boundedContext.payment.app.PaymentFacade;
 import com.backend.boundedContext.payment.app.dto.AdminTopupDto;
+import com.backend.boundedContext.payment.app.dto.AdminTopupPgPaymentDto;
 import com.backend.global.page.PageResponse;
 import com.backend.global.rsData.RsData;
 import com.backend.shared.admin.dto.AdminFailureItem;
@@ -22,7 +24,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
-@Tag(name = "관리자 충전", description = "관리자 결제 조회 충전 탭 (조회 전용)")
+@Tag(name = "관리자 충전", description = "관리자 결제 조회 충전 탭, 실패 거래, 충전 PG 결제 조회")
 @RestController
 @RequestMapping("/api/v1/admin/topups")
 @RequiredArgsConstructor
@@ -69,5 +71,16 @@ public class ApiV1AdminTopupController {
             @ParameterObject Pageable pageable
     ) {
         return RsData.of("200-1", "실패 거래(충전 확인 지연)를 조회했습니다.", paymentFacade.getAdminTopupFailures(from, to, pageable));
+    }
+
+    @Operation(summary = "충전 PG 결제 조회", description = """
+            충전 건의 우리 기록(상태·남은 금액·취소 중 금액·취소된 금액·수동 확인 사유)과 그 자리에서 결제한 PG에 조회한 결과(상태·취소 합계)를 함께 돌려준다.
+            수동 확인 건을 정리하기 전에 PG 취소 합계를 비교하는 용도. PG를 조회하지 못하면 pg.result가 UNKNOWN이고 message에 원인이 있다""")
+    @ApiResponse(responseCode = "200", description = "200-1 조회 성공")
+    @ApiResponse(responseCode = "403", description = "관리자가 아님")
+    @ApiResponse(responseCode = "404", description = "404-TOPUP_NOT_FOUND 충전 건이 없음")
+    @GetMapping("/{topupId}/pg-payment")
+    public RsData<AdminTopupPgPaymentDto> getPgPayment(@PathVariable Long topupId) {
+        return RsData.of("200-1", "충전 PG 결제를 조회했습니다.", paymentFacade.getAdminTopupPgPayment(topupId));
     }
 }

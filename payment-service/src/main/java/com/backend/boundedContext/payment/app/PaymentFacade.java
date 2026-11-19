@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.backend.boundedContext.payment.app.dto.AdminPaymentDto;
 import com.backend.boundedContext.payment.app.dto.AdminTopupDto;
+import com.backend.boundedContext.payment.app.dto.AdminTopupPgPaymentDto;
 import com.backend.boundedContext.payment.app.dto.RefundDto;
 import com.backend.boundedContext.payment.app.dto.TopupCancelDto;
 import com.backend.boundedContext.payment.app.dto.TopupConfirmDto;
@@ -46,6 +47,7 @@ public class PaymentFacade {
     private final PaymentGetAdminTopupsUseCase paymentGetAdminTopupsUseCase;
     private final PaymentGetFailuresUseCase paymentGetFailuresUseCase;
     private final PaymentGetTopupFailuresUseCase paymentGetTopupFailuresUseCase;
+    private final PaymentGetAdminTopupPgPaymentUseCase paymentGetAdminTopupPgPaymentUseCase;
     private final PaymentPrepareTopupUseCase paymentPrepareTopupUseCase;
     private final PaymentConfirmTopupUseCase paymentConfirmTopupUseCase;
     private final PaymentCancelTopupUseCase paymentCancelTopupUseCase;
@@ -110,6 +112,11 @@ public class PaymentFacade {
     @Transactional(readOnly = true)
     public PageResponse<AdminFailureItem> getAdminTopupFailures(LocalDate from, LocalDate to, Pageable pageable) {
         return paymentGetTopupFailuresUseCase.getFailures(from, to, pageable, LocalDateTime.now());
+    }
+
+    // 관리자 충전 PG 결제 조회. PG를 부르므로 트랜잭션을 걸지 않음
+    public AdminTopupPgPaymentDto getAdminTopupPgPayment(Long topupId) {
+        return paymentGetAdminTopupPgPaymentUseCase.getPgPayment(topupId);
     }
 
     // 관리자 결제 조회 충전 탭
