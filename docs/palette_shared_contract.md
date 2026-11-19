@@ -8,7 +8,7 @@
 
 | 컨텍스트 | 담당 | 제공하는 Api | 발행하는 이벤트 |
 | --- | --- | --- | --- |
-| member | 시연·지은 | `MemberApi` | `MemberSignedUpEvent`, `SellerSanctionedEvent`, `SellerWithdrawalRequestedEvent`, `SellerWithdrawalRejectedEvent` |
+| member | 시연·지은 | `MemberApi` | `MemberSignedUpEvent`, `SellerSanctionedEvent`, `SellerWithdrawalRequestedEvent`, `SellerWithdrawalRejectedEvent`, `SellerBusinessNameChangedEvent` |
 | product | 유진 | `ProductApi` | `WishAddedEvent`, `WishRemovedEvent`, `ProductChangedEvent`, `ProductMetricsChangedEvent` |
 | review | 유진 | `ReviewApi` | `ReviewCreatedEvent`, `ReviewModifiedEvent`, `ReviewDeletedEvent` |
 | order | 은정 | `OrderApi` | `OrderPaidEvent`, `OrderConfirmedEvent`, `OrderReturnedEvent` |
@@ -211,6 +211,13 @@ public record SellerWithdrawalRequestedEvent(Long sellerId, String reason) imple
 
 /** 관리자 철회 거절. 상품이 받아 철회 요청 때 중지된 상품을 다시 판매 중으로 되돌린다. aggregate: SELLER / sellerId */
 public record SellerWithdrawalRejectedEvent(Long sellerId) implements DomainEvent { }
+
+/**
+ * 승인된 판매자가 상호를 바꿈(판매자 정보 수정). 앞뒤 공백을 뺀 상호가 실제로 바뀔 때만 발행한다
+ * (연락처·계좌만 바꾸거나 같은 상호로 다시 저장하면 발행하지 않고, 재신청으로 바뀌는 상호도 발행하지 않는다).
+ * 상품 검색 색인이 받아 그 판매자의 판매 중 상품을 새 상호명으로 다시 색인한다. aggregate: SELLER / sellerId (TRSS-331)
+ */
+public record SellerBusinessNameChangedEvent(Long sellerId, String businessName) implements DomainEvent { }
 ```
 
 - 가입 이벤트는 가입 트랜잭션에서 outbox에 저장되고, 릴레이가 커밋 뒤 토픽 `member.events`로 보낸다. 결제가 Kafka 컨슈머(groupId `payment`)로 받아 별도 트랜잭션에서 지갑을 만든다(TRSS-138). 지갑 생성이 실패해도 가입은 롤백되지 않는다.
@@ -374,6 +381,8 @@ public enum StockRestoreReason { ORDER_RESTORE, RETURN_RESTORE }
 | `SellerWithdrawalRejectedEvent` | `resumeAllBySeller(sellerId)`와 같은 처리 | `processed_event`(eventId, `market`), 철회로 중지된 상품만 바꾸므로 다시 와도 결과가 같다 |
 
 - Kafka 토픽 `seller.events`를 market-service의 `ProductSellerEventListener`(`@KafkaListener` groupId `market`)로 받는다. 한 메시지를 한 트랜잭션에서 처리하고, 실패하면 재시도 후 `seller.events-dlt`로 보낸다.
+- `SellerBusinessNameChangedEvent`는 market 검색 색인 컨슈머(groupId `market-search-index`, engine=es일 때)가 같은 토픽으로 받는다. 메시지 키가 판매자 ID라 봉투에서 `sellerId`를 읽고, 그 판매자의 판매 중 상품을 다시 색인한다(검색 색인 문서에 상호명이 있다, TRSS-331). `ProductSellerEventListener`·쿠폰·정산 컨슈머는 eventType 헤더로 거른다.
+- 검색 색인 문서의 상호명은 색인할 때 `MemberApi.getSellers`로 가져온다. 회원 서비스가 실패하면 상호명 없이 색인하고(판매 중지·품절·가격 반영이 막히지 않게), 복구 스케줄러가 5분마다 상호명이 빠진 문서를 찾아 다시 색인해 채운다.
 - 회원은 `stopAllBySeller`·`resumeAllBySeller`를 부르지 않는다(TRSS-160). 두 메서드는 market 안에서 컨슈머가 쓴다.
 
 ### 발행하는 이벤트
