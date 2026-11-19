@@ -143,3 +143,12 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+  # 분산 추적(TRSS-335). 서비스(common observability-defaults.properties)와 같은 값.
+  # 보낼 주소는 서버 컨테이너만 Dockerfile 환경변수로 받는다. 없으면 내보내지 않아 로컬·테스트는 그대로다
+  tracing:
+    sampling:
+      probability: 1.0   # 요청이 적어 전부 남긴다
+  otlp:
+    metrics:
+      export:
+        enabled: false   # 지표는 Prometheus가 가져간다. 추적 스타터에 같이 들어오는 OTLP 지표 내보내기는 끈다

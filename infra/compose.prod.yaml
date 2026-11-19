@@ -454,6 +454,37 @@ services:
       - loki
       - prometheus
 
+  # ── 추적: 앱(Micrometer Tracing) → Tempo(저장·서비스 지도 지표) → Grafana (TRSS-335) ──
+  # 요청 하나가 gateway → 서비스 → 서비스로 갈 때 구간별 기록(span)을 받는다. 앱은 Dockerfile의 기본 주소(tempo:4318)로 보낸다
+  # Tempo는 uid 10001로 도는데 새 볼륨은 root 소유라 쓰지 못한다. 뜨기 전에 볼륨 주인만 바꾸고 끝나는 컨테이너
+  tempo-init:
+    image: grafana/tempo:2.10.10
+    user: root
+    entrypoint: ["chown", "10001:10001", "/var/tempo"]
+    volumes:
+      - tempo-data:/var/tempo
+    restart: "no"
+
+  tempo:
+    image: grafana/tempo:2.10.10
+    container_name: palette-tempo
+    restart: unless-stopped
+    logging: *default-logging
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./monitoring/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo   # 추적 저장(3일 보관, tempo.yaml block_retention)
+    # k3s의 ai 파드는 Compose 이름(tempo)을 못 찾아 이 서버 내부 IP로 보낸다. loki·prometheus처럼 내부 IP에만 연다
+    ports:
+      - "${MONITORING_BIND_IP:-127.0.0.1}:4318:4318"
+    # 요청이 적어 보통 100~300MB. 넘으면 보관 기간(block_retention)이나 샘플링을 줄인다
+    mem_limit: 384m
+    depends_on:
+      tempo-init:
+        condition: service_completed_successfully
+      prometheus:
+        condition: service_started
+
   grafana:
     # 12.2부터 알림 규칙 파일의 keepFiringFor(해결 판단 유예)를 읽는다(monitoring/grafana/provisioning/alerting/rules.yaml)
     image: grafana/grafana:12.2.0
@@ -485,3 +516,4 @@ volumes:
   prometheus-data:
   alloy-data:
   grafana-data:
+  tempo-data:

@@ -91,6 +91,9 @@ spec:
             # /actuator/health/liveness·readiness를 켠다. Spring이 쿠버네티스를 알아채면 저절로 켜지지만 감지에 기대지 않고 적어 둔다
             - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED
               value: "true"
+            # 추적을 보낼 Tempo(TRSS-335). Dockerfile 기본값(tempo:4318)은 Compose 이름이라 여기서 못 찾는다. 앱 서버 내부 IP에 연 포트로 보낸다
+            - name: MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT
+              value: http://10.0.1.122:4318/v1/traces
           resources:
             requests:
               # "최소 이만큼은 잡아 둔다". 합이 서버 메모리를 넘으면 파드가 아예 안 뜨므로 실측(약 430MB) 근처로 둔다
