@@ -33,4 +33,12 @@ public interface ProductSearchIndexPort {
 
     /** 검색 alias를 새 인덱스로 옮기고, 이전 인덱스를 지운다 */
     void switchAlias(String indexName);
+
+    /**
+     * 상호명 없이 색인된 문서의 상품 ID를 최대 limit개 (회원 서비스가 실패해 상호명을 못 넣은 문서). 상호명을 채울 때 쓴다.
+     * 색인을 쓰지 않거나 인덱스가 최신이 아니면 빈 목록
+     */
+    default List<Long> findIdsWithoutBusinessName(int limit) {
+        return List.of();
+    }
 }

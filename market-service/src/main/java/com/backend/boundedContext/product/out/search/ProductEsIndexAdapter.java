@@ -190,6 +190,28 @@ public class ProductEsIndexAdapter implements ProductSearchIndexPort {
     }
 
     /**
+     * 상호명 필드가 없는 문서(상호명 없이 색인됨). 상호명이 빈 문자열인 문서(회원 서비스에 없는 판매자)는 필드가 있어 빠진다.
+     * 인덱스가 최신이 아니면(상호명 필드가 없는 이전 매핑) 모든 문서가 걸리므로 찾지 않는다 (재색인이 채운다)
+     */
+    @Override
+    public List<Long> findIdsWithoutBusinessName(int limit) {
+        if (!knownCurrent) return List.of();
+        try {
+            return client.search(s -> s
+                                    .index(alias)
+                                    .query(q -> q.bool(b -> b.mustNot(m -> m.exists(e -> e.field("businessName")))))
+                                    .size(limit)
+                                    .source(src -> src.fetch(false)),
+                            Void.class)
+                    .hits().hits().stream()
+                    .map(hit -> Long.valueOf(hit.id()))
+                    .toList();
+        } catch (IOException | RuntimeException e) {
+            throw new SearchIndexUnavailableException("상호명이 없는 상품 검색 문서를 찾지 못했습니다. alias=" + alias, e);
+        }
+    }
+
+    /**
      * alias가 없으면 쓰지 않고 예외를 던진다. 있으면 다시 묻지 않는다
      * (그 뒤에 alias가 사라지면 require_alias가 쓰기를 거부한다).
      */

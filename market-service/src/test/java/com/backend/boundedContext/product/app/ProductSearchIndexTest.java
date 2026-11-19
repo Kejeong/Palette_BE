@@ -152,6 +152,19 @@ class ProductSearchIndexTest {
     }
 
     @Test
+    @DisplayName("상호명 채우기: 상호명 없이 색인된 상품을 다시 색인해 상호명을 채운다")
+    void fillMissingBusinessNames() {
+        Long productId = create();
+        indexPort.withoutBusinessName.add(productId);
+
+        assertThat(indexSupport.fillMissingBusinessNames()).isEqualTo(1);
+        assertThat(indexPort.upserted).singleElement().satisfies(doc -> {
+            assertThat(doc.productId()).isEqualTo(productId);
+            assertThat(doc.businessName()).isEqualTo("색인 상점");
+        });
+    }
+
+    @Test
     @DisplayName("전체 재색인: 회원 서비스가 실패해도 끝까지 색인하고(상호명 없이), 같은 판매자는 재색인 내내 한 번만 부른다")
     void rebuildSurvivesMemberFailure() {
         Long first = create();
@@ -389,6 +402,8 @@ class ProductSearchIndexTest {
         /** create, switch, upsert:{id}, delete:{id} 순서 */
         final List<String> events = new ArrayList<>();
         boolean current = true;
+        /** findIdsWithoutBusinessName이 돌려줄 상품 ID */
+        final List<Long> withoutBusinessName = new ArrayList<>();
         /** triggerId가 든 묶음을 bulkIndex한 직후 한 번 실행한다 (재색인 중 변경 흉내) */
         private Long triggerId;
         private Runnable onBulkIndex;
@@ -439,6 +454,11 @@ class ProductSearchIndexTest {
         @Override
         public void switchAlias(String indexName) {
             events.add("switch");
+        }
+
+        @Override
+        public List<Long> findIdsWithoutBusinessName(int limit) {
+            return withoutBusinessName;
         }
     }
 }

@@ -91,6 +91,17 @@ public class ProductSearchIndexSupport {
     }
 
     /**
+     * 상호명 없이 색인된 문서(회원 서비스가 실패했을 때)를 찾아 다시 색인해 상호명을 채운다. 다시 색인한 상품 수를 돌려준다.
+     * 복구 스케줄러가 주기마다 부르고, 한 번에 전체 재색인 묶음 크기만큼 한다. 회원 서비스가 아직 실패하면 다음 주기에 다시 한다
+     */
+    public int fillMissingBusinessNames() {
+        if (!productSearchIndexPort.isEnabled()) return 0;
+        List<Long> ids = productSearchIndexPort.findIdsWithoutBusinessName(productPolicy.getSearchIndexBatchSize());
+        indexProducts(ids);
+        return ids.size();
+    }
+
+    /**
      * (from, now] 사이에 할인이 시작했거나 끝난 상품 ID (할인 경계 대상).
      * from은 지난 성공 실행 시각이고, 지난 실행 시각이 없으면(기동 후 첫 실행) now에서 lookback만큼 앞이다.
      * 구간을 겹치지 않게 이어 붙여 같은 경계의 이벤트를 한 번만 발행한다. 겹쳐 읽을 필요가 없는 이유는
@@ -168,7 +179,7 @@ public class ProductSearchIndexSupport {
             List<Long> ids = productRepository.findIdsByStatusAfter(ProductSaleStatus.ON_SALE, afterId, Limit.of(batchSize));
             if (ids.isEmpty()) break;
 
-            List<ProductSearchDocument> documents = toDocuments(productRepository.findAllById(ids));
+            List<ProductSearchDocument> documents = toDocuments(productRepository.findAllById(ids), nameCache);
             productSearchIndexPort.bulkIndex(indexName, documents);
             // 읽은 상품·재고를 1차 캐시에서 비운다. 남겨 두면 묶음마다 쌓여 상품 수만큼 메모리를 쓰고,
             // 뒤의 보정이 재색인 중 다른 트랜잭션이 커밋한 변경 대신 이 옛 값을 돌려받는다
@@ -187,7 +198,7 @@ public class ProductSearchIndexSupport {
                 catchUpFrom.minusSeconds(productPolicy.getDiscountBoundaryOverlapSeconds()), LocalDateTime.now()));
         changed.addAll(indexedWhileRebuilding);   // alias를 옮긴 뒤의 색인은 새 인덱스로 들어가므로 여기까지 모은 것만 다시 반영한다
         indexedWhileRebuilding.clear();
-        indexProducts(changed);   // 묶음마다 1차 캐시를 비웠으므로 DB의 최신 값을 읽는다
+        indexProducts(changed, nameCache);   // 묶음마다 1차 캐시를 비웠으므로 DB의 최신 값을 읽는다. 상호명은 재색인과 같은 캐시를 쓴다
         outdatedSince = null;
         log.info("상품 검색 전체 재색인을 마쳤습니다. index={}, 상품 {}개, {} 이후 바뀌어 다시 반영한 상품 {}개",
                 indexName, indexed, catchUpFrom, changed.size());
@@ -217,6 +228,7 @@ public class ProductSearchIndexSupport {
                             product.getId(),
                             product.getName(),
                             product.getDescription(),
+                            businessNames.get(product.getSellerId()),
                             product.getCategory().getId(),
                             product.getStatus().name(),
                             ProductSupport.isSoldOut(stocks.getOrDefault(product.getId(), List.of())),

@@ -84,7 +84,7 @@ spring:
   task:
     scheduling:
       pool:
-        size: 8          # 스케줄 작업(주문 4, outbox 릴레이 1, 할인 경계 1, 검색 alias 복구 1, 판매 지표 1)이 서로 기다리지 않게 작업 수만큼
+        size: 9          # 스케줄 작업(주문 4, outbox 릴레이 1, 할인 경계 1, 검색 alias 복구 1, 상호명 채우기 1, 판매 지표 1)이 서로 기다리지 않게 작업 수만큼
 
 
 # 정책 값. 코드에 숫자를 직접 쓰지 않고 각 컨텍스트의 <Ctx>Policy에서 읽는다.
@@ -107,6 +107,7 @@ custom:
       discountBoundaryIntervalSeconds: 10   # 할인 경계 재색인 스케줄러 실행 간격(초). 할인이 시작·종료된 뒤 가격순에 반영되기까지 최대 이만큼 늦어진다
       discountBoundaryOverlapSeconds: 30    # 전체 재색인 보정이 재색인 시작 시각보다 이만큼 앞부터 바뀐 상품을 다시 본다(커밋 지연). 할인 경계 스케줄러는 겹쳐 읽지 않는다
       discountBoundaryLookbackMinutes: 5    # 앱을 띄운 뒤 첫 실행(지난 실행 시각이 없을 때)만 이만큼 돌아본다. 재시작·배포 동안 지난 경계를 채운다
+      businessNameFillIntervalSeconds: 300  # 회원 서비스가 실패해 상호명 없이 색인된 상품을 찾아 상호명을 채우는 간격(초)
       aliasCheckIntervalSeconds: 60         # 검색 alias가 있는지 확인하는 간격(초). 없으면 전체 재색인한다(기동 직후 첫 확인). ES 장애·데이터 재구성 뒤 이 시간 안에 복구된다
       indexConsumer:                        # 검색 색인 컨슈머(product.events, groupId market-search-index). 일시 오류(ES·DB 연결)는 DLT 없이 성공할 때까지 다시 처리한다
         retryInitialIntervalMillis: 1000    # 첫 재시도 전 대기(밀리초). 이후 두 배씩 늘린다

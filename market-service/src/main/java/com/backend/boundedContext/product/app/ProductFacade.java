@@ -479,6 +479,12 @@ public class ProductFacade {
         return productIds.size();
     }
 
+    /** 상호명 없이 색인된 상품을 다시 색인해 상호명을 채운다. 채운 상품 수 (복구 스케줄러) */
+    @Transactional(readOnly = true)
+    public int fillMissingBusinessNames() {
+        return productSearchIndexSupport.fillMissingBusinessNames();
+    }
+
     /** 판매 중인 상품 전체를 새 인덱스에 색인하고 검색 alias를 옮긴다. 색인한 상품 수를 돌려준다 (관리자) */
     @Transactional(readOnly = true)
     public int rebuildSearchIndex() {
