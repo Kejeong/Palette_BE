@@ -188,7 +188,7 @@ class ProductEsSearchAdapterEsTest {
     }
 
     @Test
-인    @DisplayName("상호명으로 검색하면 그 판매자 상품이 나오고, 같은 단어가 상품명에 있는 상품이 상호명만 맞는 상품보다 앞에 온다")
+    @DisplayName("상호명으로 검색하면 그 판매자 상품이 나오고, 같은 단어가 상품명에 있는 상품이 상호명만 맞는 상품보다 앞에 온다")
     void businessNameSearch() throws Exception {
         createAlias();
         indexAdapter.upsert(List.of(

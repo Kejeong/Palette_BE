@@ -34,13 +34,14 @@ public class ApiV1ProductController {
 
     @Operation(
             summary = "상품 검색",
-            description = "판매 중이고 사용 중인 카테고리의 상품을 검색합니다. 상품명은 형태소(nori)로 찾습니다. size는 최대 50입니다. "
-                    + "검색 서버가 응답하지 않으면 DB 검색으로 대신하며, 이때 관련도순·인기순·찜 많은순·판매량순은 최신순, 가격순은 정가 기준입니다. "
+            description = "판매 중이고 사용 중인 카테고리의 상품을 검색합니다. 검색어는 상품명과 판매자 상호명에서 형태소(nori)로 찾고, "
+                    + "상품명이 맞는 상품을 상호명만 맞는 상품보다 앞에 둡니다(관련도순). size는 최대 50입니다. "
+                    + "검색 서버가 응답하지 않으면 DB 검색으로 대신하며, 이때 상품명으로만 찾고, 관련도순·인기순·찜 많은순·판매량순은 최신순, 가격순은 정가 기준입니다. "
                     + "할인 시작·종료 직후 약 10초 동안은 특가 필터·할인율순·가격순이 이전 상태로 보일 수 있습니다(화면 가격은 정확). "
                     + "검색 색인이 잠깐 늦어 보여 줄 수 없는 상품은 빠지므로 한 페이지가 size보다 적을 수 있습니다.")
     @GetMapping
     public RsData<PageResponse<ProductSummaryDto>> searchProducts(
-            @Parameter(description = "상품명 일부 (최대 100자)")
+            @Parameter(description = "상품명 또는 판매자 상호명 (최대 100자)")
             @RequestParam(required = false) @Size(max = 100) String keyword,
             @Parameter(description = "대분류 ID면 그 아래 소분류 전체, 소분류 ID면 그 소분류만")
             @RequestParam(required = false) Long categoryId,
