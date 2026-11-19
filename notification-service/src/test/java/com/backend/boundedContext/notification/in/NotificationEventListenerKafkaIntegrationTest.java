@@ -102,6 +102,9 @@ class NotificationEventListenerKafkaIntegrationTest {
                 "select type || '|' || product_name || '|' || item_count from notification where member_id = ? order by id",
                 String.class, buyerId))
                 .containsExactly("ORDER_PAID|립스틱|1", "DELIVERY_STARTED|립스틱|1");
+        // 처리 기록 이름은 리스너마다 다름
+        assertThat(consumerOf(paid)).isEqualTo("notification-order");
+        assertThat(consumerOf(shipped)).isEqualTo("notification-delivery");
     }
 
     @Test
@@ -151,8 +154,13 @@ class NotificationEventListenerKafkaIntegrationTest {
 
     private boolean processed(UUID eventId) {
         Integer count = jdbcTemplate.queryForObject(
-                "select count(*) from processed_event where event_id = ? and consumer = 'notification'", Integer.class, eventId);
+                "select count(*) from processed_event where event_id = ? and consumer in (?, ?)", Integer.class, eventId,
+                NotificationOrderEventListener.CONSUMER, NotificationDeliveryEventListener.CONSUMER);
         return count != null && count == 1;
+    }
+
+    private String consumerOf(UUID eventId) {
+        return jdbcTemplate.queryForObject("select consumer from processed_event where event_id = ?", String.class, eventId);
     }
 
     // 구매자 알림을 저장된 순서대로 "타입|문구"로 꺼냄

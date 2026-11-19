@@ -34,8 +34,11 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class NotificationDeliveryEventListener {
 
-    // processed_event.consumer 값이자 Kafka groupId. 알림의 다른 컨슈머(NotificationOrderEventListener)와 같은 서비스 이름을 씀
-    static final String CONSUMER = NotificationOrderEventListener.CONSUMER;
+    // Kafka groupId. 알림의 다른 리스너(NotificationOrderEventListener)와 같은 그룹을 씀
+    static final String GROUP_ID = NotificationOrderEventListener.GROUP_ID;
+
+    // processed_event.consumer 값. 리스너마다 따로 둠
+    static final String CONSUMER = "notification-delivery";
 
     // OutboxKafkaSender가 붙이는 이벤트 타입 헤더
     private static final String EVENT_TYPE_HEADER = "eventType";
@@ -48,7 +51,7 @@ public class NotificationDeliveryEventListener {
     private final EventMessages eventMessages;
     private final ProcessedEvents processedEvents;
 
-    @KafkaListener(topics = "delivery.events", groupId = CONSUMER)
+    @KafkaListener(topics = "delivery.events", groupId = GROUP_ID)
     @Transactional
     public void handle(ConsumerRecord<String, String> record) {
         // 다루지 않는 이벤트는 payload를 읽기 전에 거름. 이 앱이 모르는 새 이벤트 타입이어도 DLT로 보내지 않음
