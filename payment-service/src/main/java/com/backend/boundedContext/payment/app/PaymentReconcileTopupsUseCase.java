@@ -28,7 +28,7 @@ import lombok.extern.slf4j.Slf4j;
  * - 결제 없음 → FAILED_SYSTEM_ERROR (PG에 결제 내역이 없어 돈이 빠지지 않음)
  * - 결과 모름(응답 없음·그 외 오류)·PENDING(진행 중 등) → PROCESSING 유지, 다음 회차에 다시 확인
  *
- * 대상은 TopupReconcileBatches로 배치 단위로 가져오며, 배치를 다 채우면 같은 회차에서 이어서 처리함 (결과 모름이 나오면 그 배치까지만)
+ * 대상은 TopupReconcileBatches로 배치 단위로 가져오며, 배치를 다 채우면 같은 회차에서 이어서 처리함 (결과 모름이 나오면 그 배치까지만, 연속 topupReconcileUnknownStreak건이면 바로 멈춤)
  */
 @Slf4j
 @Component
@@ -43,7 +43,7 @@ public class PaymentReconcileTopupsUseCase {
     public TopupReconcileResult reconcileProcessingTopups(LocalDateTime now) {
         LocalDateTime cutoff = now.minus(paymentPolicy.topupReconcileDelay());
         int batchSize = paymentPolicy.topupReconcileBatchSize();
-        return TopupReconcileBatches.run(batchSize,
+        return TopupReconcileBatches.run(batchSize, paymentPolicy.topupReconcileUnknownStreak(),
                 after -> paymentTopupConfirmProcessor.findReconcileTargets(cutoff, after, batchSize),
                 this::reconcile,
                 (target, e) -> log.error("충전 결과 확인 중 오류가 발생했습니다. 다음 회차에 다시 확인합니다. topupId={}", target.topupId(), e));

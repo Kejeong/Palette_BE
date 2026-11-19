@@ -47,7 +47,7 @@ class PaymentGetTopupFailuresUseCaseTest {
     private final TopupRepository topupRepository = mock(TopupRepository.class);
     private final PaymentMemberPort memberPort = mock(PaymentMemberPort.class);
     // 결과 확인 대기 5분, 오래 남은 건 경고 60분
-    private final PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 60, 1L, 2_500);
+    private final PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 3, 60, 1L, 2_500);
     private final PaymentGetTopupFailuresUseCase useCase = new PaymentGetTopupFailuresUseCase(topupRepository, memberPort, paymentPolicy);
 
     @BeforeEach

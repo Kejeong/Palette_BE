@@ -15,6 +15,7 @@ public class PaymentPolicy {
     private final Duration topupReadyTtl;
     private final Duration topupReconcileDelay;
     private final int topupReconcileBatchSize;
+    private final int topupReconcileUnknownStreak;
     private final Duration topupStuckWarnAfter;
     private final Long adminMemberId;
     private final long returnPickupFee;
@@ -25,6 +26,7 @@ public class PaymentPolicy {
             @Value("${custom.payment.topupReadyExpireMinutes}") long topupReadyExpireMinutes,
             @Value("${custom.payment.topupReconcileDelayMinutes}") long topupReconcileDelayMinutes,
             @Value("${custom.payment.topupReconcileBatchSize}") int topupReconcileBatchSize,
+            @Value("${custom.payment.topupReconcileUnknownStreak}") int topupReconcileUnknownStreak,
             @Value("${custom.payment.topupStuckWarnMinutes}") long topupStuckWarnMinutes,
             @Value("${custom.payment.adminMemberId}") Long adminMemberId,
             @Value("${custom.payment.returnPickupFee}") long returnPickupFee
@@ -34,6 +36,11 @@ public class PaymentPolicy {
         this.topupReadyTtl = Duration.ofMinutes(topupReadyExpireMinutes);
         this.topupReconcileDelay = Duration.ofMinutes(topupReconcileDelayMinutes);
         this.topupReconcileBatchSize = topupReconcileBatchSize;
+        // 0 이하면 결과 모름이 나와도 멈추지 않아 장애 중 회차가 길어지므로 기동 단계에서 막음
+        if (topupReconcileUnknownStreak < 1) {
+            throw new IllegalArgumentException("custom.payment.topupReconcileUnknownStreak는 1 이상이어야 합니다: " + topupReconcileUnknownStreak);
+        }
+        this.topupReconcileUnknownStreak = topupReconcileUnknownStreak;
         this.topupStuckWarnAfter = Duration.ofMinutes(topupStuckWarnMinutes);
         this.adminMemberId = adminMemberId;
         this.returnPickupFee = returnPickupFee;
@@ -66,6 +73,11 @@ public class PaymentPolicy {
     // 결과 확인 스케줄러가 한 번에 조회하는 충전 건수 (다 채우면 같은 실행에서 이어서 조회)
     public int topupReconcileBatchSize() {
         return topupReconcileBatchSize;
+    }
+
+    // 결과 확인 스케줄러가 회차를 멈추는 결과 모름 연속 건수 (PG 장애 중 회차가 길어지지 않게)
+    public int topupReconcileUnknownStreak() {
+        return topupReconcileUnknownStreak;
     }
 
     // 결과가 정해지지 않은 상태(PROCESSING·CANCELING·METHOD_CANCELING)로 이 시간이 넘게 남은 충전 건은 오류 로그로 알림

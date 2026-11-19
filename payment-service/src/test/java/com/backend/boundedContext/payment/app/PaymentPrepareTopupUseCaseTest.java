@@ -51,7 +51,7 @@ class PaymentPrepareTopupUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 60, 1L, 2_500);
+        PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 3, 60, 1L, 2_500);
         paymentPrepareTopupUseCase = new PaymentPrepareTopupUseCase(paymentPolicy, walletRepository, topupRepository, memberPort,
                 new TopupGateways(List.of(toss, hecto), circuitBreakers));
         given(toss.checkout(any())).willReturn(Optional.empty());
