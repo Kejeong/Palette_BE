@@ -10,14 +10,23 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.net.ConnectException;
+import java.net.InetSocketAddress;
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -25,12 +34,14 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import com.backend.global.exception.DomainException;
+import com.sun.net.httpserver.HttpServer;
 import com.backend.shared.payment.dto.PayCommand;
 import com.backend.shared.payment.dto.PayResultDto;
 import com.backend.shared.payment.dto.PayResultStatus;
 import com.backend.shared.payment.dto.PaymentAttemptDto;
 import com.backend.shared.payment.dto.PaymentAttemptStatus;
 
+@ExtendWith(OutputCaptureExtension.class)
 class PaymentApiClientTest {
 
     private static final String BASE_URL = "http://payment:8083";
@@ -188,6 +199,85 @@ class PaymentApiClientTest {
 
         assertThatThrownBy(() -> client.getPaymentAttempts(500L))
                 .extracting("resultCode").isEqualTo("502-EXTERNAL_SERVICE_ERROR");
+    }
+
+    @Test
+    @DisplayName("응답 대기 시간: 결제 내역 조회는 queryReadTimeoutMillis(짧게), 결제 요청은 readTimeoutMillis(길게)를 쓴다")
+    void readTimeout_queryShorterThanPay() throws IOException {
+        // 모든 요청에 600ms 뒤 응답하는 payment 서버. 조회 대기 300ms < 600ms < 결제 요청 대기 3000ms
+        HttpServer payment = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        payment.createContext("/", exchange -> {
+            try {
+                Thread.sleep(600);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            String body = exchange.getRequestURI().getPath().endsWith("/attempts")
+                    ? rsData("[]")
+                    : rsData("{\"paymentId\": 77, \"status\": \"PAID\", \"shortage\": 0, \"chargeAmount\": 0}");
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(bytes);
+            }
+        });
+        payment.start();
+        try {
+            PaymentApiClient realClient = new PaymentApiClient(
+                    "http://127.0.0.1:" + payment.getAddress().getPort(), INTERNAL_API_KEY, 1_000, 3_000, 300);
+
+            assertThatThrownBy(() -> realClient.getPaymentAttempts(500L))
+                    .isInstanceOfSatisfying(DomainException.class,
+                            e -> assertThat(e.getResultCode()).isEqualTo("502-EXTERNAL_SERVICE_ERROR"));
+            assertThat(realClient.pay(COMMAND).status()).isEqualTo(PayResultStatus.PAID);
+        } finally {
+            payment.stop(0);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {401, 403})
+    @DisplayName("pay: 내부 키 오류(401·403)는 503-INTERNAL_API_AUTH_FAILED로 바꾸고 ERROR 로그를 남긴다")
+    void pay_internalKeyRejected_503(int status, CapturedOutput output) {
+        server.expect(requestTo(PAY_URL))
+                .andRespond(withStatus(HttpStatus.valueOf(status)).contentType(MediaType.APPLICATION_JSON).body("""
+                        {"resultCode": "401-INTERNAL_API_KEY_INVALID", "msg": "내부 API 키가 없거나 올바르지 않습니다.", "data": null}
+                        """));
+
+        assertThatThrownBy(() -> client.pay(COMMAND))
+                .isInstanceOfSatisfying(DomainException.class, e -> {
+                    assertThat(e.getResultCode()).isEqualTo("503-INTERNAL_API_AUTH_FAILED");
+                    assertThat(e.statusCode()).isEqualTo(503);
+                });
+        assertThat(output).contains("ERROR").contains("결제 내부 API 인증에 실패했습니다").contains("status=" + status);
+    }
+
+    @Test
+    @DisplayName("getPaymentAttempts: 내부 키 오류(401)도 503-INTERNAL_API_AUTH_FAILED (주문 상세는 결제 내역 없이 응답)")
+    void getPaymentAttempts_internalKeyRejected_503() {
+        server.expect(requestTo(BASE_URL + "/internal/v1/payments/orders/500/attempts"))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED).contentType(MediaType.APPLICATION_JSON).body("""
+                        {"resultCode": "401-INTERNAL_API_KEY_INVALID", "msg": "내부 API 키가 없거나 올바르지 않습니다.", "data": null}
+                        """));
+
+        assertThatThrownBy(() -> client.getPaymentAttempts(500L))
+                .extracting("resultCode").isEqualTo("503-INTERNAL_API_AUTH_FAILED");
+    }
+
+    @Test
+    @DisplayName("pay: PAID 결과의 paidAt을 읽고, paidAt이 없는 응답(이전 버전 payment)은 null")
+    void pay_paidAt() {
+        server.expect(requestTo(PAY_URL)).andRespond(withSuccess(rsData("""
+                {"paymentId": 77, "status": "PAID", "shortage": 0, "chargeAmount": 0, "paidAt": "2026-11-18T10:00:00.123456"}
+                """), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(PAY_URL)).andRespond(withSuccess(rsData("""
+                {"paymentId": 77, "status": "PAID", "shortage": 0, "chargeAmount": 0}
+                """), MediaType.APPLICATION_JSON));
+
+        assertThat(client.pay(COMMAND).paidAt()).isEqualTo(LocalDateTime.of(2026, 11, 18, 10, 0, 0, 123_456_000));
+        assertThat(client.pay(COMMAND).paidAt()).isNull();
+        server.verify();
     }
 
     private static String rsData(String dataJson) {

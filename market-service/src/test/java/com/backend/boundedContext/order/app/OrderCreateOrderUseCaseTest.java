@@ -19,6 +19,7 @@ import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
 import com.backend.shared.member.out.MemberApi;
 import com.backend.shared.order.dto.OrderCancelType;
+import com.backend.shared.order.dto.OrderStatus;
 import com.backend.shared.product.dto.OptionSnapshotDto;
 import com.backend.shared.product.dto.StockChangeDto;
 import com.backend.shared.product.out.ProductApi;
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -45,6 +47,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -137,6 +140,7 @@ class OrderCreateOrderUseCaseTest {
         assertThat(response.orderId()).isEqualTo(ORDER_ID);
         assertThat(response.totalPrice()).isEqualTo(35000);
         assertThat(response.orderNumber()).startsWith("ORD-");
+        assertThat(response.status()).isEqualTo(OrderStatus.CREATED);
         assertThat(response.expiresAt()).isAfter(LocalDateTime.now().plusMinutes(14));
         verify(productApi).deductStock(List.of(
                 new StockChangeDto(ORDER_ID, 1L, 100L, 2),
@@ -166,6 +170,38 @@ class OrderCreateOrderUseCaseTest {
         assertThatThrownBy(() -> useCase.create(BUYER_ID, null, List.of(1L), 15000, null))
                 .isInstanceOf(DomainException.class)
                 .hasFieldOrPropertyWithValue("resultCode", "400-SELF_PURCHASE_NOT_ALLOWED");
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("내 판매자 조회(member HTTP)는 장바구니를 잠그기 전에 하고, 판매자 이름 조회는 옵션을 읽은 뒤에 한다")
+    void sellerLookupBeforeCartLock() {
+        given(orderSupport.getCartForUpdate(BUYER_ID)).willReturn(cartWith(100L, 1));
+        givenOptions(onSale(100L, 15000));
+        givenSeller();
+        givenSaveAssignsIds();
+
+        useCase.create(BUYER_ID, null, List.of(1L), 15000, null);
+
+        InOrder inOrder = inOrder(memberApi, orderSupport);
+        inOrder.verify(memberApi).checkActiveMember(BUYER_ID);
+        inOrder.verify(memberApi).findSellerByMemberId(BUYER_ID);
+        inOrder.verify(orderSupport).getCartForUpdate(BUYER_ID);
+        inOrder.verify(orderSupport).getSaleableOptions(List.of(100L));
+        inOrder.verify(memberApi).getSellers(any());
+    }
+
+    @Test
+    @DisplayName("다른 판매자의 상품이면 판매자 회원도 주문할 수 있다")
+    void sellerBuysOtherSellersProduct() {
+        given(orderSupport.getCartForUpdate(BUYER_ID)).willReturn(cartWith(100L, 1));
+        givenOptions(onSale(100L, 15000));   // SELLER_ID의 상품
+        givenSeller();
+        givenSaveAssignsIds();
+        given(memberApi.findSellerByMemberId(BUYER_ID)).willReturn(Optional.of(
+                new SellerDto(SELLER_ID + 100, BUYER_ID, "다른상점", SellerStatus.APPROVED)));
+
+        assertThat(useCase.create(BUYER_ID, null, List.of(1L), 15000, null).orderId()).isEqualTo(ORDER_ID);
     }
 
     @Test
@@ -211,6 +247,22 @@ class OrderCreateOrderUseCaseTest {
         assertThat(response).isEqualTo(OrderCreateResponse.from(existing));
         verify(orderRepository, never()).save(any());
         verify(productApi, never()).deductStock(any());
+    }
+
+    @Test
+    @DisplayName("같은 멱등 키의 주문이 이미 결제됐으면 응답 status는 그 주문의 지금 상태(PAID)")
+    void sameIdempotencyKey_paidStatus() {
+        Order existing = Order.create(BUYER_ID, "key-1", List.of(new OrderItemSpec(
+                1L, 10L, 100L, SELLER_ID, "상품100", "기본", "테스트상점", 15000, 1)), LocalDateTime.now(), 15);
+        ReflectionTestUtils.setField(existing, "id", ORDER_ID);
+        existing.pay(LocalDateTime.now());
+        given(orderSupport.getCartForUpdate(BUYER_ID)).willReturn(cartWith(100L, 1));
+        given(orderRepository.findByBuyerIdAndIdempotencyKey(BUYER_ID, "key-1")).willReturn(Optional.of(existing));
+
+        OrderCreateResponse response = useCase.create(BUYER_ID, "key-1", List.of(1L), 15000, null);
+
+        assertThat(response.status()).isEqualTo(OrderStatus.PAID);
+        assertThat(response.orderId()).isEqualTo(ORDER_ID);
     }
 
     @Test

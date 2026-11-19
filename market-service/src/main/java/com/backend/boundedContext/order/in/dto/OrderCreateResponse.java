@@ -1,6 +1,7 @@
 package com.backend.boundedContext.order.in.dto;
 
 import com.backend.boundedContext.order.domain.Order;
+import com.backend.shared.order.dto.OrderStatus;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.List;
  *
  * @param orderId                  주문 ID
  * @param orderNumber              주문번호
+ * @param status                   주문 상태
  * @param totalPrice               상품 금액 합계 (할인 전)
  * @param productDiscountAmount    상품 쿠폰 할인 합계
  * @param cartCouponDiscountAmount 장바구니 쿠폰 할인액
@@ -21,6 +23,7 @@ import java.util.List;
 public record OrderCreateResponse(
         Long orderId,
         String orderNumber,
+        OrderStatus status,
         long totalPrice,
         long productDiscountAmount,
         long cartCouponDiscountAmount,
@@ -30,7 +33,7 @@ public record OrderCreateResponse(
         LocalDateTime expiresAt
 ) {
     public static OrderCreateResponse from(Order order) {
-        return new OrderCreateResponse(order.getId(), order.getOrderNumber(), order.getTotalPrice(),
+        return new OrderCreateResponse(order.getId(), order.getOrderNumber(), order.getStatus(), order.getTotalPrice(),
                 order.getProductDiscountAmount(), order.getCartCouponDiscountAmount(), order.getShippingFee(), order.getPayAmount(),
                 order.getItems().stream()
                         .map(item -> new Item(item.getId(), item.getCartItemId(), item.getLineAmount(), item.getDiscountAmount()))

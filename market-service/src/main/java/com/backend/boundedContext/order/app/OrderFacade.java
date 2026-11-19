@@ -104,8 +104,7 @@ public class OrderFacade {
         return orderGetOrdersUseCase.getOrders(buyerId, statuses, from, to, pageable);
     }
 
-    // 주문 상세조회
-    @Transactional(readOnly = true)
+    // 주문 상세조회. 결제·배송 HTTP를 기다리는 동안 DB 커넥션을 쥐지 않도록 트랜잭션은 UseCase가 DB 조회에만 연다
     public OrderDetailResponse getOrderDetail(Long buyerId, Long orderId) {
         return orderGetOrderDetailUseCase.getOrderDetail(buyerId, orderId);
     }

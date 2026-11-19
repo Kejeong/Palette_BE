@@ -6,6 +6,7 @@ import com.backend.boundedContext.order.out.OrderCouponPort;
 import com.backend.boundedContext.order.out.OrderRepository;
 import com.backend.global.eventPublisher.EventPublisher;
 import com.backend.global.exception.DomainException;
+import com.backend.global.exception.GlobalErrorCode;
 import com.backend.shared.order.event.OrderPaidEvent;
 import com.backend.shared.payment.dto.PayCommand;
 import com.backend.shared.payment.dto.PayResultDto;
@@ -21,15 +22,13 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * 결제 요청과 결과 반영 (결제 API의 3·4단계, 재확인 스케줄러가 함께 쓴다)
- *
- * 결제는 HTTP라 주문 트랜잭션에 참여하지 못한다. 그래서 주문을 PAYING으로 커밋한 뒤(호출한 쪽) 트랜잭션 밖에서 결제를 부르고,
- * 주문을 다시 잠가 **아직 PAYING이고 같은 멱등키일 때만** 결과를 반영한다. 결제 API와 재확인이 겹쳐도 결과는 한 번만 반영된다.
- * - PAID: 예약 쿠폰 사용 처리, 주문 PAID, 장바구니 항목 삭제, OrderPaidEvent(outbox)를 한 트랜잭션으로
- * - FAILED_*: 주문 PAYMENT_FAILED (다시 결제하거나, 만료되면 만료 스케줄러가 취소·재고 복구)
- * - payment가 요청을 거절(4xx): 결제가 일어나지 않았으므로 PAYMENT_FAILED로 두고 같은 오류를 다시 던진다
- * - 결과 불명(접속 실패·응답 시간 초과·5xx·반영 트랜잭션 실패): PAYING으로 둔다. 재확인 스케줄러가 같은 키로 pay를 다시 불러 정리한다
- * - PAID인데 주문이 이 키로 결제 중도 결제 완료도 아님(예외 상태): 결제를 취소(cancelPayment)해 돈을 돌려주고 ERROR 로그를 남긴다
+ * 결제 요청과 결과 반영 (결제 API·재확인 스케줄러가 함께 쓴다)
+ * 결제(HTTP)는 트랜잭션 밖에서 부르고, 주문을 다시 잠가 아직 PAYING이고 같은 멱등키일 때만 결과를 반영한다(한 번만 반영).
+ * - PAID: 쿠폰 사용 처리·주문 PAID·장바구니 삭제·OrderPaidEvent를 한 트랜잭션으로
+ * - FAILED_*, 4xx 거절: PAYMENT_FAILED (4xx는 같은 오류를 다시 던진다)
+ * - 503-INTERNAL_API_AUTH_FAILED: 첫 요청이면 거절과 같고, 재확인이면 결과 불명(앞선 요청이 결제됐을 수 있다)
+ * - 결과 불명(접속 실패·시간 초과·5xx·반영 실패): PAYING 유지, 재확인 스케줄러가 같은 키로 정리
+ * - PAID인데 주문에 반영할 수 없음: 결제를 취소(cancelPayment)하고 ERROR 로그
  */
 @Slf4j
 @Component
@@ -68,14 +67,33 @@ public class OrderPaymentSupport {
     }
 
     /**
-     * 결제를 요청하고(트랜잭션 밖) 결과를 반영한다. 결과를 모르면 {@link PaymentAttempt#unknown()}.
-     * payment가 요청을 거절(4xx)하면 주문을 PAYMENT_FAILED로 반영하고 그 DomainException을 다시 던진다.
+     * 결제 API의 첫 결제 요청. 결제를 요청하고(트랜잭션 밖) 결과를 반영한다. 결과를 모르면 {@link PaymentAttempt#unknown()}.
+     * payment가 요청을 거절(4xx)하거나 내부 키 인증에 실패(503)하면 주문을 PAYMENT_FAILED로 반영하고 그 DomainException을 다시 던진다.
      */
     public PaymentAttempt requestAndApply(PayCommand command, LocalDateTime now) {
+        return requestAndApply(command, now, false);
+    }
+
+    /**
+     * 재확인 스케줄러의 재요청 (결과를 모르는 PAYING 주문, 같은 키·같은 내용). 반영 규칙은 첫 요청과 같지만,
+     * 내부 키 인증 실패(503-INTERNAL_API_AUTH_FAILED)는 결과 불명으로 보고 PAYING으로 둔다.
+     * 앞선 요청이 결제됐을 수 있어 여기서 PAYMENT_FAILED로 확정하면 돈이 홀딩에 묶인 채 주문만 실패·만료 취소된다.
+     */
+    public PaymentAttempt recheckAndApply(PayCommand command, LocalDateTime now) {
+        return requestAndApply(command, now, true);
+    }
+
+    private PaymentAttempt requestAndApply(PayCommand command, LocalDateTime now, boolean recheck) {
         PayResultDto result;
         try {
             result = paymentApi.pay(command);
         } catch (DomainException e) {
+            if (recheck && isInternalApiAuthFailed(e)) {
+                // 키 설정 오류는 PaymentApiClient가 이미 ERROR로 남겼다. 주문마다 다시 ERROR를 남기지 않는다
+                log.warn("결제 재확인 요청이 내부 키 인증에서 막혀 주문을 결제 중으로 둡니다: orderId={}, key={}",
+                        command.orderId(), command.idempotencyKey());
+                return PaymentAttempt.unknown();
+            }
             if (!isRejected(e)) {
                 log.warn("결제 결과를 알 수 없어 주문을 결제 중으로 둡니다: orderId={}, key={}, reason={}",
                         command.orderId(), command.idempotencyKey(), e.getResultCode());
@@ -111,7 +129,8 @@ public class OrderPaymentSupport {
         switch (result.status()) {
             case PAID -> {
                 orderCouponPort.useReservedCoupons(order.getId(), now);
-                order.completePayment(now);
+                // 결제 시각은 payment가 기록한 값을 쓴다. 이전 버전 payment라 없으면 지금 시각
+                order.completePayment(result.paidAt() != null ? result.paidAt() : now);
                 publishPaidEvent(order);
                 removeCartItems(order);
             }
@@ -153,9 +172,18 @@ public class OrderPaymentSupport {
     }
 
     // payment가 판단해 거절한 요청인지 (4xx). 잠금·동시성 충돌은 같은 키의 다른 요청이 결제됐을 수 있어 결과 불명으로 본다
+    // 내부 키 인증 실패(503-INTERNAL_API_AUTH_FAILED)는 payment 보안 필터에서 막혀 이번 요청이 처리되지 않았으므로 거절로 본다
+    // (첫 결제 요청만 여기까지 온다. 재확인은 위에서 결과 불명으로 처리한다)
     private static boolean isRejected(DomainException e) {
+        if (isInternalApiAuthFailed(e)) {
+            return true;
+        }
         int status = e.statusCode();
         return status >= 400 && status < 500 && !UNCERTAIN_REJECTIONS.contains(e.getResultCode());
+    }
+
+    private static boolean isInternalApiAuthFailed(DomainException e) {
+        return GlobalErrorCode.INTERNAL_API_AUTH_FAILED.resultCode().equals(e.getResultCode());
     }
 
     private Order lockOrder(Long orderId) {

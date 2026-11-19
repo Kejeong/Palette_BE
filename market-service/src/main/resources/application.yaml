@@ -187,7 +187,8 @@ custom:
   payment:
     baseUrl: ${PAYMENT_SERVICE_URL:http://localhost:8083}
     connectTimeoutMillis: 1000   # payment 서비스 접속 제한 시간(밀리초)
-    readTimeoutMillis: 5000      # 응답 대기 제한 시간(밀리초). 결제는 지갑 잠금을 기다릴 수 있어 다른 조회보다 길게 둔다. payingRecheckSeconds보다 짧아야 한다
+    readTimeoutMillis: 5000      # 결제 요청(pay·결제 취소) 응답 대기 제한 시간(밀리초). 결제는 지갑 잠금을 기다릴 수 있어 다른 조회보다 길게 둔다. payingRecheckSeconds보다 짧아야 한다
+    queryReadTimeoutMillis: 2000 # 결제 내역 조회 응답 대기 제한 시간(밀리초). 주문 상세 요청 안에서 부르므로 짧게 둔다
   order:
     cartMaxQuantity: 99       # 장바구니 최대 수량
     expireMinutes: 15          # 주문 생성 후 결제 제한 시간(분)

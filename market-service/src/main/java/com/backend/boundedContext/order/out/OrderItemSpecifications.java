@@ -38,13 +38,19 @@ public final class OrderItemSpecifications {
         return (root, query, cb) -> cb.lessThan(root.get("order").get("createdAt"), to.plusDays(1).atStartOfDay());
     }
 
-    // 주문번호 또는 상품명
+    private static final char LIKE_ESCAPE = '\\';
+
+    // 주문번호 또는 상품명. 검색어의 %, _, 역슬래시는 글자 그대로 찾도록 이스케이프한다
     public static Specification<OrderItem> keywordContains(String keyword) {
         if (keyword == null || keyword.isBlank()) return Specification.unrestricted();
-        String like = "%" + keyword.trim() + "%";
+        String like = "%" + escapeLike(keyword.trim()) + "%";
         return (root, query, cb) -> cb.or(
-                cb.like(root.get("order").get("orderNumber"), like),
-                cb.like(root.get("productName"), like)
+                cb.like(root.get("order").get("orderNumber"), like, LIKE_ESCAPE),
+                cb.like(root.get("productName"), like, LIKE_ESCAPE)
         );
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

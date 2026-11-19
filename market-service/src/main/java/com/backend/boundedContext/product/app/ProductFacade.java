@@ -104,12 +104,13 @@ public class ProductFacade {
         return productSupport.getProductSnapshots(productIds);
     }
 
-    @Transactional
+    // 재고 차감·복원은 주문 상태 변경과 한 트랜잭션이어야 한다. 트랜잭션 밖에서 부르면 IllegalTransactionStateException
+    @Transactional(propagation = Propagation.MANDATORY)
     public void deductStock(List<StockChangeDto> items) {
         productChanged(productDeductStockUseCase.deductStock(items));   // 품절 여부가 바뀐 상품만
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     public void restoreStock(List<StockChangeDto> items, StockRestoreReason reason) {
         productChanged(productRestoreStockUseCase.restoreStock(items, reason));   // 품절 여부가 바뀐 상품만
     }

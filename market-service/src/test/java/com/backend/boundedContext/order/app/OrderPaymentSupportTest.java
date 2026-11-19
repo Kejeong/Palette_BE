@@ -6,6 +6,8 @@ import com.backend.boundedContext.order.domain.OrderItemSpec;
 import com.backend.boundedContext.order.out.OrderCouponPort;
 import com.backend.boundedContext.order.out.OrderRepository;
 import com.backend.global.eventPublisher.EventPublisher;
+import com.backend.global.exception.DomainException;
+import com.backend.global.exception.GlobalErrorCode;
 import com.backend.shared.order.dto.OrderCancelType;
 import com.backend.shared.order.dto.OrderStatus;
 import com.backend.shared.payment.dto.PayCommand;
@@ -15,6 +17,8 @@ import com.backend.shared.payment.out.PaymentApi;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -25,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
@@ -35,7 +40,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 /**
  * 결과 반영 조건(PAYING + 같은 키)과 보상(결제 취소)
  */
-@ExtendWith(MockitoExtension.class)
+@ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
 class OrderPaymentSupportTest {
 
     private static final Long ORDER_ID = 500L;
@@ -126,5 +131,54 @@ class OrderPaymentSupportTest {
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.PAYMENT_FAILED);
         verify(paymentApi, never()).cancelPayment(any());
+    }
+    @Test
+    @DisplayName("첫 결제 요청: 내부 키 인증 실패(503-INTERNAL_API_AUTH_FAILED)는 결제가 없었으므로 PAYMENT_FAILED + 503 그대로")
+    void firstRequest_authFailed_paymentFailed() {
+        Order order = payingOrder(KEY);
+        DomainException authFailed = new DomainException(GlobalErrorCode.INTERNAL_API_AUTH_FAILED);
+        given(paymentApi.pay(any())).willThrow(authFailed);
+
+        assertThatThrownBy(() -> support().requestAndApply(support().toPayCommand(order), LocalDateTime.now()))
+                .isSameAs(authFailed);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAYMENT_FAILED);
+    }
+
+    @Test
+    @DisplayName("재확인: 내부 키 인증 실패(503-INTERNAL_API_AUTH_FAILED)는 결과 불명. PAYING 유지, 예외 없이 unknown, WARN 로그")
+    void recheck_authFailed_unknown(CapturedOutput output) {
+        Order order = payingOrder(KEY);
+        given(paymentApi.pay(any())).willThrow(new DomainException(GlobalErrorCode.INTERNAL_API_AUTH_FAILED));
+
+        PaymentAttempt attempt = support().recheckAndApply(support().toPayCommand(order), LocalDateTime.now());
+
+        assertThat(attempt.isUnknown()).isTrue();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAYING);
+        verifyNoInteractions(orderCouponPort, eventPublisher);
+        assertThat(output).contains("WARN").contains("결제 재확인 요청이 내부 키 인증에서 막혀 주문을 결제 중으로 둡니다")
+                .doesNotContain("ERROR");
+    }
+
+    @Test
+    @DisplayName("재확인: 다른 4xx 거절(404-WALLET_NOT_FOUND)은 지금처럼 PAYMENT_FAILED + 같은 오류")
+    void recheck_otherRejection_paymentFailed() {
+        Order order = payingOrder(KEY);
+        given(paymentApi.pay(any())).willThrow(new DomainException("404-WALLET_NOT_FOUND", "지갑을 찾을 수 없습니다.", null));
+
+        assertThatThrownBy(() -> support().recheckAndApply(support().toPayCommand(order), LocalDateTime.now()))
+                .extracting("resultCode").isEqualTo("404-WALLET_NOT_FOUND");
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAYMENT_FAILED);
+    }
+
+    @Test
+    @DisplayName("재확인: PAID 결과는 첫 요청과 같이 PAID로 반영한다")
+    void recheck_paid_applied() {
+        Order order = payingOrder(KEY);
+        given(paymentApi.pay(any())).willReturn(PAID);
+
+        PaymentAttempt attempt = support().recheckAndApply(support().toPayCommand(order), LocalDateTime.now());
+
+        assertThat(attempt.isUnknown()).isFalse();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
     }
 }

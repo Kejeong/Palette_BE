@@ -35,6 +35,8 @@ public enum GlobalErrorCode implements ErrorCode {
 
     // 외부·서버
     EXTERNAL_SERVICE_ERROR(502, "외부 서비스 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."),
+    // 내부 API 호출이 인증(내부 키)에서 막힘(401·403)
+    INTERNAL_API_AUTH_FAILED(503, "일시적으로 서비스를 이용할 수 없습니다. 잠시 후 다시 시도해 주세요."),
     INTERNAL_ERROR(500, "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
 
     private final int status;

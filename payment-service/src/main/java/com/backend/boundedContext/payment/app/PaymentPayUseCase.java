@@ -152,7 +152,7 @@ public class PaymentPayUseCase {
     // 취소된 결제의 키로 다시 오면 이 키로는 더 진행할 수 없으므로 409 (새 키로 결제해야 함)
     private PayResultDto toResult(Payment payment, Wallet wallet) {
         return switch (payment.getStatus()) {
-            case PAID -> new PayResultDto(payment.getId(), PayResultStatus.PAID, 0, 0);
+            case PAID -> new PayResultDto(payment.getId(), PayResultStatus.PAID, 0, 0, payment.getPaidAt());
             case FAILED_ORDER_EXPIRED -> new PayResultDto(payment.getId(), PayResultStatus.FAILED_ORDER_EXPIRED, 0, 0);
             case FAILED_INSUFFICIENT_BALANCE -> insufficientResult(payment, wallet);
             case CANCELED -> throw new DomainException(PaymentErrorCode.PAYMENT_CANCELED);

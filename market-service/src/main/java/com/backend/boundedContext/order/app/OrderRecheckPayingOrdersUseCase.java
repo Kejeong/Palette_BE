@@ -16,13 +16,11 @@ import java.util.Optional;
 
 /**
  * 결제 중(PAYING) 주문 재확인 (스케줄러)
- * PAYING이 된 지 일정 시간(payingRecheckSeconds)이 지난 주문에 **같은 키·같은 내용으로 pay를 다시 불러** 확정한다.
- * 읽기 전용 조회는 쓰지 않는다: "결제 없음"은 확정이 아니다(원래 요청이 늦게 도착할 수 있음).
- * 같은 키 재호출은 payment가 키 UNIQUE·지갑 잠금으로 직렬화하므로, 처리됐으면 처음 결과를, 아니면 그때 처리한 결과를 돌려준다.
- * - PAID → PAID로 반영 (만료 시각이 지났어도 payment가 만료 전 결제로 판단한 것이므로 PAID)
- * - FAILED_INSUFFICIENT_BALANCE → PAYMENT_FAILED
- * - FAILED_ORDER_EXPIRED → PAYMENT_FAILED. 만료 시각이 지난 결제 대기 주문이므로 만료 스케줄러가 취소하고 재고·쿠폰을 복구한다
- * - 계속 응답이 없으면 PAYING 유지. payingAlertMinutes가 지나면 ERROR 로그로 알린다
+ * PAYING이 된 지 payingRecheckSeconds가 지난 주문에 같은 키·같은 내용으로 pay를 다시 불러 확정한다.
+ * (읽기 조회의 "결제 없음"은 원래 요청이 늦게 도착할 수 있어 확정이 아니다. 같은 키는 payment가 처음 결과를 돌려준다)
+ * - PAID → PAID (만료 시각이 지났어도)
+ * - FAILED_* → PAYMENT_FAILED (만료된 주문은 만료 스케줄러가 취소·복구)
+ * - 응답 없음·503-INTERNAL_API_AUTH_FAILED → 결과 불명이라 PAYING 유지. payingAlertMinutes가 지나면 ERROR 로그
  */
 @Slf4j
 @Component
@@ -60,7 +58,7 @@ public class OrderRecheckPayingOrdersUseCase {
 
         PaymentAttempt attempt;
         try {
-            attempt = orderPaymentSupport.requestAndApply(orderPaymentSupport.toPayCommand(order), now);
+            attempt = orderPaymentSupport.recheckAndApply(orderPaymentSupport.toPayCommand(order), now);
         } catch (DomainException rejected) {
             // payment가 요청을 거절했다(결제 없음). 주문은 PAYMENT_FAILED로 반영됐다
             log.warn("결제 재확인 요청이 거절돼 결제 실패로 반영했습니다: orderId={}, reason={}", orderId, rejected.getResultCode());
