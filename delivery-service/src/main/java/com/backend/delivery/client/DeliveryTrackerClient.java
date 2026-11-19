@@ -81,9 +81,10 @@ public class DeliveryTrackerClient implements DeliveryTracker {
     private final String callbackToken;
     private final String clientSecret;
 
+    // restClientBuilder: 스프링이 넣어 주는 builder(호출 기록 http_client_requests·추적 traceId가 붙음). RestClient.builder()로 직접 만들면 빠진다
     @Autowired
-    public DeliveryTrackerClient(DeliveryTrackerPolicy policy, ObjectMapper objectMapper) {
-        this(RestClient.builder().requestFactory(requestFactory(policy.getReadTimeoutMillis())),
+    public DeliveryTrackerClient(RestClient.Builder restClientBuilder, DeliveryTrackerPolicy policy, ObjectMapper objectMapper) {
+        this(restClientBuilder.requestFactory(requestFactory(policy.getReadTimeoutMillis())),
                 policy, new CallRateLimiter(policy.getMaxCallsPerSecond()), objectMapper);
     }
 

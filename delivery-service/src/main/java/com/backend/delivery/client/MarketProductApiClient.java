@@ -33,14 +33,16 @@ public class MarketProductApiClient implements ProductImagePort {
 
     private final RestClient restClient;
 
+    // restClientBuilder: 스프링이 넣어 주는 builder(호출 기록 http_client_requests·추적 traceId가 붙음). RestClient.builder()로 직접 만들면 빠진다
     @Autowired
     public MarketProductApiClient(
+            RestClient.Builder restClientBuilder,
             @Value("${custom.market.baseUrl}") String baseUrl,
             @Value("${custom.internal.apiKey}") String internalApiKey,
             @Value("${custom.market.connectTimeoutMillis}") long connectTimeoutMillis,
             @Value("${custom.market.readTimeoutMillis}") long readTimeoutMillis
     ) {
-        this(RestClient.builder().requestFactory(requestFactory(connectTimeoutMillis, readTimeoutMillis)), baseUrl, internalApiKey);
+        this(restClientBuilder.requestFactory(requestFactory(connectTimeoutMillis, readTimeoutMillis)), baseUrl, internalApiKey);
     }
 
     /**

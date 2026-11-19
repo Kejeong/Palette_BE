@@ -27,10 +27,11 @@ public class MemberInternalApiClient {
     private final String target;
     private final RestClient restClient;
 
-    public static MemberInternalApiClient create(String target, String baseUrl, String internalApiKey,
+    // restClientBuilder: 스프링이 넣어 주는 builder(호출 기록 http_client_requests·추적 traceId가 붙음). RestClient.builder()로 직접 만들면 빠진다
+    public static MemberInternalApiClient create(RestClient.Builder restClientBuilder, String target, String baseUrl, String internalApiKey,
                                                  long connectTimeoutMillis, long readTimeoutMillis) {
         return new MemberInternalApiClient(target,
-                RestClient.builder().requestFactory(requestFactory(connectTimeoutMillis, readTimeoutMillis)),
+                restClientBuilder.requestFactory(requestFactory(connectTimeoutMillis, readTimeoutMillis)),
                 baseUrl, internalApiKey);
     }
 

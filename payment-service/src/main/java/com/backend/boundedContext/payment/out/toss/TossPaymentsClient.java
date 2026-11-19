@@ -36,17 +36,19 @@ public class TossPaymentsClient {
     /**
      * Spring이 빈을 만들 때 사용하는 생성자
      * 1. application.yaml의 custom.toss 값을 읽음
-     * 2. 접속·응답 대기 제한 시간을 넣은 연결 부품(requestFactory)을 RestClient.builder에 끼움
+     * 2. 접속·응답 대기 제한 시간을 넣은 연결 부품(requestFactory)을 스프링이 넣어 준 builder에 끼움
+     *    (스프링 builder라 토스 호출 기록(http_client_requests)과 추적이 붙는다. RestClient.builder()로 직접 만들면 빠진다)
      * 3. 나머지 설정(baseUrl, 인증 헤더)은 아래 생성자에 맡김
      */
     @Autowired
     public TossPaymentsClient(
+            RestClient.Builder restClientBuilder,
             @Value("${custom.toss.baseUrl}") String baseUrl,
             @Value("${custom.toss.secretKey}") String secretKey,
             @Value("${custom.toss.connectTimeoutSeconds}") long connectTimeoutSeconds,
             @Value("${custom.toss.readTimeoutSeconds}") long readTimeoutSeconds
     ) {
-        this(RestClient.builder().requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(readTimeoutSeconds))), baseUrl, secretKey);
+        this(restClientBuilder.requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(readTimeoutSeconds))), baseUrl, secretKey);
     }
 
     /**

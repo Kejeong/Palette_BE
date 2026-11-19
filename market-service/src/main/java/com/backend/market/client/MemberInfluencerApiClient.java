@@ -24,14 +24,16 @@ public class MemberInfluencerApiClient {
 
     private final RestClient restClient;
 
+    // restClientBuilder: 스프링이 넣어 주는 builder(호출 기록 http_client_requests·추적 traceId가 붙음). RestClient.builder()로 직접 만들면 빠진다
     @Autowired
     public MemberInfluencerApiClient(
+            RestClient.Builder restClientBuilder,
             @Value("${custom.member.baseUrl}") String baseUrl,
             @Value("${custom.internal.apiKey}") String internalApiKey,
             @Value("${custom.member.connectTimeoutMillis}") long connectTimeoutMillis,
             @Value("${custom.member.readTimeoutMillis}") long readTimeoutMillis
     ) {
-        this(RestClient.builder().requestFactory(MemberApiClient.requestFactory(connectTimeoutMillis, readTimeoutMillis)), baseUrl, internalApiKey);
+        this(restClientBuilder.requestFactory(MemberApiClient.requestFactory(connectTimeoutMillis, readTimeoutMillis)), baseUrl, internalApiKey);
     }
 
     // 테스트에서 MockRestServiceServer를 연결한 builder를 넘길 수 있게 열어 둔다

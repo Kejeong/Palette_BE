@@ -43,14 +43,19 @@ public class PaymentMemberHttpAdapter implements PaymentMemberPort {
 
     private final MemberHttpClient client;
 
+    /**
+     * restClientBuilder: 스프링이 넣어 주는 builder. 호출 기록(http_client_requests)과 추적이 붙어 있고, 주입할 때마다 새것이라
+     * 여기서 제한 시간을 바꿔도 다른 클라이언트에 영향이 없다. RestClient.builder()로 직접 만들면 이 기능이 빠진다
+     */
     @Autowired
     public PaymentMemberHttpAdapter(
+            RestClient.Builder restClientBuilder,
             @Value("${custom.payment.memberBaseUrl}") String baseUrl,
             @Value("${custom.payment.memberConnectTimeoutSeconds}") long connectTimeoutSeconds,
             @Value("${custom.payment.memberReadTimeoutSeconds}") long readTimeoutSeconds,
             @Value("${custom.internal.apiKey}") String internalApiKey
     ) {
-        this(RestClient.builder().requestFactory(requestFactory(connectTimeoutSeconds, readTimeoutSeconds)), baseUrl, internalApiKey);
+        this(restClientBuilder.requestFactory(requestFactory(connectTimeoutSeconds, readTimeoutSeconds)), baseUrl, internalApiKey);
     }
 
     /**
