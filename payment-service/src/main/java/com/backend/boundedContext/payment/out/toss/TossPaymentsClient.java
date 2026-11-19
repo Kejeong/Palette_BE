@@ -33,6 +33,9 @@ public class TossPaymentsClient {
     // baseUrl·인증 헤더·타임아웃이 모두 설정된 RestClient. 앱 시작 시 한 번 만들어 모든 호출에서 재사용
     private final RestClient restClient;
 
+    // 조회 전용. 응답 대기 시간만 짧음 (조회는 끊겨도 다음 회차에 다시 하면 되므로 PG 장애 때 대사가 오래 붙잡히지 않게 함)
+    private final RestClient lookupRestClient;
+
     /**
      * Spring이 빈을 만들 때 사용하는 생성자
      * 1. application.yaml의 custom.toss 값을 읽음
@@ -44,9 +47,12 @@ public class TossPaymentsClient {
             @Value("${custom.toss.baseUrl}") String baseUrl,
             @Value("${custom.toss.secretKey}") String secretKey,
             @Value("${custom.toss.connectTimeoutSeconds}") long connectTimeoutSeconds,
-            @Value("${custom.toss.readTimeoutSeconds}") long readTimeoutSeconds
+            @Value("${custom.toss.readTimeoutSeconds}") long readTimeoutSeconds,
+            @Value("${custom.toss.lookupReadTimeoutSeconds}") long lookupReadTimeoutSeconds
     ) {
-        this(RestClient.builder().requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(readTimeoutSeconds))), baseUrl, secretKey);
+        this(RestClient.builder().requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(readTimeoutSeconds))),
+                RestClient.builder().requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(lookupReadTimeoutSeconds))),
+                baseUrl, secretKey);
     }
 
     /**
@@ -56,7 +62,17 @@ public class TossPaymentsClient {
      * - defaultHeader: 모든 요청에 인증 헤더를 자동으로 넣음
      */
     TossPaymentsClient(RestClient.Builder builder, String baseUrl, String secretKey) {
-        this.restClient = builder
+        this(builder, builder, baseUrl, secretKey);
+    }
+
+    // 승인·취소용과 조회용 builder를 따로 받음. 테스트에서 응답 대기 시간을 다르게 한 실제 연결을 넘길 수 있게 열어 둠
+    TossPaymentsClient(RestClient.Builder builder, RestClient.Builder lookupBuilder, String baseUrl, String secretKey) {
+        this.restClient = build(builder, baseUrl, secretKey);
+        this.lookupRestClient = build(lookupBuilder, baseUrl, secretKey);
+    }
+
+    private static RestClient build(RestClient.Builder builder, String baseUrl, String secretKey) {
+        return builder
                 .baseUrl(baseUrl)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, basicAuth(secretKey))
                 .build();
@@ -78,9 +94,10 @@ public class TossPaymentsClient {
     /**
      * 결제키로 결제 조회 (결과를 모르는 PROCESSING·CANCELING 충전 건의 최종 결과 확인용)
      * 주문번호 조회(/v1/payments/orders/{orderId})는 결제위젯 시크릿 키(test_gsk·live_gsk)로 호출할 수 없어 결제키로 조회함
+     * 응답 대기 시간이 짧은 조회 전용 RestClient를 씀
      */
     public TossPaymentResponse getPayment(String paymentKey) {
-        return call(() -> restClient.get()
+        return call(() -> lookupRestClient.get()
                 .uri("/v1/payments/{paymentKey}", paymentKey)        // {paymentKey} 자리에 결제키가 들어감
                 .retrieve()
                 .body(TossPaymentResponse.class));
