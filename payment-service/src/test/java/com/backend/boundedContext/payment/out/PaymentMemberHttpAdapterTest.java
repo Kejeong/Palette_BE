@@ -85,6 +85,21 @@ class PaymentMemberHttpAdapterTest {
     }
 
     @Test
+    @DisplayName("활성 회원 확인: 회원 서비스가 내부 키 오류(401-INTERNAL_API_KEY_INVALID)로 거절하면 사용자에게 401로 넘기지 않고 502 EXTERNAL_SERVICE_ERROR")
+    void checkActiveMember_internalApiKeyInvalid() {
+        server.expect(requestTo(BASE_URL + "/internal/v1/members/3/active"))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"resultCode": "401-INTERNAL_API_KEY_INVALID", "msg": "내부 API 키가 없거나 올바르지 않습니다.", "data": null}
+                                """));
+
+        assertThatThrownBy(() -> adapter.checkActiveMember(3L))
+                .isInstanceOfSatisfying(DomainException.class,
+                        e -> assertThat(e.getResultCode()).isEqualTo("502-EXTERNAL_SERVICE_ERROR"));
+    }
+
+    @Test
     @DisplayName("여러 회원 조회: ids로 보내고 RsData.data의 목록을 돌려준다")
     void getMembers() {
         server.expect(requestTo(BASE_URL + "/internal/v1/members?ids=3&ids=4"))

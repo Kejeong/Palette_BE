@@ -29,6 +29,8 @@ import com.backend.global.rsData.RsData;
 import com.backend.global.security.InternalApiKeyFilter;
 import com.backend.shared.member.dto.MemberDto;
 
+import lombok.extern.slf4j.Slf4j;
+
 /**
  * 회원 내부 API(/internal/v1/members)를 HTTP로 불러 PaymentMemberPort를 구현함
  * 모든 요청에 내부 키 헤더(X-Internal-Key)를 넣는다. 회원 서비스가 이 키로 내부 호출인지 확인함
@@ -36,8 +38,10 @@ import com.backend.shared.member.dto.MemberDto;
  * 실패 처리
  * - 회원 서비스가 RsData 오류로 응답하면(예: 401-UNAUTHORIZED) 같은 resultCode의 DomainException으로 바꿈
  *   → 결제 API를 부른 사용자도 분리 전과 같은 응답을 받음
+ * - 단 내부 키 오류(401-INTERNAL_API_KEY_INVALID)는 결제 쪽 설정 문제라 사용자에게 401로 넘기지 않고 502 EXTERNAL_SERVICE_ERROR + ERROR 로그
  * - 응답을 못 받았거나(접속 실패·시간 초과) 본문이 RsData가 아니면 502 EXTERNAL_SERVICE_ERROR
  */
+@Slf4j
 @Component
 public class PaymentMemberHttpAdapter implements PaymentMemberPort {
 
@@ -103,10 +107,15 @@ public class PaymentMemberHttpAdapter implements PaymentMemberPort {
         }
     }
 
-    // 회원 서비스가 보낸 RsData 오류는 같은 resultCode로, 해석할 수 없는 오류는 502로 바꿈
+    // 회원 서비스가 보낸 RsData 오류는 같은 resultCode로, 내부 키 오류·해석할 수 없는 오류는 502로 바꿈
     private static DomainException convertMemberServiceError(RestClientResponseException e) {
         MemberServiceErrorResponse error = readErrorResponse(e);
         if (!hasResultCode(error)) {
+            return new DomainException(GlobalErrorCode.EXTERNAL_SERVICE_ERROR, e);
+        }
+        if (GlobalErrorCode.INTERNAL_API_KEY_INVALID.resultCode().equals(error.resultCode())) {
+            // 서비스 사이 내부 키가 어긋남. 사용자가 다시 로그인해도 해결되지 않으므로 502로 바꾸고 알림
+            log.error("회원 내부 API가 내부 키 오류로 거절함. INTERNAL_API_KEY 설정을 확인해야 함");
             return new DomainException(GlobalErrorCode.EXTERNAL_SERVICE_ERROR, e);
         }
         return new DomainException(error.resultCode(), error.msg(), error.data());

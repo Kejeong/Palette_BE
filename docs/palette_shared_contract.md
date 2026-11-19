@@ -53,6 +53,13 @@ X-Internal-Key: <INTERNAL_API_KEY 값>
 
 - 키는 환경 변수 `INTERNAL_API_KEY`(설정 `custom.internal.apiKey`)로 넣고 기본값이 없다. 없으면 앱이 뜨지 않는다. 지금은 모든 서비스가 같은 값을 쓴다.
 - 부르는 쪽 HTTP 클라이언트(`RestClient`)는 모든 요청에 `X-Internal-Key` 헤더를 기본으로 붙인다.
+- 내부 키 오류(`401-INTERNAL_API_KEY_INVALID`)는 부르는 쪽 설정 문제라 사용자에게 401로 넘기지 않고 조회 실패로 처리하며, ERROR 로그를 남긴다. 401을 그대로 넘기면 프론트가 로그인 만료로 처리할 수 있고, 4xx라 오류 알림도 오지 않는다. 같은 401이라도 상대가 판단한 결과(예: 회원 확인의 `401-UNAUTHORIZED`)는 그대로 전달한다.
+
+| 부르는 쪽 | 내부 키 오류를 받으면 |
+| --- | --- |
+| 회원 (`MemberInternalApiClient`) | `MemberPortUnavailableException` (탈퇴·철회 검사는 503 `WITHDRAWAL_CHECK_UNAVAILABLE`, 관리자 회원 상세는 그 영역만 비움) |
+| 결제 → 회원 (`PaymentMemberHttpAdapter`) | 502 `EXTERNAL_SERVICE_ERROR` |
+| 주문 → 결제 | 503 `INTERNAL_API_AUTH_FAILED` (결제 `pay` 설명 참고) |
 - 외부에는 열지 않는다. nginx는 `/api/` 등만 앱으로 넘기고 `/internal/`은 넘기지 않는다. 게이트웨이를 만들 때도 `/internal/**`은 라우팅하지 않는다.
 - 내부 API 컨트롤러는 Swagger에 나오지 않게 `@Hidden`을 붙이고, 응답은 다른 API와 같은 `RsData`로 돌려준다.
 
