@@ -35,6 +35,7 @@ public record EventEnvelope<T extends DomainEvent>(UUID eventId, String eventTyp
 
 - 아래 컨텍스트별 이벤트는 모두 `DomainEvent`를 구현한다. 새 이벤트를 추가할 때도 구현한다.
 - 봉투는 Outbox 도입(TRSS-121)에서 쓴다. 단계와 필드 설명은 [개발 가이드 6.5](palette_development_guide.md#65-outbox)
+- 이벤트 필드를 바꿀 때는 보내는 쪽과 받는 쪽 테스트를 함께 확인한다. 서비스가 나뉘면 한 앱에서 양쪽을 같이 돌리던 통합 테스트가 없어지고 각자 목으로 따로 검증하게 되므로, 한쪽만 고치면 테스트는 통과해도 실제로는 맞지 않을 수 있다 (예: 회원 → 상품 판매 중지 흐름은 market 분리 때 목 없는 통합 테스트가 빠짐)
 
 ### 내부 API 공통 규칙
 
@@ -162,7 +163,7 @@ public interface MemberApi {
 | --- | --- | --- | --- |
 | `MemberOrderPort` | `MemberOrderHttpAdapter` | market-service `/internal/v1/orders` | `custom.market.baseUrl` (`MARKET_SERVICE_URL`, 기본 `http://localhost:8082`) |
 | `MemberSettlementPort` | `MemberSettlementHttpAdapter` | settlement-service `/internal/v1/settlements` (정산 보류는 HTTP가 아니라 `SellerSanctionedEvent`) | `custom.settlement.baseUrl` (`SETTLEMENT_SERVICE_URL`, 기본 `http://localhost:8084`) |
-| `MemberPaymentPort` | `MemberPaymentHttpAdapter` | 결제 `/internal/v1/payments` (payment-service로 분리되기 전에는 루트 앱) | `custom.payment.baseUrl` (`PAYMENT_SERVICE_URL`, 기본 `http://localhost:8080`) |
+| `MemberPaymentPort` | `MemberPaymentHttpAdapter` | payment-service `/internal/v1/payments` | `custom.payment.baseUrl` (`PAYMENT_SERVICE_URL`, 기본 `http://localhost:8083`) |
 
 - HTTP 호출은 `MemberInternalApiClient`가 맡습니다. 모든 요청에 `X-Internal-Key`를 붙이고, 접속 1초·응답 3초 제한을 둡니다.
 - 실패는 두 가지로 나눕니다.
@@ -173,9 +174,11 @@ public interface MemberApi {
 | 쓰임 | 해당 기능 | 확인하지 못하면 |
 | --- | --- | --- |
 | 판단 (통과 여부 결정) | 회원 탈퇴 조건 조회·요청, 판매자 철회 요청·승인 | 통과시키지 않고 `503-WITHDRAWAL_CHECK_UNAVAILABLE` ("탈퇴 가능 여부를 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.") |
-| 표시 (보여 주기만 함) | 내 판매자 정보 조회·수정의 `unsettledAmount`, 관리자 회원 상세의 `wallet`·`recentOrders` | 그 값만 `null`로 비우고 나머지는 그대로 응답 (빈 목록과 `null`은 다르다: `null`은 조회하지 못함) |
+| 표시 (보여 주기만 함) | 내 판매자 정보 조회·수정의 `unsettledAmount`, 관리자 회원 상세의 `wallet`·`recentOrders` | 그 값만 `null`로 비우고 나머지는 그대로 응답 (빈 목록과 `null`은 다르다: `null`은 조회하지 못함). 관리자 회원 상세의 지갑은 `walletState: UNAVAILABLE`로 알림 |
 
-- 탈퇴 검사에서 지갑이 없으면(`404-WALLET_NOT_FOUND`, 가입 직후 지갑 생성 전) 잔액 0으로 봅니다.
+- 결제의 `404-WALLET_NOT_FOUND`(지갑이 아직 없음)는 `MemberPaymentHttpAdapter`만 해석해 `findWallet`의 `Optional.empty()`로 바꿉니다. 다른 4xx는 위 규칙대로 같은 `resultCode`로 던집니다.
+  - 탈퇴 검사: 지갑이 없으면 잔액 0으로 봅니다 (돌려줄 예치금이 없음).
+  - 관리자 회원 상세: `walletState`로 구분합니다. `CREATED`(지갑 있음, `wallet`에 잔액) / `NOT_CREATED`(지갑 없음) / `UNAVAILABLE`(결제 조회 실패). `wallet`은 `CREATED`일 때만 있습니다.
 - 판단에 쓰는 여부·금액 응답의 `data`가 비어 있으면 `false`·0으로 통과시키지 않고 확인하지 못한 것으로 봅니다.
 
 ### DTO
@@ -715,6 +718,14 @@ public interface PaymentApi {
     Optional<TransferResultDto> findTransfer(String idempotencyKey);
 }
 ```
+
+`404-WALLET_NOT_FOUND`는 **그 회원의 지갑이 아직 없음**을 뜻합니다. 지갑은 `MemberSignedUpEvent`를 받아 만들므로 가입 직후 이벤트 처리 전이거나 처리에 실패했으면 없고, 물류 담당자(`LOGISTICS`)는 지갑을 만들지 않습니다. 이 응답을 쓰는 곳:
+
+| 부르는 쪽 | 처리 |
+| --- | --- |
+| 회원 탈퇴 검사 (`GET /internal/v1/payments/wallets/{memberId}`) | 잔액 0으로 보고 통과 |
+| 관리자 회원 상세 (같은 API) | `walletState: NOT_CREATED` |
+| 정산 지급 (`transfer`) | 재시도 불가 사유(`SettlementPolicy`)라 바로 `MANUAL_REQUIRED` |
 
 ### DTO
 
