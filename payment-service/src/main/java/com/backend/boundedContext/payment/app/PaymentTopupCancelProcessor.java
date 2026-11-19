@@ -11,6 +11,7 @@ import com.backend.boundedContext.payment.app.dto.TopupCancelDto;
 import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.Topup;
 import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
+import com.backend.boundedContext.payment.domain.TopupManualResolveAction;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
@@ -108,6 +109,25 @@ public class PaymentTopupCancelProcessor {
         }
         topup.markManualCheck(reason, LocalDateTime.now());
         return true;
+    }
+
+    /**
+     * 관리자 정리 (CANCELING 수동 확인 건): 취소 확정 또는 되돌림. 반영은 대사의 complete·fail과 같고, 정리한 뒤 상태를 돌려줌
+     * 수동 확인 건이 아니면 409 TOPUP_NOT_MANUAL_CHECK, CANCELING이 아니거나 이 상태의 정리가 아니면 409 TOPUP_MANUAL_RESOLVE_NOT_ALLOWED
+     */
+    @Transactional
+    public TopupStatus resolveManualCheck(Long topupId, TopupManualResolveAction action) {
+        Locked locked = lock(topupId);
+        Topup topup = locked.topup();
+
+        topup.startManualResolve(action);
+        if (action == TopupManualResolveAction.CONFIRM_CANCEL) {
+            topup.completeCancel(LocalDateTime.now());
+        } else {
+            walletTransactionRepository.save(locked.wallet().change(WalletTransactionType.CHARGE_CANCEL_RESTORE, topup.getCancelingAmount(), topup.getId(), topup.cancelRestoreIdempotencyKey()));
+            topup.failCancel();
+        }
+        return topup.getStatus();
     }
 
     /**

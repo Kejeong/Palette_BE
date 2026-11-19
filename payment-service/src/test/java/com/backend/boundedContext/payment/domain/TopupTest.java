@@ -448,6 +448,27 @@ class TopupTest {
         assertThat(topup.needsManualCheck()).isFalse();
     }
 
+    @Test
+    @DisplayName("관리자 정리를 시작하면 표시가 지워지고, 표시되지 않았거나 상태에 맞지 않는 정리면 409")
+    void startManualResolve() {
+        Topup topup = doneTopup(30_000);
+        topup.startCancel();
+
+        assertThatThrownBy(() -> topup.startManualResolve(TopupManualResolveAction.RESTORE))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("409-TOPUP_NOT_MANUAL_CHECK");
+
+        topup.markManualCheck(TopupManualCheckReason.CANCEL_AMOUNT_MISMATCH, NOW);
+        assertThatThrownBy(() -> topup.startManualResolve(TopupManualResolveAction.RETRY_METHOD_CANCEL))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("409-TOPUP_MANUAL_RESOLVE_NOT_ALLOWED");
+        assertThat(topup.needsManualCheck()).isTrue();
+
+        topup.startManualResolve(TopupManualResolveAction.RESTORE);
+        assertThat(topup.needsManualCheck()).isFalse();
+        assertThat(topup.getManualCheckAt()).isNull();
+    }
+
     private Topup doneTopup(long amount) {
         Topup topup = Topup.create(1L, wallet, amount, PgProvider.TOSS, NOW);
         topup.markProcessing("pk_" + amount, NOW);

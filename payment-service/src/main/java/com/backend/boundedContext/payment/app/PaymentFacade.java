@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.backend.boundedContext.payment.app.dto.AdminPaymentDto;
 import com.backend.boundedContext.payment.app.dto.AdminTopupDto;
+import com.backend.boundedContext.payment.app.dto.AdminTopupManualResolveDto;
 import com.backend.boundedContext.payment.app.dto.AdminTopupPgPaymentDto;
 import com.backend.boundedContext.payment.app.dto.RefundDto;
 import com.backend.boundedContext.payment.app.dto.TopupCancelDto;
@@ -21,6 +22,7 @@ import com.backend.boundedContext.payment.app.dto.TopupFailDto;
 import com.backend.boundedContext.payment.app.dto.TopupPrepareDto;
 import com.backend.boundedContext.payment.app.dto.TopupReconcileResult;
 import com.backend.boundedContext.payment.app.dto.WalletTransactionDto;
+import com.backend.boundedContext.payment.domain.TopupManualResolveAction;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
 import com.backend.global.page.PageResponse;
 import com.backend.shared.admin.dto.AdminFailureItem;
@@ -48,6 +50,7 @@ public class PaymentFacade {
     private final PaymentGetFailuresUseCase paymentGetFailuresUseCase;
     private final PaymentGetTopupFailuresUseCase paymentGetTopupFailuresUseCase;
     private final PaymentGetAdminTopupPgPaymentUseCase paymentGetAdminTopupPgPaymentUseCase;
+    private final PaymentResolveTopupManualCheckUseCase paymentResolveTopupManualCheckUseCase;
     private final PaymentPrepareTopupUseCase paymentPrepareTopupUseCase;
     private final PaymentConfirmTopupUseCase paymentConfirmTopupUseCase;
     private final PaymentCancelTopupUseCase paymentCancelTopupUseCase;
@@ -117,6 +120,11 @@ public class PaymentFacade {
     // 관리자 충전 PG 결제 조회. PG를 부르므로 트랜잭션을 걸지 않음
     public AdminTopupPgPaymentDto getAdminTopupPgPayment(Long topupId) {
         return paymentGetAdminTopupPgPaymentUseCase.getPgPayment(topupId);
+    }
+
+    // 관리자 충전 수동 확인 정리. 다시 요청은 PG를 부르므로 트랜잭션을 걸지 않음 (반영은 처리기의 트랜잭션 메서드로)
+    public AdminTopupManualResolveDto resolveTopupManualCheck(Long adminId, Long topupId, TopupManualResolveAction action) {
+        return paymentResolveTopupManualCheckUseCase.resolve(adminId, topupId, action);
     }
 
     // 관리자 결제 조회 충전 탭

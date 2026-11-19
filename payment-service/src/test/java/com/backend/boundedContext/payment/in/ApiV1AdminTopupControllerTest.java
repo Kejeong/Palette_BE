@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -18,15 +19,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.backend.boundedContext.payment.app.PaymentFacade;
 import com.backend.boundedContext.payment.app.dto.AdminTopupDto;
+import com.backend.boundedContext.payment.app.dto.AdminTopupManualResolveDto;
 import com.backend.boundedContext.payment.app.dto.AdminTopupPgPaymentDto;
 import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
+import com.backend.boundedContext.payment.domain.TopupManualResolveAction;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.global.exception.DomainException;
 import com.backend.global.page.PageResponse;
@@ -153,6 +157,60 @@ class ApiV1AdminTopupControllerTest {
                 .andExpect(jsonPath("$.data.manualCheckReason").value("CANCEL_AMOUNT_MISMATCH"))
                 .andExpect(jsonPath("$.data.pg.result").value("FOUND"))
                 .andExpect(jsonPath("$.data.pg.canceledAmount").value(25_000));
+    }
+
+    @Test
+    @DisplayName("수동 확인 정리: 관리자는 정리 방법을 보내고 정리한 뒤 상태를 받는다")
+    void resolveManualCheck_admin() throws Exception {
+        given(paymentFacade.resolveTopupManualCheck(1L, 14L, TopupManualResolveAction.RESTORE))
+                .willReturn(new AdminTopupManualResolveDto(14L, TopupManualResolveAction.RESTORE, TopupStatus.DONE));
+
+        mockMvc.perform(post("/api/v1/admin/topups/14/manual-resolve")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"action\":\"RESTORE\"}")
+                        .header("Authorization", bearer(MemberRole.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultCode").value("200-1"))
+                .andExpect(jsonPath("$.data.action").value("RESTORE"))
+                .andExpect(jsonPath("$.data.status").value("DONE"));
+    }
+
+    @Test
+    @DisplayName("수동 확인 정리: 정리 방법이 없으면 400")
+    void resolveManualCheck_noAction() throws Exception {
+        mockMvc.perform(post("/api/v1/admin/topups/14/manual-resolve")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .header("Authorization", bearer(MemberRole.ADMIN)))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(paymentFacade);
+    }
+
+    @Test
+    @DisplayName("수동 확인 정리: 수동 확인 건이 아니면 409")
+    void resolveManualCheck_notManualCheck() throws Exception {
+        given(paymentFacade.resolveTopupManualCheck(1L, 14L, TopupManualResolveAction.RESTORE))
+                .willThrow(new DomainException(PaymentErrorCode.TOPUP_NOT_MANUAL_CHECK));
+
+        mockMvc.perform(post("/api/v1/admin/topups/14/manual-resolve")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"action\":\"RESTORE\"}")
+                        .header("Authorization", bearer(MemberRole.ADMIN)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.resultCode").value("409-TOPUP_NOT_MANUAL_CHECK"));
+    }
+
+    @Test
+    @DisplayName("수동 확인 정리: 관리자가 아니면 403")
+    void resolveManualCheck_forbidden() throws Exception {
+        mockMvc.perform(post("/api/v1/admin/topups/14/manual-resolve")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"action\":\"RESTORE\"}")
+                        .header("Authorization", bearer(MemberRole.USER)))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(paymentFacade);
     }
 
     @Test

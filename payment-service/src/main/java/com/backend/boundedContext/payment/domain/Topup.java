@@ -234,6 +234,14 @@ public class Topup extends BaseIdAndTime {
         return manualCheckReason != null;
     }
 
+    // 관리자 정리 전: 수동 확인으로 표시된 건이고 지금 상태에서 고를 수 있는 정리인지 확인한 뒤 표시를 지움 (정리 자체는 상태 메서드로)
+    public void startManualResolve(TopupManualResolveAction action) {
+        if (!needsManualCheck()) throw new DomainException(PaymentErrorCode.TOPUP_NOT_MANUAL_CHECK);
+        if (!action.appliesTo(status)) throw new DomainException(PaymentErrorCode.TOPUP_MANUAL_RESOLVE_NOT_ALLOWED);
+        this.manualCheckReason = null;
+        this.manualCheckAt = null;
+    }
+
     // 허용하지 않은 결제 수단 전액 취소의 PG 멱등 키. 충전 취소 키와 겹치지 않게 구분하고, 재시도마다 회차를 넣음
     public String methodCancelIdempotencyKey() {
         return ORDER_ID_PREFIX + getId() + "-METHOD-CANCEL-" + cancelAttempts;
