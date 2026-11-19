@@ -1037,7 +1037,8 @@ FAQ 챗봇은 `ai-service`(포트 8087, DB 스키마 `ai`)의 `faq`·`chat` 컨�
 | `GET /api/v1/ai/chat/conversations/{conversationId}/messages` | `[{ messageId, role, content, answerType, sources, createdAt }]` | 대화의 질문·답변을 오래된 순으로 모두. 없거나 다른 회원의 대화면 404 `CONVERSATION_NOT_FOUND` |
 | `GET /api/v1/ai/faqs/search?query=` | `{ faqs: [{ faqId, category, categoryLabel, question, answer, similarity }] }` | 질문과 뜻이 가까운 노출 중 FAQ를 유사도 높은 순으로 최대 3건. 기준값보다 낮으면 빠지고, 없으면 빈 목록. `query`는 1~200자 |
 
-- `answerType`은 `AI`(근거 FAQ로 AI가 답함)·`FAQ`(AI가 실패·시간 초과라 가장 비슷한 FAQ 답변을 그대로 줌)·`NO_MATCH`(관련 FAQ가 없어 고객센터 안내 문구, `sources`는 빈 목록)다. 화면은 셋 모두 같은 말풍선으로 보여 주고, `sources`가 있으면 출처(카테고리 · 질문)를 붙인다.
+- `answerType`은 `AI`(근거 FAQ로 AI가 답함)·`FAQ`(AI가 실패·시간 초과라 가장 비슷한 FAQ 답변을 그대로 줌)·`NO_MATCH`(FAQ로 답할 수 없어 고객센터를 안내함, `sources`는 빈 목록)다. `NO_MATCH`는 관련 FAQ를 못 찾았을 때(고정 안내 문구)와, FAQ를 찾았지만 AI가 그 FAQ로 답할 수 없다고 판단했을 때(AI가 쓴 안내 문구) 둘 다다. 화면은 셋 모두 같은 말풍선으로 보여 주고, `sources`가 있으면 출처(카테고리 · 질문)를 붙인다.
+- `sources`는 답변에 실제로 쓴 FAQ만 담는다. `AI`는 AI가 답변 끝에 적은 근거 번호의 FAQ(검색 순서), `FAQ`는 그대로 준 FAQ 하나다. AI의 근거 표시가 없거나 읽을 수 없으면 찾은 FAQ(최대 3건)를 모두 담는다. 대화 메시지 조회의 `sources`도 같은 기준으로 저장한 값이다.
 - `role`은 `USER`(질문)·`ASSISTANT`(답변)이고, 질문 메시지의 `answerType`은 null, `sources`는 빈 목록이다. 메시지의 `sources`는 저장한 FAQ ID로 지금 FAQ의 카테고리·질문을 찾아 보여 준다(FAQ는 지우지 않으므로 숨긴 FAQ도 나온다).
 - `category`는 `MEMBER`(회원)·`TOPUP`(충전)·`ORDER`(주문·결제)·`DELIVERY`(배송)·`RETURN`(반품·환불)·`SELLER`(판매·정산)이고, 화면 표시는 `categoryLabel`을 쓴다.
 - FAQ를 찾기 전에 질문을 LLM으로 FAQ 질문 같은 문장으로 다시 쓴다(구어·줄임말을 쇼핑몰 용어로, 이어지는 질문은 이전 대화로 생략된 대상을 채움). 다시 쓰기가 실패하면 같은 대화의 최근 질문 1개 + 이번 질문으로 찾는다. 답변에는 최근 메시지 6개를 프롬프트에 넣는다. 주문 조회·취소 같은 처리는 하지 않는다(FAQ 안내만).

@@ -121,11 +121,60 @@ class ChatAnswerIntegrationTest {
         ChatAnswerDto failed = chatFacade.answer(MEMBER_ID, null, QUESTION);
         assertThat(failed.answerType()).isEqualTo(ChatAnswerType.FAQ);
         assertThat(failed.answer()).isEqualTo(REFUND_ANSWER);
-        assertThat(failed.sources().getFirst().faqId()).isEqualTo(best);
+        assertThat(failed.sources()).extracting(FaqSummaryDto::faqId).containsExactly(best);   // 그대로 준 FAQ 하나만 근거
 
         fakeChatModel.failing = false;
         fakeChatModel.reply = "  ";
         assertThat(chatFacade.answer(MEMBER_ID, null, QUESTION).answerType()).isEqualTo(ChatAnswerType.FAQ);
+    }
+
+    @Test
+    @DisplayName("LLM이 답변 끝에 적은 번호의 FAQ만 근거로 주고, 근거 표시는 답변에서 뗌. 대화 기록도 같음")
+    void citedSourcesOnly() {
+        saveWithSimilarity(QUESTION, "충전한 예치금을 환불할 수 있나요?", REFUND_ANSWER, 0.9);
+        Long cited = saveWithSimilarity(QUESTION, "충전 한도가 있나요?", "1회 최대 100만 원이에요.", 0.5);
+        fakeChatModel.reply = "한 번에 최대 100만 원까지 충전할 수 있어요.\n[근거: 2]";
+
+        ChatAnswerDto result = chatFacade.answer(MEMBER_ID, null, QUESTION);
+
+        assertThat(result.answerType()).isEqualTo(ChatAnswerType.AI);
+        assertThat(result.answer()).isEqualTo("한 번에 최대 100만 원까지 충전할 수 있어요.");
+        assertThat(result.sources()).extracting(FaqSummaryDto::faqId).containsExactly(cited);
+        ChatMessageDto saved = chatFacade.getMessages(MEMBER_ID, result.conversationId()).get(1);
+        assertThat(saved.content()).isEqualTo(result.answer());
+        assertThat(saved.sources()).extracting(FaqSummaryDto::faqId).containsExactly(cited);
+    }
+
+    @Test
+    @DisplayName("찾은 FAQ로도 답할 수 없다고 하면([근거: 없음]) NO_MATCH, 근거 없음. 대화 기록도 근거 없이 저장")
+    void unanswerableWithFoundFaqs() {
+        saveWithSimilarity(QUESTION, "충전한 예치금을 환불할 수 있나요?", REFUND_ANSWER, 0.9);
+        saveWithSimilarity(QUESTION, "충전 한도가 있나요?", "1회 최대 100만 원이에요.", 0.5);
+        fakeChatModel.reply = "환불 소요 시간은 FAQ에 없어요. 고객센터로 문의해 주세요.\n[근거: 없음]";
+
+        ChatAnswerDto result = chatFacade.answer(MEMBER_ID, null, QUESTION);
+
+        assertThat(result.answerType()).isEqualTo(ChatAnswerType.NO_MATCH);
+        assertThat(result.answer()).isEqualTo("환불 소요 시간은 FAQ에 없어요. 고객센터로 문의해 주세요.");
+        assertThat(result.sources()).isEmpty();
+        ChatMessageDto saved = chatFacade.getMessages(MEMBER_ID, result.conversationId()).get(1);
+        assertThat(saved.answerType()).isEqualTo(ChatAnswerType.NO_MATCH);
+        assertThat(saved.sources()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("근거 표시가 없거나 읽을 수 없으면 찾은 FAQ를 모두 근거로 줌(예전 동작)")
+    void unreadableCitationKeepsAllSources() {
+        Long best = saveWithSimilarity(QUESTION, "충전한 예치금을 환불할 수 있나요?", REFUND_ANSWER, 0.9);
+        Long second = saveWithSimilarity(QUESTION, "충전 한도가 있나요?", "1회 최대 100만 원이에요.", 0.5);
+
+        for (String reply : List.of("근거 표시 없는 답변이에요.", "범위 밖 번호예요.\n[근거: 7]")) {
+            fakeChatModel.reply = reply;
+            ChatAnswerDto result = chatFacade.answer(MEMBER_ID, null, QUESTION);
+            assertThat(result.answerType()).isEqualTo(ChatAnswerType.AI);
+            assertThat(result.answer()).doesNotContain("[근거");
+            assertThat(result.sources()).extracting(FaqSummaryDto::faqId).containsExactly(best, second);
+        }
     }
 
     @Test
