@@ -26,14 +26,16 @@ public class DeliveryApiClient implements DeliveryApi {
 
     private final RestClient restClient;
 
+    // restClientBuilder: 스프링이 넣어 주는 builder(호출 기록 http_client_requests·추적 traceId가 붙음). RestClient.builder()로 직접 만들면 빠진다
     @Autowired
     public DeliveryApiClient(
+            RestClient.Builder restClientBuilder,
             @Value("${custom.delivery.baseUrl}") String baseUrl,
             @Value("${custom.internal.apiKey}") String internalApiKey,
             @Value("${custom.delivery.connectTimeoutMillis}") long connectTimeoutMillis,
             @Value("${custom.delivery.readTimeoutMillis}") long readTimeoutMillis
     ) {
-        this(RestClient.builder().requestFactory(requestFactory(connectTimeoutMillis, readTimeoutMillis)), baseUrl, internalApiKey);
+        this(restClientBuilder.requestFactory(requestFactory(connectTimeoutMillis, readTimeoutMillis)), baseUrl, internalApiKey);
     }
 
     /**

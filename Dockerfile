@@ -78,6 +78,10 @@ ENV LOGGING_STRUCTURED_ECS_SERVICE_VERSION=${APP_VERSION}
 # 컨테이너마다 네트워크가 따로라 7개 앱이 같은 9091을 써도 충돌하지 않는다. 로컬 bootRun에는 적용되지 않는다(앱 포트에 뜬다)
 ENV MANAGEMENT_SERVER_PORT=9091
 
+# 추적(요청이 거친 서비스·구간 기록)을 보낼 곳. 같은 Compose의 Tempo(compose.prod.yaml)다(TRSS-335).
+# 이 주소가 있을 때만 추적을 내보낸다. 로컬 bootRun·테스트에는 없어서 아무 데도 보내지 않는다. k3s ai는 deployment에서 내부 IP로 덮어쓴다
+ENV MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://tempo:4318/v1/traces
+
 # gateway 8000, member-service 8081, market-service 8082, payment-service 8083, settlement-service 8084, delivery-service 8085, notification-service 8086, ai-service 8087
 # (각 application.yaml의 server.port). 9091은 관리 포트(위)
 EXPOSE 8000 8081 8082 8083 8084 8085 8086 8087 9091

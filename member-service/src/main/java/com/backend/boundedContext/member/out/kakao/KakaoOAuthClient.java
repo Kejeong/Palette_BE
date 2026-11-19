@@ -42,8 +42,10 @@ public class KakaoOAuthClient {
     private final String clientSecret;
     private final String redirectUri;
 
+    // restClientBuilder: 스프링이 넣어 주는 builder(호출 기록 http_client_requests·추적 traceId가 붙음). RestClient.builder()로 직접 만들면 빠진다
     @Autowired
     public KakaoOAuthClient(
+            RestClient.Builder restClientBuilder,
             @Value("${custom.kakao.authBaseUrl}") String authBaseUrl,
             @Value("${custom.kakao.apiBaseUrl}") String apiBaseUrl,
             @Value("${custom.kakao.clientId}") String clientId,
@@ -52,7 +54,7 @@ public class KakaoOAuthClient {
             @Value("${custom.kakao.connectTimeoutSeconds}") long connectTimeoutSeconds,
             @Value("${custom.kakao.readTimeoutSeconds}") long readTimeoutSeconds
     ) {
-        this(RestClient.builder().requestFactory(requestFactory(connectTimeoutSeconds, readTimeoutSeconds)), authBaseUrl, apiBaseUrl, clientId, clientSecret, redirectUri);
+        this(restClientBuilder.requestFactory(requestFactory(connectTimeoutSeconds, readTimeoutSeconds)), authBaseUrl, apiBaseUrl, clientId, clientSecret, redirectUri);
     }
 
     // 테스트에서 MockRestServiceServer를 연결한 builder를 넘길 수 있게 열어 둠

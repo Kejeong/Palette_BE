@@ -20,6 +20,11 @@ dependencies {
 	// 메트릭: /actuator/prometheus (Alloy가 스크랩 → Prometheus). 기본값은 observability-defaults.properties
 	api("org.springframework.boot:spring-boot-starter-actuator")
 	api("io.micrometer:micrometer-registry-prometheus")
+	// 스프링이 만들어 주는 RestClient.Builder(Boot 4에서 따로 나뉜 모듈). 이 builder로 만든 클라이언트는
+	// 호출 기록(http_client_requests)이 남고, 분산 추적의 traceId가 다음 서비스로 넘어간다
+	api("org.springframework.boot:spring-boot-starter-restclient")
+	// 분산 추적: 요청마다 traceId를 붙여 다음 서비스로 넘기고, 구간 기록을 Tempo로 보낸다. 설정은 observability-defaults.properties
+	api("org.springframework.boot:spring-boot-starter-opentelemetry")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")     // ActuatorAccessTest

@@ -60,8 +60,11 @@ public class HectoClient {
     private final HectoCrypto crypto;
     private final String mchtId;
 
+    // restClientBuilder: 스프링이 넣어 주는 builder(헥토 호출 기록·추적이 붙음). RestClient.builder()로 직접 만들면 빠진다
+    // 승인·취소와 조회는 응답 대기 시간이 달라 복사본(clone)을 하나 더 만듦 (토스 클라이언트와 같음)
     @Autowired
     public HectoClient(
+            RestClient.Builder restClientBuilder,
             @Value("${custom.hecto.apiBaseUrl}") String baseUrl,
             @Value("${custom.hecto.mchtId}") String mchtId,
             @Value("${custom.hecto.connectTimeoutSeconds}") long connectTimeoutSeconds,
@@ -69,8 +72,8 @@ public class HectoClient {
             @Value("${custom.hecto.lookupReadTimeoutSeconds}") long lookupReadTimeoutSeconds,
             HectoCrypto crypto
     ) {
-        this(RestClient.builder().requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(readTimeoutSeconds))),
-                RestClient.builder().requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(lookupReadTimeoutSeconds))),
+        this(restClientBuilder.clone().requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(readTimeoutSeconds))),
+                restClientBuilder.requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(lookupReadTimeoutSeconds))),
                 baseUrl, mchtId, crypto);
     }
 

@@ -39,19 +39,22 @@ public class TossPaymentsClient {
     /**
      * Spring이 빈을 만들 때 사용하는 생성자
      * 1. application.yaml의 custom.toss 값을 읽음
-     * 2. 접속·응답 대기 제한 시간을 넣은 연결 부품(requestFactory)을 RestClient.builder에 끼움
+     * 2. 접속·응답 대기 제한 시간을 넣은 연결 부품(requestFactory)을 스프링이 넣어 준 builder에 끼움
+     *    (스프링 builder라 토스 호출 기록(http_client_requests)과 추적이 붙는다. RestClient.builder()로 직접 만들면 빠진다)
+     *    승인·취소와 조회는 응답 대기 시간이 달라 복사본(clone)을 하나 더 만듦 (인자는 왼쪽부터 계산되어 원본을 바꾸기 전에 복사됨)
      * 3. 나머지 설정(baseUrl, 인증 헤더)은 아래 생성자에 맡김
      */
     @Autowired
     public TossPaymentsClient(
+            RestClient.Builder restClientBuilder,
             @Value("${custom.toss.baseUrl}") String baseUrl,
             @Value("${custom.toss.secretKey}") String secretKey,
             @Value("${custom.toss.connectTimeoutSeconds}") long connectTimeoutSeconds,
             @Value("${custom.toss.readTimeoutSeconds}") long readTimeoutSeconds,
             @Value("${custom.toss.lookupReadTimeoutSeconds}") long lookupReadTimeoutSeconds
     ) {
-        this(RestClient.builder().requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(readTimeoutSeconds))),
-                RestClient.builder().requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(lookupReadTimeoutSeconds))),
+        this(restClientBuilder.clone().requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(readTimeoutSeconds))),
+                restClientBuilder.requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(lookupReadTimeoutSeconds))),
                 baseUrl, secretKey);
     }
 

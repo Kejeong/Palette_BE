@@ -66,9 +66,10 @@ class ObservabilityDefaultsBootQaTest {
 
             List<String> names = environment.getPropertySources().stream().map(PropertySource::getName).toList();
             assertThat(names).contains(ObservabilityEnvironmentPostProcessor.NAME);
-            // 뒤에 올 수 있는 것은 Boot가 붙이는 applicationInfo(spring.application.pid 등)와 defaultProperties뿐이다
+            // 뒤에 올 수 있는 것은 Boot가 붙이는 applicationInfo(spring.application.pid 등), defaultProperties,
+            // logCorrelation(추적이 켜지면 로그 줄에 traceId를 넣는 Boot 기본 설정)뿐이다
             int index = names.indexOf(ObservabilityEnvironmentPostProcessor.NAME);
-            assertThat(names.subList(index + 1, names.size())).isSubsetOf("applicationInfo", "defaultProperties");
+            assertThat(names.subList(index + 1, names.size())).isSubsetOf("applicationInfo", "defaultProperties", "logCorrelation");
             assertThat(names.indexOf(ObservabilityEnvironmentPostProcessor.NAME))
                     .isGreaterThan(names.indexOf(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME))
                     .isGreaterThan(names.indexOf("commandLineArgs"));

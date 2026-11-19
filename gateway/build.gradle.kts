@@ -15,6 +15,8 @@ dependencies {
 	// 상태 확인(/actuator/health)과 지표(/actuator/prometheus). 서버에선 관리 포트 9091에 뜨고, Alloy가 다른 앱처럼 수집한다
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("io.micrometer:micrometer-registry-prometheus")
+	// 분산 추적: 사용자 요청마다 traceId를 처음 만들어 서비스로 넘기고, 구간 기록을 Tempo로 보낸다(common과 같은 스타터)
+	implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-webflux-test")   // WebTestClient
