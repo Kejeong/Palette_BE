@@ -1,8 +1,10 @@
 package com.backend.boundedContext.product.in;
 
 import com.backend.boundedContext.product.app.ProductFacade;
+import com.backend.boundedContext.product.domain.ProductPolicy;
 import com.backend.boundedContext.product.out.search.SearchIndexUnavailableException;
 import com.backend.global.outbox.EventMessages;
+import com.backend.shared.member.event.SellerBusinessNameChangedEvent;
 import com.backend.shared.product.event.ProductChangedEvent;
 import com.backend.shared.product.event.ProductMetricsChangedEvent;
 import com.backend.shared.product.event.WishAddedEvent;
@@ -26,10 +28,11 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 상품 색인 값이 바뀌는 이벤트를 Kafka로 받아 검색 색인에 반영한다 (engine=es일 때만). 모두 메시지 키가 상품 ID다.
+ * 상품 색인 값이 바뀌는 이벤트를 Kafka로 받아 검색 색인에 반영한다 (engine=es일 때만).
  * <ul>
- *   <li>product.events: 상품 변경(ProductChangedEvent), 행동 지표 변경(ProductMetricsChangedEvent, 판매량), 찜 추가·해제(찜 수)</li>
- *   <li>review.events: 리뷰 작성·수정·삭제 (리뷰 수·별점)</li>
+ *   <li>product.events: 상품 변경(ProductChangedEvent), 행동 지표 변경(ProductMetricsChangedEvent, 판매량), 찜 추가·해제(찜 수). 키가 상품 ID</li>
+ *   <li>review.events: 리뷰 작성·수정·삭제 (리뷰 수·별점). 키가 상품 ID</li>
+ *   <li>seller.events: 상호 변경(SellerBusinessNameChangedEvent). 키가 판매자 ID라 봉투에서 판매자 ID를 읽고 그 판매자의 판매 중 상품을 다시 색인한다</li>
  * </ul>
  * <p>
  * 메시지를 묶음으로 받아 상품 ID를 모은 뒤 한 번에 색인한다. payload는 쓰지 않고 상품 ID로 DB를 다시 읽어 문서 전체를 다시 쓴다
@@ -64,21 +67,30 @@ public class ProductSearchIndexKafkaListener {
             WishRemovedEvent.class.getSimpleName(),
             ReviewCreatedEvent.class.getSimpleName(),
             ReviewModifiedEvent.class.getSimpleName(),
-            ReviewDeletedEvent.class.getSimpleName());
+            ReviewDeletedEvent.class.getSimpleName(),
+            SellerBusinessNameChangedEvent.class.getSimpleName());
+    private static final String BUSINESS_NAME_CHANGED = SellerBusinessNameChangedEvent.class.getSimpleName();
 
     private final ProductFacade productFacade;
     private final EventMessages eventMessages;
+    private final ProductPolicy productPolicy;
 
-    @KafkaListener(topics = {"product.events", "review.events"}, groupId = CONSUMER,
+    @KafkaListener(topics = {"product.events", "review.events", "seller.events"}, groupId = CONSUMER,
             containerFactory = ProductSearchIndexKafkaConfig.LISTENER_FACTORY)
     public void handle(List<ConsumerRecord<String, String>> records) {
         Set<Long> productIds = new LinkedHashSet<>();
-        records.forEach(record -> {
-            Long productId = changedProductId(record);
-            if (productId != null) productIds.add(productId);
-        });
+        records.forEach(record -> productIds.addAll(changedProductIds(record)));
         if (productIds.isEmpty()) return;
 
+        // 상호가 바뀐 판매자의 상품은 많을 수 있어 전체 재색인과 같은 크기로 나눠 색인한다
+        List<Long> ids = List.copyOf(productIds);
+        int batchSize = productPolicy.getSearchIndexBatchSize();
+        for (int from = 0; from < ids.size(); from += batchSize) {
+            index(ids.subList(from, Math.min(ids.size(), from + batchSize)));
+        }
+    }
+
+    private void index(List<Long> productIds) {
         try {
             productFacade.indexProducts(productIds);
         } catch (RuntimeException e) {
@@ -88,7 +100,7 @@ public class ProductSearchIndexKafkaListener {
     }
 
     /** 상품 하나씩 색인해 실패한 상품만 건너뛴다. 일시 오류면 묶음 전체를 다시 처리하도록 던진다 */
-    private void indexOneByOne(Set<Long> productIds) {
+    private void indexOneByOne(List<Long> productIds) {
         for (Long productId : productIds) {
             try {
                 productFacade.indexProducts(Set.of(productId));
@@ -99,16 +111,25 @@ public class ProductSearchIndexKafkaListener {
         }
     }
 
-    /** 색인에 반영할 이벤트면 상품 ID(메시지 키), 아니면 null. 키나 봉투가 깨진 메시지는 다시 해도 같으므로 ERROR로 남기고 건너뛴다 */
-    private Long changedProductId(ConsumerRecord<String, String> record) {
+    /**
+     * 다시 색인할 상품 ID. 상품·리뷰 이벤트면 메시지 키(상품 ID), 상호 변경이면 봉투에서 판매자 ID를 읽어 그 판매자의 판매 중 상품
+     * (이 이벤트의 키는 판매자 ID라 상품 ID로 쓰면 안 된다), 다루지 않는 이벤트면 빈 목록.
+     * 키나 봉투가 깨진 메시지는 다시 해도 같으므로 ERROR로 남기고 건너뛴다. 판매자 상품 조회 실패(DB 연결 등)는 던져 묶음 전체를 다시 처리한다
+     */
+    private List<Long> changedProductIds(ConsumerRecord<String, String> record) {
+        Long sellerId;
         try {
-            if (!HANDLED_EVENT_TYPES.contains(eventType(record))) return null;
-            return Long.valueOf(record.key());
+            String eventType = eventType(record);
+            if (!HANDLED_EVENT_TYPES.contains(eventType)) return List.of();
+            if (!BUSINESS_NAME_CHANGED.equals(eventType)) return List.of(Long.valueOf(record.key()));
+            if (!(eventMessages.read(record.value()).payload() instanceof SellerBusinessNameChangedEvent event)) return List.of();
+            sellerId = event.sellerId();
         } catch (RuntimeException e) {
-            log.error("상품 검색 색인 메시지를 읽지 못해 건너뜁니다. partition={}, offset={}, key={}",
-                    record.partition(), record.offset(), record.key(), e);
-            return null;
+            log.error("상품 검색 색인 메시지를 읽지 못해 건너뜁니다. topic={}, partition={}, offset={}, key={}",
+                    record.topic(), record.partition(), record.offset(), record.key(), e);
+            return List.of();
         }
+        return productFacade.getOnSaleProductIdsBySeller(sellerId);
     }
 
     private String eventType(ConsumerRecord<String, String> record) {

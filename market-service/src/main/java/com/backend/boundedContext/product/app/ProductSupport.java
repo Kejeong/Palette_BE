@@ -218,6 +218,11 @@ public class ProductSupport {
                 .collect(Collectors.toMap(SellerDto::sellerId, SellerDto::businessName));
     }
 
+    /** 판매자의 판매 중 상품 ID (상호가 바뀌어 검색 색인을 다시 할 상품) */
+    public List<Long> getOnSaleProductIdsBySeller(Long sellerId) {
+        return productRepository.findIdsBySellerIdAndStatus(sellerId, ProductSaleStatus.ON_SALE);
+    }
+
     /** 구매자에게 보여 줄 수 있는 상품. 없거나, 판매 중이 아니거나, 카테고리가 사용 중지면 404. */
     public Product getDisplayableProduct(Long productId) {
         return productRepository.findById(productId)

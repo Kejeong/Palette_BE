@@ -62,7 +62,7 @@ import static org.mockito.Mockito.verify;
         "custom.product.search.indexConsumer.retryInitialIntervalMillis=100",
         "custom.product.search.indexConsumer.retryMaxIntervalMillis=200"
 })
-@EmbeddedKafka(topics = {"product.events", "review.events"}, partitions = 3, bootstrapServersProperty = "spring.kafka.bootstrap-servers")
+@EmbeddedKafka(topics = {"product.events", "review.events", "seller.events"}, partitions = 3, bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 class ProductSearchIndexKafkaListenerIntegrationTest {
 
     private static final Duration WAIT = Duration.ofSeconds(20);
@@ -73,6 +73,8 @@ class ProductSearchIndexKafkaListenerIntegrationTest {
     @Autowired private ProductRepository productRepository;
     @Autowired private ProductOptionRepository productOptionRepository;
     @Autowired private OptionStockRepository optionStockRepository;
+    @Autowired private EventMessages eventMessages;
+    @Autowired private ObjectMapper objectMapper;
 
     /** ES 대신 색인 요청을 기록한다 (검색 어댑터도 이 타입을 받으므로 클래스로 바꾼다) */
     @MockitoBean
@@ -194,6 +196,36 @@ class ProductSearchIndexKafkaListenerIntegrationTest {
         send("review.events", String.valueOf(otherProductId), "ReviewCreatedEvent");
 
         await().atMost(WAIT).until(() -> upsertedIds().containsAll(List.of(productId, otherProductId)));
+    }
+
+    @Test
+    @DisplayName("상호 변경 이벤트(seller.events, 키 판매자 ID)를 받으면 봉투에서 판매자 ID를 읽어 그 판매자의 판매 중 상품만 다시 색인한다")
+    void reindexSellerProductsOnBusinessNameChange() {
+        doNothing().when(indexAdapter).upsert(anyList());
+        Long[] otherSellerProductId = new Long[1];
+        Long[] otherSellerOptionId = new Long[1];
+        transactionTemplate.executeWithoutResult(status -> {
+            Product product = productRepository.save(Product.create(sellerId + 1,
+                    categoryRepository.findByParentNameAndName("뷰티", "스킨케어").orElseThrow(), "다른 판매자 크림", "설명", 10_000L));
+            otherSellerProductId[0] = product.getId();
+            otherSellerOptionId[0] = saveOption(product).getId();
+        });
+        try {
+            EventEnvelope<DomainEvent> envelope = EventEnvelope.wrap(new SellerBusinessNameChangedEvent(sellerId, "새 상호"));
+            OutboxEvent outbox = OutboxEvent.create(envelope, objectMapper.writeValueAsString(envelope.payload()));
+            ProducerRecord<String, String> record = new ProducerRecord<>(
+                    "seller.events", String.valueOf(sellerId), eventMessages.toJson(outbox));   // 릴레이와 같은 형식
+            record.headers().add("eventType", envelope.eventType().getBytes(StandardCharsets.UTF_8));
+            kafkaTemplate.send(record).join();
+
+            await().atMost(WAIT).until(() -> upsertedIds().containsAll(List.of(productId, otherProductId)));
+            assertThat(upsertedIds()).doesNotContain(otherSellerProductId[0], sellerId);   // 다른 판매자 상품, 키(판매자 ID)를 상품 ID로 쓰지 않는다
+        } finally {
+            transactionTemplate.executeWithoutResult(status -> {
+                productOptionRepository.deleteById(otherSellerOptionId[0]);
+                productRepository.deleteById(otherSellerProductId[0]);
+            });
+        }
     }
 
     @Test
