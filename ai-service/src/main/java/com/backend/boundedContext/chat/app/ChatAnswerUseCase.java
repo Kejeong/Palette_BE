@@ -2,6 +2,7 @@ package com.backend.boundedContext.chat.app;
 
 import com.backend.boundedContext.chat.app.dto.ChatAnswerDto;
 import com.backend.boundedContext.chat.domain.ChatAnswerType;
+import com.backend.boundedContext.chat.domain.ChatCitation;
 import com.backend.boundedContext.chat.domain.ChatConversation;
 import com.backend.boundedContext.chat.domain.ChatErrorCode;
 import com.backend.boundedContext.chat.domain.ChatMessage;
@@ -39,6 +40,7 @@ import java.util.List;
  * - 최근 메시지를 답변 프롬프트에 넣어 이어지는 질문에 답함
  * - 근거 FAQ가 없으면 LLM을 부르지 않고 고객센터 안내 문구로 답함
  * - LLM이 실패하거나 시간을 넘기면(spring.ai.openai.chat.timeout) 가장 비슷한 FAQ 답변을 그대로 줌
+ * - 근거 FAQ는 LLM이 답변 끝에 적은 번호의 FAQ만 줌. FAQ로 답할 수 없다고 하면 근거 없이 NO_MATCH
  * OpenAI 호출 동안 DB 연결을 잡지 않게, 대화 읽기와 저장만 짧은 트랜잭션으로 나눔
  * 회원별 요청 횟수를 넘으면 OpenAI를 부르기 전에 429로 막음(custom.chat.rateLimit*)
  */
@@ -68,21 +70,36 @@ public class ChatAnswerUseCase {
         List<FaqSearchDto.Item> faqs = faqFacade.search(rewritten != null ? rewritten : searchText(history, question)).faqs();
         ChatAnswerType answerType;
         String answer;
+        List<FaqSearchDto.Item> sourceFaqs;
 
         if (faqs.isEmpty()) {
             answerType = ChatAnswerType.NO_MATCH;
             answer = ChatPrompt.NO_MATCH_ANSWER;
+            sourceFaqs = List.of();
         } else {
-            String generated = generate(history, question, faqs);
-            answerType = generated == null ? ChatAnswerType.FAQ : ChatAnswerType.AI;
-            answer = generated == null ? faqs.getFirst().answer() : generated;
+            ChatCitation generated = generate(history, question, faqs);
+            if (generated == null) {
+                // LLM 실패: 가장 비슷한 FAQ 답변을 그대로 주므로 근거도 그 FAQ 하나
+                answerType = ChatAnswerType.FAQ;
+                answer = faqs.getFirst().answer();
+                sourceFaqs = List.of(faqs.getFirst());
+            } else if (generated.faqNumbers() != null && generated.faqNumbers().isEmpty()) {
+                // 찾은 FAQ로도 답할 수 없다고 함: 근거 칩을 붙이면 그 FAQ에 답이 있다고 오해하므로 근거 없이
+                answerType = ChatAnswerType.NO_MATCH;
+                answer = generated.answer();
+                sourceFaqs = List.of();
+            } else {
+                answerType = ChatAnswerType.AI;
+                answer = generated.answer();
+                sourceFaqs = citedFaqs(faqs, generated.faqNumbers());
+            }
         }
 
         // 3. 짧은 저장: 질문·답변을 대화에 남김
-        List<Long> sourceFaqIds = faqs.stream().map(FaqSearchDto.Item::faqId).toList();
+        List<Long> sourceFaqIds = sourceFaqs.stream().map(FaqSearchDto.Item::faqId).toList();
         Long savedConversationId = transactionTemplate.execute(tx -> save(memberId, conversationId, question, answer, answerType, sourceFaqIds));
 
-        List<FaqSummaryDto> sources = faqs.stream()
+        List<FaqSummaryDto> sources = sourceFaqs.stream()
                 .map(faq -> new FaqSummaryDto(faq.faqId(), faq.category(), faq.categoryLabel(), faq.question()))
                 .toList();
 
@@ -118,8 +135,19 @@ public class ChatAnswerUseCase {
         return String.join("\n", parts);
     }
 
-    // LLM 답변. 실패·시간 초과·빈 답변이면 null
-    private String generate(List<ChatMessage> history, String question, List<FaqSearchDto.Item> faqs) {
+    // LLM이 근거로 쓴 FAQ(검색 순서). 근거 표시가 없거나 읽을 수 없으면(null) 찾은 FAQ 전부
+    private static List<FaqSearchDto.Item> citedFaqs(List<FaqSearchDto.Item> faqs, List<Integer> numbers) {
+        if (numbers == null) return faqs;
+
+        List<FaqSearchDto.Item> cited = new ArrayList<>();
+        for (int i = 0; i < faqs.size(); i++) {
+            if (numbers.contains(i + 1)) cited.add(faqs.get(i));
+        }
+        return cited;
+    }
+
+    // LLM 답변과 근거 표시. 실패·시간 초과·빈 답변이면 null
+    private ChatCitation generate(List<ChatMessage> history, String question, List<FaqSearchDto.Item> faqs) {
         List<Message> messages = new ArrayList<>();
         messages.add(new SystemMessage(ChatPrompt.system(faqs)));
 
@@ -132,11 +160,14 @@ public class ChatAnswerUseCase {
             ChatResponse response = chatModel.call(new Prompt(messages));
             String text = response.getResult().getOutput().getText();
 
-            if (text == null || text.isBlank()) {
+            ChatCitation citation = text == null ? null : ChatCitation.parse(text, faqs.size());
+
+            if (citation == null || citation.answer().isBlank()) {
                 log.warn("chat answer empty faqIds={}", faqs.stream().map(FaqSearchDto.Item::faqId).toList());
                 return null;
             }
-            return text.strip();
+            if (citation.faqNumbers() == null) log.warn("chat answer citation unreadable, using all faqs faqIds={}", faqs.stream().map(FaqSearchDto.Item::faqId).toList());
+            return citation;
         } catch (RuntimeException e) {
             log.warn("chat answer failed reason={}", e.toString());
             return null;
