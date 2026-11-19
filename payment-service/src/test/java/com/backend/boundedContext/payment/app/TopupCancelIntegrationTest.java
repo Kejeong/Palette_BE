@@ -162,10 +162,11 @@ class TopupCancelIntegrationTest {
     }
 
     @Test
-    @DisplayName("PG 거절: 잔액·남은 금액이 원래대로 돌아오고 원장에 CHARGE_CANCEL·CHARGE_CANCEL_RESTORE가 남는다")
+    @DisplayName("PG 거절 + 조회에 취소 없음: 잔액·남은 금액이 원래대로 돌아오고 원장에 CHARGE_CANCEL·CHARGE_CANCEL_RESTORE가 남는다")
     void cancel_declined() {
         given(tossPaymentsClient.cancel(anyString(), anyLong(), anyString(), anyString()))
                 .willThrow(new TossPaymentException(403, "EXCEED_MAX_REFUND_DUE", "환불 가능한 기간이 지났습니다.", null));
+        given(tossPaymentsClient.getPayment(topup.getPaymentKey())).willReturn(tossPayment("DONE", null));
 
         assertThatThrownBy(() -> paymentFacade.cancelTopup(memberId, topup.getId()))
                 .isInstanceOf(DomainException.class)
@@ -181,12 +182,37 @@ class TopupCancelIntegrationTest {
     }
 
     @Test
+    @DisplayName("PG 거절 + 조회하니 이미 전액 취소됨: 되돌리지 않고 CANCELING으로 남고, 대사가 CANCELED로 확정한다")
+    void cancel_declinedButCanceled_thenReconciled() {
+        given(tossPaymentsClient.cancel(anyString(), anyLong(), anyString(), anyString()))
+                .willThrow(new TossPaymentException(403, "NOT_CANCELABLE_PAYMENT", "취소 할 수 없는 결제 입니다.", null));
+        given(tossPaymentsClient.getPayment(topup.getPaymentKey()))
+                .willReturn(tossPayment("CANCELED", List.of(new TossPaymentResponse.Cancel(AMOUNT, "DONE"))));
+
+        TopupCancelDto result = paymentFacade.cancelTopup(memberId, topup.getId());
+
+        assertThat(result.status()).isEqualTo(TopupStatus.CANCELING);
+        assertThat(savedTopup().getStatus()).isEqualTo(TopupStatus.CANCELING);
+        assertThat(balance()).isZero();
+
+        moveUpdatedAtMinutesAgo(6);
+        paymentFacade.reconcileCancelingTopups();
+
+        Topup canceled = savedTopup();
+        assertThat(canceled.getStatus()).isEqualTo(TopupStatus.CANCELED);
+        assertThat(canceled.getCanceledAmount()).isEqualTo(AMOUNT);
+        assertThat(balance()).isZero();
+        assertThat(transactionsOfWallet()).extracting(WalletTransaction::getType).containsExactly(WalletTransactionType.CHARGE_CANCEL);
+    }
+
+    @Test
     @DisplayName("PG가 거절한 뒤 다시 취소하면 새 멱등 키로 PG에 다시 요청하고 취소된다")
     void cancelAgain_afterDeclined() {
         given(tossPaymentsClient.cancel(anyString(), anyLong(), anyString(), eq("TOPUP-" + topup.getId() + "-CANCEL-1")))
                 .willThrow(new TossPaymentException(403, "NOT_AVAILABLE_BANK", "은행 서비스 시간이 아닙니다.", null));
         given(tossPaymentsClient.cancel(anyString(), anyLong(), anyString(), eq("TOPUP-" + topup.getId() + "-CANCEL-2")))
                 .willReturn(tossCanceled(AMOUNT));
+        given(tossPaymentsClient.getPayment(topup.getPaymentKey())).willReturn(tossPayment("DONE", null));
         assertThatThrownBy(() -> paymentFacade.cancelTopup(memberId, topup.getId()))
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("400-TOPUP_CANCEL_DECLINED");
