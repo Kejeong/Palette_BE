@@ -10,6 +10,14 @@ import com.backend.boundedContext.product.out.ProductRepository;
 import com.backend.boundedContext.product.out.search.ProductEsIndexAdapter;
 import com.backend.boundedContext.product.out.search.ProductSearchDocument;
 import com.backend.boundedContext.product.out.search.SearchIndexUnavailableException;
+import com.backend.global.exception.DomainException;
+import com.backend.global.exception.GlobalErrorCode;
+import com.backend.global.outbox.EventMessages;
+import com.backend.global.outbox.OutboxEvent;
+import com.backend.shared.event.DomainEvent;
+import com.backend.shared.event.EventEnvelope;
+import com.backend.shared.member.event.SellerBusinessNameChangedEvent;
+import com.backend.shared.member.out.MemberApi;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +30,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -30,6 +39,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.atLeast;
@@ -52,7 +62,7 @@ import static org.mockito.Mockito.verify;
         "custom.product.search.indexConsumer.retryInitialIntervalMillis=100",
         "custom.product.search.indexConsumer.retryMaxIntervalMillis=200"
 })
-@EmbeddedKafka(topics = {"product.events", "review.events"}, partitions = 3, bootstrapServersProperty = "spring.kafka.bootstrap-servers")
+@EmbeddedKafka(topics = {"product.events", "review.events", "seller.events"}, partitions = 3, bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 class ProductSearchIndexKafkaListenerIntegrationTest {
 
     private static final Duration WAIT = Duration.ofSeconds(20);
@@ -63,10 +73,16 @@ class ProductSearchIndexKafkaListenerIntegrationTest {
     @Autowired private ProductRepository productRepository;
     @Autowired private ProductOptionRepository productOptionRepository;
     @Autowired private OptionStockRepository optionStockRepository;
+    @Autowired private EventMessages eventMessages;
+    @Autowired private ObjectMapper objectMapper;
 
     /** ES 대신 색인 요청을 기록한다 (검색 어댑터도 이 타입을 받으므로 클래스로 바꾼다) */
     @MockitoBean
     private ProductEsIndexAdapter indexAdapter;
+
+    /** 색인 문서의 상호명을 회원 서비스 대신 준다 */
+    @MockitoBean
+    private MemberApi memberApi;
 
     // 다른 테스트·시드와 겹치지 않는 판매자 ID
     private final long sellerId = ThreadLocalRandom.current().nextLong(5_000_000_000L, 6_000_000_000L);
@@ -180,6 +196,56 @@ class ProductSearchIndexKafkaListenerIntegrationTest {
         send("review.events", String.valueOf(otherProductId), "ReviewCreatedEvent");
 
         await().atMost(WAIT).until(() -> upsertedIds().containsAll(List.of(productId, otherProductId)));
+    }
+
+    @Test
+    @DisplayName("상호 변경 이벤트(seller.events, 키 판매자 ID)를 받으면 봉투에서 판매자 ID를 읽어 그 판매자의 판매 중 상품만 다시 색인한다")
+    void reindexSellerProductsOnBusinessNameChange() {
+        doNothing().when(indexAdapter).upsert(anyList());
+        Long[] otherSellerProductId = new Long[1];
+        Long[] otherSellerOptionId = new Long[1];
+        transactionTemplate.executeWithoutResult(status -> {
+            Product product = productRepository.save(Product.create(sellerId + 1,
+                    categoryRepository.findByParentNameAndName("뷰티", "스킨케어").orElseThrow(), "다른 판매자 크림", "설명", 10_000L));
+            otherSellerProductId[0] = product.getId();
+            otherSellerOptionId[0] = saveOption(product).getId();
+        });
+        try {
+            EventEnvelope<DomainEvent> envelope = EventEnvelope.wrap(new SellerBusinessNameChangedEvent(sellerId, "새 상호"));
+            OutboxEvent outbox = OutboxEvent.create(envelope, objectMapper.writeValueAsString(envelope.payload()));
+            ProducerRecord<String, String> record = new ProducerRecord<>(
+                    "seller.events", String.valueOf(sellerId), eventMessages.toJson(outbox));   // 릴레이와 같은 형식
+            record.headers().add("eventType", envelope.eventType().getBytes(StandardCharsets.UTF_8));
+            kafkaTemplate.send(record).join();
+
+            await().atMost(WAIT).until(() -> upsertedIds().containsAll(List.of(productId, otherProductId)));
+            assertThat(upsertedIds()).doesNotContain(otherSellerProductId[0], sellerId);   // 다른 판매자 상품, 키(판매자 ID)를 상품 ID로 쓰지 않는다
+        } finally {
+            transactionTemplate.executeWithoutResult(status -> {
+                productOptionRepository.deleteById(otherSellerOptionId[0]);
+                productRepository.deleteById(otherSellerProductId[0]);
+            });
+        }
+    }
+
+    @Test
+    @DisplayName("회원 서비스가 실패해도 컨슈머는 멈추지 않고 상품을 상호명 없이 색인한다 (상호명은 나중에 채운다)")
+    void memberFailureStillIndexes() {
+        doNothing().when(indexAdapter).upsert(anyList());
+        given(memberApi.getSellers(any())).willThrow(new DomainException(GlobalErrorCode.EXTERNAL_SERVICE_ERROR));
+
+        send(String.valueOf(productId), "ProductChangedEvent");
+
+        await().atMost(WAIT).until(() -> upsertedIds().contains(productId));
+        assertThat(upsertedDocuments()).filteredOn(doc -> doc.productId() == productId)
+                .allSatisfy(doc -> assertThat(doc.businessName()).isNull());
+    }
+
+    private List<ProductSearchDocument> upsertedDocuments() {
+        return mockingDetails(indexAdapter).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("upsert"))
+                .flatMap(invocation -> invocation.<List<ProductSearchDocument>>getArgument(0).stream())
+                .toList();
     }
 
     /** upsert에 들어간 모든 상품 ID */

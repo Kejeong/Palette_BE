@@ -37,4 +37,15 @@ public class ProductSearchIndexRecoveryScheduler {
             log.error("상품 검색 인덱스를 다시 만들어야 하는데 전체 재색인에 실패했습니다. 다음 주기에 다시 시도합니다. ES 상태를 확인해 주세요.", e);
         }
     }
+
+    /** 회원 서비스가 실패해 상호명 없이 색인된 상품의 상호명을 채운다 (실패하면 다음 주기에 다시) */
+    @Scheduled(fixedDelayString = "${custom.product.search.businessNameFillIntervalSeconds}", timeUnit = TimeUnit.SECONDS)
+    public void fillMissingBusinessNames() {
+        try {
+            int count = productFacade.fillMissingBusinessNames();
+            if (count > 0) log.info("상호명 없이 색인된 상품 {}개를 다시 색인했습니다.", count);
+        } catch (Exception e) {
+            log.warn("상호명이 빠진 상품 검색 문서를 채우지 못했습니다. 다음 주기에 다시 시도합니다.", e);
+        }
+    }
 }

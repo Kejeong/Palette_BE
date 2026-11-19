@@ -445,6 +445,12 @@ public class ProductFacade {
 
     // 상품 검색 색인 (ES). 변경한 트랜잭션이 커밋된 뒤에 부른다
 
+    /** 판매자의 판매 중 상품 ID (상호가 바뀌어 검색 색인을 다시 할 상품, 검색 색인 컨슈머) */
+    @Transactional(readOnly = true)
+    public List<Long> getOnSaleProductIdsBySeller(Long sellerId) {
+        return productSupport.getOnSaleProductIdsBySeller(sellerId);
+    }
+
     /** 상품들을 DB의 지금 값으로 다시 색인한다 (검색 색인 컨슈머). 새 트랜잭션에서 읽는다 */
     @Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
     public void indexProducts(Collection<Long> productIds) {
@@ -472,6 +478,12 @@ public class ProductFacade {
         List<Long> productIds = productBehaviorSupport.findProductIdsWithSalesChanged(from, now);
         productChangeEventSupport.publishMetricsChanged(productIds);
         return productIds.size();
+    }
+
+    /** 상호명 없이 색인된 상품을 다시 색인해 상호명을 채운다. 채운 상품 수 (복구 스케줄러) */
+    @Transactional(readOnly = true)
+    public int fillMissingBusinessNames() {
+        return productSearchIndexSupport.fillMissingBusinessNames();
     }
 
     /** 판매 중인 상품 전체를 새 인덱스에 색인하고 검색 alias를 옮긴다. 색인한 상품 수를 돌려준다 (관리자) */

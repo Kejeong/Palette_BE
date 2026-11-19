@@ -123,7 +123,7 @@ class ProductEsRecommendAdapterEsTest {
 
     private static ProductSearchDocument doc(long id, String name, String description, long categoryId, boolean soldOut,
                                              double behaviorScore) {
-        return new ProductSearchDocument(id, name, description, categoryId, "ON_SALE", soldOut, 20_000, 0,
+        return new ProductSearchDocument(id, name, description, "팔레트 상점", categoryId, "ON_SALE", soldOut, 20_000, 0,
                 0, 0, 0, 0, behaviorScore, id);
     }
 }

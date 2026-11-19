@@ -4,6 +4,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.SortOrder;
 import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
+import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.core.search.TotalHits;
@@ -23,8 +24,8 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * ES로 상품을 검색한다. 상품명은 nori 형태소로 찾고, 가격순은 색인해 둔 지금 기본가(effectivePrice, 할인 중이면 할인가) 기준이다.
- * ES가 꺼져 있거나 검색이 실패하면 DB 검색({@link ProductJpaSearchAdapter})으로 대신한다. 이때 가격순은 정가 기준이다.
+ * ES로 상품을 검색한다. 검색어는 상품명과 판매자 상호명에서 nori 형태소로 찾고(상품명 일치를 더 높게), 가격순은 색인해 둔 지금 기본가(effectivePrice, 할인 중이면 할인가) 기준이다.
+ * ES가 꺼져 있거나 검색이 실패하면 DB 검색({@link ProductJpaSearchAdapter})으로 대신한다. 이때 가격순은 정가 기준이고, 상호명으로는 찾지 않는다.
  */
 @Slf4j
 @Primary
@@ -89,7 +90,10 @@ public class ProductEsSearchAdapter implements ProductSearchPort {
             b.filter(f -> f.range(r -> r.number(n -> n.field("discountRate").gt(0.0))));
         }
         if (query.keyword() != null) {
-            b.must(m -> m.match(mt -> mt.field("name").query(query.keyword())));
+            // 상호명으로 검색해도 그 판매자 상품이 나오게 함께 찾는다. 상호명 일치는 상품명 일치보다 낮게 친다.
+            // 두 필드 점수를 더해("팔레트 크림"처럼 상호명과 상품명을 섞어 찾으면) 둘 다 맞는 상품이 한쪽만 맞는 상품보다 앞에 온다
+            b.must(m -> m.multiMatch(mm -> mm.fields("name^3", "businessName").type(TextQueryType.MostFields)
+                    .query(query.keyword())));
         }
         return b;
     }

@@ -188,6 +188,57 @@ class ProductEsSearchAdapterEsTest {
     }
 
     @Test
+    @DisplayName("상호명으로 검색하면 그 판매자 상품이 나오고, 같은 단어가 상품명에 있는 상품이 상호명만 맞는 상품보다 앞에 온다")
+    void businessNameSearch() throws Exception {
+        createAlias();
+        indexAdapter.upsert(List.of(
+                new ProductSearchDocument(1, "수분 크림", "설명", "라벤더 공방", SKINCARE, "ON_SALE", false, 10_000, 0,
+                        0, 0, 0, 0, 0, 1),
+                new ProductSearchDocument(2, "라벤더 핸드크림", "설명", "다른 상점", SKINCARE, "ON_SALE", false, 10_000, 0,
+                        0, 0, 0, 0, 0, 2),
+                new ProductSearchDocument(3, "세라믹 머그컵", "설명", "다른 상점", SKINCARE, "ON_SALE", false, 10_000, 0,
+                        0, 0, 0, 0, 0, 3)));
+        refresh();
+
+        assertThat(ids(search("라벤더", ProductSort.RELEVANCE, false))).containsExactly(2L, 1L);   // 상품명 일치(2)가 앞
+        assertThat(ids(search("공방", ProductSort.RELEVANCE, false))).containsExactly(1L);         // 상호명만으로 찾는다
+    }
+
+    @Test
+    @DisplayName("상호명과 상품명을 섞어 찾으면 둘 다 맞는 상품이 상품명만 맞는 상품보다 앞에 온다 (두 필드 점수를 더한다)")
+    void businessNameAndProductName() throws Exception {
+        createAlias();
+        indexAdapter.upsert(List.of(
+                new ProductSearchDocument(1, "수분 크림", "설명", "라벤더 공방", SKINCARE, "ON_SALE", false, 10_000, 0,
+                        0, 0, 0, 0, 0, 1),
+                new ProductSearchDocument(2, "수분 크림", "설명", "다른 상점", SKINCARE, "ON_SALE", false, 10_000, 0,
+                        0, 0, 0, 0, 0, 2),   // 더 최근 상품: 점수가 같으면 앞에 온다
+                // "라벤더"를 흔한 상호명 단어로 만든다. 가장 잘 맞는 필드 하나만 보면(기본값) 1·2번이 상품명 점수로 같아져 2번이 앞에 온다
+                new ProductSearchDocument(3, "머그컵", "설명", "라벤더 상점", SKINCARE, "ON_SALE", false, 10_000, 0, 0, 0, 0, 0, 0, 3),
+                new ProductSearchDocument(4, "텀블러", "설명", "라벤더 상점", SKINCARE, "ON_SALE", false, 10_000, 0, 0, 0, 0, 0, 0, 4),
+                new ProductSearchDocument(5, "접시", "설명", "라벤더 상점", SKINCARE, "ON_SALE", false, 10_000, 0, 0, 0, 0, 0, 0, 5),
+                new ProductSearchDocument(6, "컵받침", "설명", "라벤더 상점", SKINCARE, "ON_SALE", false, 10_000, 0, 0, 0, 0, 0, 0, 6)));
+        refresh();
+
+        assertThat(ids(search("라벤더 크림", ProductSort.RELEVANCE, false))).startsWith(1L, 2L);
+    }
+
+    @Test
+    @DisplayName("상호명 채우기 대상: 상호명 없이(null) 색인된 문서만 찾고, 빈 문자열(회원에 없는 판매자)은 빼며, 인덱스가 최신이 아니면 찾지 않는다")
+    void findIdsWithoutBusinessName() throws Exception {
+        assertThat(indexAdapter.findIdsWithoutBusinessName(10)).isEmpty();   // alias를 만들기 전(최신인지 모름)
+
+        createAlias();
+        indexAdapter.upsert(List.of(
+                new ProductSearchDocument(1, "크림", "설명", null, SKINCARE, "ON_SALE", false, 10_000, 0, 0, 0, 0, 0, 0, 1),
+                new ProductSearchDocument(2, "크림", "설명", "", SKINCARE, "ON_SALE", false, 10_000, 0, 0, 0, 0, 0, 0, 2),
+                new ProductSearchDocument(3, "크림", "설명", "팔레트 상점", SKINCARE, "ON_SALE", false, 10_000, 0, 0, 0, 0, 0, 0, 3)));
+        refresh();
+
+        assertThat(indexAdapter.findIdsWithoutBusinessName(10)).containsExactly(1L);
+    }
+
+    @Test
     @DisplayName("행동 지표 정렬: 인기순은 행동 점수, 찜 많은순은 찜 수, 판매량순은 최근 판매량 내림차순이고 같으면 최신순이다")
     void behaviorSorts() throws Exception {
         createAlias();
@@ -283,7 +334,7 @@ class ProductEsSearchAdapterEsTest {
     private static ProductSearchDocument doc(long id, String name, long categoryId, boolean soldOut, long effectivePrice,
                                              int discountRate, long wishCount, long salesCount30d, double behaviorScore,
                                              long createdAt) {
-        return new ProductSearchDocument(id, name, "설명", categoryId, "ON_SALE", soldOut, effectivePrice, discountRate,
+        return new ProductSearchDocument(id, name, "설명", "팔레트 상점", categoryId, "ON_SALE", soldOut, effectivePrice, discountRate,
                 wishCount, 0, 0, salesCount30d, behaviorScore, createdAt);
     }
 }

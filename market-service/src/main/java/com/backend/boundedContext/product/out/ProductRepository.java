@@ -47,6 +47,10 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     @Query("select p from Product p where p.sellerId = :sellerId and p.status = :status order by p.id")
     List<Product> findAllForUpdateBySellerIdAndStatus(Long sellerId, ProductSaleStatus status);
 
+    /** 판매자의 이 상태 상품 ID (상호가 바뀌어 다시 색인할 상품). 잠그지 않는다 */
+    @Query("select p.id from Product p where p.sellerId = :sellerId and p.status = :status order by p.id")
+    List<Long> findIdsBySellerIdAndStatus(Long sellerId, ProductSaleStatus status);
+
     /** 이 상태 상품의 ID를 afterId 다음부터 ID 순으로 limit개 (검색 전체 재색인용) */
     @Query("select p.id from Product p where p.status = :status and p.id > :afterId order by p.id")
     List<Long> findIdsByStatusAfter(ProductSaleStatus status, Long afterId, Limit limit);

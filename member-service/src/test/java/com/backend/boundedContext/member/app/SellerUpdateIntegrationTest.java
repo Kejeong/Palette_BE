@@ -12,6 +12,8 @@ import com.backend.boundedContext.member.out.MemberSettlementPort;
 import com.backend.boundedContext.member.out.SellerRepository;
 import com.backend.boundedContext.member.out.SellerStatusHistoryRepository;
 import com.backend.global.exception.DomainException;
+import com.backend.global.outbox.OutboxEvent;
+import com.backend.global.outbox.OutboxEventRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -20,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -49,6 +52,9 @@ class SellerUpdateIntegrationTest {
     @Autowired
     private SellerStatusHistoryRepository sellerStatusHistoryRepository;
 
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
+
     private Long memberId;
 
     @BeforeEach
@@ -63,6 +69,9 @@ class SellerUpdateIntegrationTest {
     @AfterEach
     void cleanUp() {
         sellerRepository.findByMemberId(memberId).ifPresent(seller -> {
+            outboxEventRepository.deleteAll(outboxEventRepository.findAll().stream()
+                    .filter(outbox -> outbox.getAggregateType().equals("SELLER") && outbox.getAggregateId().equals(seller.getId()))
+                    .toList());
             sellerStatusHistoryRepository.deleteAll(sellerStatusHistoryRepository.findAllBySellerIdOrderByIdAsc(seller.getId()));
             sellerRepository.delete(seller);
         });
@@ -85,6 +94,37 @@ class SellerUpdateIntegrationTest {
 
         Seller saved = sellerRepository.findByMemberId(memberId).orElseThrow();
         assertThat(saved.getAccountNumber()).isEqualTo("110123456789");
+    }
+
+    @Test
+    @DisplayName("상호를 바꾸면 상호 변경 이벤트가 outbox에 1건 남는다 (새 상호만 싣는다)")
+    void update_businessNameChangedEvent() {
+        approve();
+        Long sellerId = sellerRepository.findByMemberId(memberId).orElseThrow().getId();
+
+        memberSellerFacade.updateSeller(memberId, new SellerUpdateRequest(" 팔레트 뷰티 2호점 ", null, null, null, null));
+
+        assertThat(businessNameChangedOutbox(sellerId)).singleElement()
+                .satisfies(outbox -> assertThat(outbox.getPayload()).contains("팔레트 뷰티 2호점"));
+    }
+
+    @Test
+    @DisplayName("연락처·계좌만 바꾸거나 같은 상호로 다시 저장하면 상호 변경 이벤트를 내지 않는다")
+    void update_noBusinessNameChange() {
+        approve();
+        Long sellerId = sellerRepository.findByMemberId(memberId).orElseThrow().getId();
+
+        memberSellerFacade.updateSeller(memberId, new SellerUpdateRequest(null, "010-9876-5432", "신한은행", "110-123-456789", "김철수"));
+        memberSellerFacade.updateSeller(memberId, new SellerUpdateRequest(" 팔레트 뷰티 ", null, null, null, null));   // 같은 상호(앞뒤 공백)
+
+        assertThat(businessNameChangedOutbox(sellerId)).isEmpty();
+    }
+
+    private List<OutboxEvent> businessNameChangedOutbox(Long sellerId) {
+        return outboxEventRepository.findAll().stream()
+                .filter(outbox -> outbox.getEventType().equals("SellerBusinessNameChangedEvent")
+                        && outbox.getAggregateId().equals(sellerId))
+                .toList();
     }
 
     @Test

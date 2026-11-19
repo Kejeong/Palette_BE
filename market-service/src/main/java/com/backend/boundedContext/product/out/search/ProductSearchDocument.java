@@ -8,6 +8,7 @@ package com.backend.boundedContext.product.out.search;
  * @param productId      상품 ID
  * @param name           상품명 (nori 형태소 검색)
  * @param description    상품 설명 (nori). 비슷한 상품 추천의 텍스트 유사도에 쓴다
+ * @param businessName   판매자 상호명 (nori). 검색어로 상호명을 넣어도 그 판매자 상품이 나오게 한다. 판매자 정보가 없으면 null
  * @param categoryId     소분류 ID
  * @param status         판매 상태. 판매 중인 상품만 색인하므로 항상 ON_SALE이다
  * @param soldOut        삭제되지 않은 옵션의 재고가 모두 0인지
@@ -25,6 +26,7 @@ public record ProductSearchDocument(
         long productId,
         String name,
         String description,
+        String businessName,
         long categoryId,
         String status,
         boolean soldOut,

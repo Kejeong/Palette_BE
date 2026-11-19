@@ -20,6 +20,7 @@ import com.backend.boundedContext.member.out.MemberPortUnavailableException;
 import com.backend.boundedContext.member.out.MemberSettlementPort;
 import com.backend.boundedContext.member.out.SellerRepository;
 import com.backend.boundedContext.member.out.SellerStatusHistoryRepository;
+import com.backend.global.eventPublisher.EventPublisher;
 
 /**
  * 내 판매자 정보 조회·수정의 미지급 정산 금액. 화면 표시용이라 정산을 조회하지 못하면 그 값만 비우고 응답한다
@@ -29,6 +30,9 @@ class MemberMySellerUnsettledAmountTest {
 
     private static final Long MEMBER_ID = 3L;
     private static final Long SELLER_ID = 5L;
+
+    @Mock
+    private EventPublisher eventPublisher;
 
     @Mock
     private SellerRepository sellerRepository;
@@ -92,7 +96,7 @@ class MemberMySellerUnsettledAmountTest {
     }
 
     private MemberUpdateSellerUseCase updateSellerUseCase() {
-        return new MemberUpdateSellerUseCase(sellerRepository, sellerStatusHistoryRepository, memberSettlementPort);
+        return new MemberUpdateSellerUseCase(sellerRepository, sellerStatusHistoryRepository, memberSettlementPort, eventPublisher);
     }
 
     private static MemberPortUnavailableException unavailable() {
