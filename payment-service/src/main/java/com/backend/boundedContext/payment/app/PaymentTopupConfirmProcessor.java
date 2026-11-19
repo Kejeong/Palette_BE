@@ -13,6 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.backend.boundedContext.payment.app.dto.TopupConfirmDto;
 import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.Topup;
+import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
+import com.backend.boundedContext.payment.domain.TopupManualResolveAction;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
@@ -185,6 +187,46 @@ public class PaymentTopupConfirmProcessor {
         topup.retryMethodCancel();
         return Optional.of(new TopupMethodCancelStart(topup.getId(), topup.getPgProvider(), PgPaymentRef.from(topup),
                 topup.getAmount(), topup.getCancelAttempts(), topup.methodCancelIdempotencyKey()));
+    }
+
+    /**
+     * 대사가 자동으로 정할 수 없는 허용하지 않은 결제 수단 취소 건을 수동 확인으로 표시하고, 표시했으면 true
+     * 이 회차가 아직 진행 중이고 표시 전일 때만 표시함
+     */
+    @Transactional
+    public boolean markMethodCancelManualCheck(Long topupId, int attempt, TopupManualCheckReason reason) {
+        Topup topup = topupRepository.findByIdForUpdate(topupId)
+                .orElseThrow(() -> new DomainException(PaymentErrorCode.TOPUP_NOT_FOUND));
+        if (!topup.isMethodCancelingAttempt(attempt) || topup.needsManualCheck()) {
+            return false;
+        }
+        topup.markManualCheck(reason, LocalDateTime.now());
+        return true;
+    }
+
+    /**
+     * 관리자 정리 (METHOD_CANCELING 수동 확인 건): PG에서 전액 취소된 것을 확인해 FAILED_METHOD_NOT_ALLOWED로 확정
+     */
+    @Transactional
+    public TopupStatus confirmMethodCancelManually(Long topupId, String reason) {
+        Topup topup = topupRepository.findByIdForUpdate(topupId)
+                .orElseThrow(() -> new DomainException(PaymentErrorCode.TOPUP_NOT_FOUND));
+        topup.startManualResolve(TopupManualResolveAction.CONFIRM_METHOD_CANCEL);
+        topup.completeMethodCancel(reason, LocalDateTime.now());
+        return topup.getStatus();
+    }
+
+    /**
+     * 관리자 정리 (METHOD_CANCELING 수동 확인 건): 표시를 지우고 회차를 1 늘려 PG 전액 취소를 다시 보낼 값을 돌려줌
+     * 다시 보낸 취소가 끝나지 않으면 METHOD_CANCELING 대사가 다시 조회하고, 그래도 정할 수 없으면 다시 표시함
+     */
+    @Transactional
+    public TopupMethodCancelStart startManualMethodCancelRetry(Long topupId) {
+        Topup topup = topupRepository.findByIdForUpdate(topupId)
+                .orElseThrow(() -> new DomainException(PaymentErrorCode.TOPUP_NOT_FOUND));
+        topup.startManualResolve(TopupManualResolveAction.RETRY_METHOD_CANCEL);
+        topup.retryMethodCancel();
+        return new TopupMethodCancelStart(topup.getId(), topup.getPgProvider(), PgPaymentRef.from(topup), topup.getAmount(), topup.getCancelAttempts(), topup.methodCancelIdempotencyKey());
     }
 
     /**

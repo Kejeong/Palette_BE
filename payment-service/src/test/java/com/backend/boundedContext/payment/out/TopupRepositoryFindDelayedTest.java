@@ -22,6 +22,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Topup;
+import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
 
@@ -77,6 +78,19 @@ class TopupRepositoryFindDelayedTest {
 
         assertThat(page.getContent()).extracting(Topup::getId).containsExactly(systemError, processing);
         assertThat(page.getTotalElements()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("수동 확인으로 표시된 결과 확인 대기 건은 기준 시각 이후여도 나온다")
+    void findDelayed_manualCheck() {
+        Long marked = saved(t -> { t.markProcessing(pk(), LocalDateTime.now()); t.approve(DAY); t.startCancel();
+            t.markManualCheck(TopupManualCheckReason.CANCEL_AMOUNT_MISMATCH, DAY); }, DAY.plusHours(13));
+        saved(t -> { t.markProcessing(pk(), LocalDateTime.now()); t.approve(DAY); t.startCancel(); }, DAY.plusHours(13));
+
+        Page<Topup> page = topupRepository.findDelayed(PENDING, DAY.plusHours(12), FAILED,
+                DAY, DAY.plusDays(1), PageRequest.of(0, 20, LATEST_FIRST));
+
+        assertThat(page.getContent()).extracting(Topup::getId).containsExactly(marked);
     }
 
     // 상태를 바꾼 충전 건을 저장하고 수정 시각을 옮김

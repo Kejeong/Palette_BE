@@ -1,8 +1,10 @@
 package com.backend.boundedContext.payment.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -18,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import com.backend.boundedContext.payment.app.dto.TopupReconcileResult;
 import com.backend.boundedContext.payment.domain.PaymentPolicy;
 import com.backend.boundedContext.payment.domain.PgProvider;
+import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
 import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
 import com.backend.boundedContext.payment.out.pg.PgPaymentNotFoundException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
@@ -83,7 +86,7 @@ class PaymentReconcileCancelingTopupsUseCaseTest {
     }
 
     @Test
-    @DisplayName("PG 취소 합계가 이전 취소와 이전 + 이번 취소 사이면 자동으로 정하지 않고 CANCELING으로 둔다")
+    @DisplayName("PG 취소 합계가 이전 취소와 이전 + 이번 취소 사이면 자동으로 정하지 않고 CANCELING으로 둔 채 수동 확인으로 표시한다")
     void reconcile_mismatch() {
         targets(TARGET);
         given(gateway.getPayment(ref("pk_7"))).willReturn(pg(PgPaymentStatus.PARTIALLY_CANCELED, 25_000));
@@ -93,10 +96,11 @@ class PaymentReconcileCancelingTopupsUseCaseTest {
         assertThat(result.pending()).isEqualTo(1);
         verify(processor, never()).complete(anyLong(), anyInt(), anyLong());
         verify(processor, never()).fail(anyLong(), anyInt());
+        verify(processor).markManualCheck(7L, 2, TopupManualCheckReason.CANCEL_AMOUNT_MISMATCH);
     }
 
     @Test
-    @DisplayName("PG 취소 합계가 이전 + 이번 취소보다 많으면(따로 취소된 금액) 확정하지 않고 CANCELING으로 둔다")
+    @DisplayName("PG 취소 합계가 이전 + 이번 취소보다 많으면(따로 취소된 금액) 확정하지 않고 CANCELING으로 둔 채 수동 확인으로 표시한다")
     void reconcile_moreThanExpected() {
         targets(TARGET);
         given(gateway.getPayment(ref("pk_7"))).willReturn(pg(PgPaymentStatus.PARTIALLY_CANCELED, 35_000));
@@ -106,10 +110,11 @@ class PaymentReconcileCancelingTopupsUseCaseTest {
         assertThat(result.pending()).isEqualTo(1);
         verify(processor, never()).complete(anyLong(), anyInt(), anyLong());
         verify(processor, never()).fail(anyLong(), anyInt());
+        verify(processor).markManualCheck(7L, 2, TopupManualCheckReason.CANCEL_AMOUNT_MISMATCH);
     }
 
     @Test
-    @DisplayName("PG에 결제가 없거나 조회 결과를 모르면 되돌리지 않고 CANCELING으로 둔다")
+    @DisplayName("PG에 결제가 없으면 수동 확인으로 표시하고, 조회 결과를 모르면 표시하지 않고 다음 회차에 다시 확인한다")
     void reconcile_notFoundOrUnknown() {
         TopupCancelReconcileTarget other = new TopupCancelReconcileTarget(8L, ref("pk_8"), PgProvider.TOSS, 1, 0, 20_000, UPDATED_AT);
         targets(TARGET, other);
@@ -121,6 +126,8 @@ class PaymentReconcileCancelingTopupsUseCaseTest {
         assertThat(result.pending()).isEqualTo(2);
         verify(processor, never()).complete(anyLong(), anyInt(), anyLong());
         verify(processor, never()).fail(anyLong(), anyInt());
+        verify(processor).markManualCheck(7L, 2, TopupManualCheckReason.PG_PAYMENT_NOT_FOUND);
+        verify(processor, never()).markManualCheck(eq(8L), anyInt(), any());
     }
 
     @Test

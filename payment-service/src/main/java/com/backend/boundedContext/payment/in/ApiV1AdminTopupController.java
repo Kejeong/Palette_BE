@@ -5,24 +5,33 @@ import java.time.LocalDate;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.backend.boundedContext.payment.app.PaymentFacade;
 import com.backend.boundedContext.payment.app.dto.AdminTopupDto;
+import com.backend.boundedContext.payment.app.dto.AdminTopupManualResolveDto;
+import com.backend.boundedContext.payment.app.dto.AdminTopupPgPaymentDto;
+import com.backend.boundedContext.payment.in.dto.TopupManualResolveRequest;
 import com.backend.global.page.PageResponse;
 import com.backend.global.rsData.RsData;
+import com.backend.global.security.AuthMember;
 import com.backend.shared.admin.dto.AdminFailureItem;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
-@Tag(name = "관리자 충전", description = "관리자 결제 조회 충전 탭 (조회 전용)")
+@Tag(name = "관리자 충전", description = "관리자 결제 조회 충전 탭, 실패 거래, 충전 PG 결제 조회·수동 확인 정리")
 @RestController
 @RequestMapping("/api/v1/admin/topups")
 @RequiredArgsConstructor
@@ -69,5 +78,35 @@ public class ApiV1AdminTopupController {
             @ParameterObject Pageable pageable
     ) {
         return RsData.of("200-1", "실패 거래(충전 확인 지연)를 조회했습니다.", paymentFacade.getAdminTopupFailures(from, to, pageable));
+    }
+
+    @Operation(summary = "충전 PG 결제 조회", description = """
+            충전 건의 우리 기록(상태·남은 금액·취소 중 금액·취소된 금액·수동 확인 사유)과 그 자리에서 결제한 PG에 조회한 결과(상태·취소 합계)를 함께 돌려준다.
+            수동 확인 건을 정리하기 전에 PG 취소 합계를 비교하는 용도. PG를 조회하지 못하면 pg.result가 UNKNOWN이고 message에 원인이 있다""")
+    @ApiResponse(responseCode = "200", description = "200-1 조회 성공")
+    @ApiResponse(responseCode = "403", description = "관리자가 아님")
+    @ApiResponse(responseCode = "404", description = "404-TOPUP_NOT_FOUND 충전 건이 없음")
+    @GetMapping("/{topupId}/pg-payment")
+    public RsData<AdminTopupPgPaymentDto> getPgPayment(@PathVariable Long topupId) {
+        return RsData.of("200-1", "충전 PG 결제를 조회했습니다.", paymentFacade.getAdminTopupPgPayment(topupId));
+    }
+
+    @Operation(summary = "충전 수동 확인 정리", description = """
+            대사가 자동으로 정할 수 없어 수동 확인으로 표시한 충전 건을 관리자가 고른 방법으로 정리한다. 충전 PG 결제 조회로 PG 취소 합계를 확인한 뒤 고른다.
+            - CANCELING: CONFIRM_CANCEL(이번 취소가 PG에서 처리됨 → 취소 확정), RESTORE(처리되지 않음 → 되돌림, 잔액·남은 금액 복원)
+            - METHOD_CANCELING: CONFIRM_METHOD_CANCEL(PG에서 전액 취소됨 → 확정), RETRY_METHOD_CANCEL(PG 전액 취소 다시 요청. 끝나지 않으면 METHOD_CANCELING으로 남고 대사가 다시 확인)
+            정리하면 수동 확인 표시가 지워진다""")
+    @ApiResponse(responseCode = "200", description = "200-1 정리 성공")
+    @ApiResponse(responseCode = "400", description = "action이 없거나 알 수 없는 값")
+    @ApiResponse(responseCode = "403", description = "관리자가 아님")
+    @ApiResponse(responseCode = "404", description = "404-TOPUP_NOT_FOUND 충전 건이 없음")
+    @ApiResponse(responseCode = "409", description = "409-TOPUP_NOT_MANUAL_CHECK 수동 확인 건이 아님 / 409-TOPUP_MANUAL_RESOLVE_NOT_ALLOWED 지금 상태에서 고를 수 없는 정리")
+    @PostMapping("/{topupId}/manual-resolve")
+    public RsData<AdminTopupManualResolveDto> resolveManualCheck(
+            @AuthenticationPrincipal AuthMember authMember,
+            @PathVariable Long topupId,
+            @Valid @RequestBody TopupManualResolveRequest request
+    ) {
+        return RsData.of("200-1", "충전 수동 확인 건을 정리했습니다.", paymentFacade.resolveTopupManualCheck(authMember.memberId(), topupId, request.action()));
     }
 }

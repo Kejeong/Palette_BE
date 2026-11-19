@@ -819,9 +819,11 @@ public record TransferResultDto(String idempotencyKey, Long walletTransactionId,
 - `reasonCode` = 충전 상태, `reasonLabel`
   - `PROCESSING` "PG 승인 결과 확인 중", `CANCELING` "PG 취소 결과 확인 중", `METHOD_CANCELING` "허용하지 않은 결제 수단 취소 결과 확인 중"
   - `FAILED_SYSTEM_ERROR` "시스템 오류", `FAILED_AMOUNT_MISMATCH` "금액 불일치". 저장된 실패 사유를 괄호로 붙인다(예: "시스템 오류 (PG 인증에 실패했습니다.)")
+  - 수동 확인으로 표시된 건은 사유를 괄호로 붙인다(예: "PG 취소 결과 확인 중 (수동 확인: PG 취소 금액이 기록과 다름)"). 사유: "PG 취소 금액이 기록과 다름", "PG에 결제 없음", "일부만 취소됨", "PG 취소 재시도 모두 실패"
 - `handlingCode`
   - 결과 확인 대기이고 오래 남은 건 경고 기준(`custom.payment.topupStuckWarnMinutes`, 기본 60분) 이하: `AUTO_RECHECK`("자동 확인 대기"). 결과 확인 스케줄러가 PG에 다시 확인한다
   - 결과 확인 대기이고 60분 초과, 또는 실패: `CHECK_REQUIRED`("확인 필요"). 60분은 오류 로그 알림이 나가는 기준과 같다
+  - 수동 확인으로 표시된 건(대사가 자동으로 정할 수 없는 CANCELING·METHOD_CANCELING): 시간과 관계없이 `CHECK_REQUIRED`. 결과 확인 대기 5분 전이어도 목록에 나온다. 대사가 더 확인하지 않으므로 관리자가 정리한다
 
 배송 추적 실패(delivery) 항목:
 

@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import java.time.LocalDateTime;
@@ -29,6 +30,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import com.backend.boundedContext.payment.app.dto.TopupPrepareDto;
 import com.backend.boundedContext.payment.app.dto.TopupReconcileResult;
 import com.backend.boundedContext.payment.domain.Topup;
+import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.domain.WalletTransaction;
@@ -234,6 +236,29 @@ class TopupReconcileIntegrationTest {
 
         assertThat(topupRepository.findById(topup.topupId()).orElseThrow().getStatus()).isEqualTo(TopupStatus.FAILED_METHOD_NOT_ALLOWED);
         verify(tossPaymentsClient, never()).cancel(anyString(), anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("METHOD_CANCELING 대사: 일부만 취소됐으면 수동 확인으로 표시하고, 표시된 건은 다음 대사와 오래 남은 건 경고에서 빠진다")
+    void reconcileMethodCanceling_manualCheck() {
+        Processing topup = processing();
+        paymentTopupConfirmProcessor.startMethodCancel(topup.topupId());
+        moveUpdatedAtMinutesAgo(topup.topupId(), 6);
+        given(tossPaymentsClient.getPayment(topup.paymentKey()))
+                .willReturn(tossBy(topup, "가상계좌", List.of(new TossPaymentResponse.Cancel(5_000, "DONE"))));
+
+        paymentFacade.reconcileMethodCancelingTopups();
+
+        Topup marked = topupRepository.findById(topup.topupId()).orElseThrow();
+        assertThat(marked.getStatus()).isEqualTo(TopupStatus.METHOD_CANCELING);
+        assertThat(marked.getManualCheckReason()).isEqualTo(TopupManualCheckReason.METHOD_CANCEL_PARTIAL);
+        assertThat(marked.getManualCheckAt()).isNotNull();
+
+        // 다음 대사: 표시된 건은 PG를 다시 조회하지 않음
+        moveUpdatedAt(topup.topupId(), LocalDateTime.of(2001, 1, 1, 0, 0));
+        paymentFacade.reconcileMethodCancelingTopups();
+        verify(tossPaymentsClient, times(1)).getPayment(topup.paymentKey());
+        assertThat(topupRepository.countStale(EnumSet.of(TopupStatus.METHOD_CANCELING), LocalDateTime.of(2001, 1, 2, 0, 0))).isEmpty();
     }
 
     private TossPaymentResponse tossBy(Processing topup, String method, List<TossPaymentResponse.Cancel> cancels) {

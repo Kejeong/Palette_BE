@@ -25,6 +25,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.backend.boundedContext.payment.domain.PaymentPolicy;
 import com.backend.boundedContext.payment.domain.PgProvider;
 import com.backend.boundedContext.payment.domain.Topup;
+import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.out.PaymentMemberPort;
@@ -117,6 +118,21 @@ class PaymentGetTopupFailuresUseCaseTest {
         assertThat(item.reasonCode()).isEqualTo("FAILED_SYSTEM_ERROR");
         assertThat(item.reasonLabel()).isEqualTo("시스템 오류 (사유)");
         assertThat(item.handlingCode()).isEqualTo("CHECK_REQUIRED");
+    }
+
+    @Test
+    @DisplayName("수동 확인으로 표시된 건은 60분이 안 됐어도 확인 필요이고, 원인 문구에 수동 확인 사유를 붙인다")
+    void manualCheck() {
+        Topup topup = topup(TopupStatus.METHOD_CANCELING, NOW.minusMinutes(10));
+        topup.markManualCheck(TopupManualCheckReason.METHOD_CANCEL_PARTIAL, NOW.minusMinutes(10));
+        given(topupRepository.findDelayed(anyCollection(), any(), anyCollection(), any(), any(), any())).willReturn(page(topup));
+
+        AdminFailureItem item = first(useCase.getFailures(null, null, PageRequest.of(0, 20), NOW));
+
+        assertThat(item.reasonCode()).isEqualTo("METHOD_CANCELING");
+        assertThat(item.reasonLabel()).isEqualTo("허용하지 않은 결제 수단 취소 결과 확인 중 (수동 확인: 일부만 취소됨)");
+        assertThat(item.handlingCode()).isEqualTo("CHECK_REQUIRED");
+        assertThat(item.handlingLabel()).isEqualTo("확인 필요");
     }
 
     @Test

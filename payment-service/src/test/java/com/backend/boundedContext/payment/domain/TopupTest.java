@@ -423,6 +423,52 @@ class TopupTest {
                 .extracting("resultCode").isEqualTo("409-TOPUP_ALREADY_PROCESSED");
     }
 
+    @Test
+    @DisplayName("취소 중인 충전 건을 수동 확인으로 표시하면 상태·금액은 그대로 두고 사유·시각만 남는다")
+    void markManualCheck() {
+        Topup topup = doneTopup(30_000);
+        topup.startCancel();
+
+        topup.markManualCheck(TopupManualCheckReason.CANCEL_AMOUNT_MISMATCH, NOW);
+
+        assertThat(topup.needsManualCheck()).isTrue();
+        assertThat(topup.getManualCheckReason()).isEqualTo(TopupManualCheckReason.CANCEL_AMOUNT_MISMATCH);
+        assertThat(topup.getManualCheckAt()).isEqualTo(NOW);
+        assertThat(topup.getStatus()).isEqualTo(TopupStatus.CANCELING);
+        assertThat(topup.getCancelingAmount()).isEqualTo(30_000);
+    }
+
+    @Test
+    @DisplayName("취소 중(CANCELING·METHOD_CANCELING)이 아니면 수동 확인으로 표시할 수 없다")
+    void markManualCheck_notCanceling() {
+        Topup topup = doneTopup(30_000);
+
+        assertThatThrownBy(() -> topup.markManualCheck(TopupManualCheckReason.PG_PAYMENT_NOT_FOUND, NOW))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(topup.needsManualCheck()).isFalse();
+    }
+
+    @Test
+    @DisplayName("관리자 정리를 시작하면 표시가 지워지고, 표시되지 않았거나 상태에 맞지 않는 정리면 409")
+    void startManualResolve() {
+        Topup topup = doneTopup(30_000);
+        topup.startCancel();
+
+        assertThatThrownBy(() -> topup.startManualResolve(TopupManualResolveAction.RESTORE))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("409-TOPUP_NOT_MANUAL_CHECK");
+
+        topup.markManualCheck(TopupManualCheckReason.CANCEL_AMOUNT_MISMATCH, NOW);
+        assertThatThrownBy(() -> topup.startManualResolve(TopupManualResolveAction.RETRY_METHOD_CANCEL))
+                .isInstanceOf(DomainException.class)
+                .extracting("resultCode").isEqualTo("409-TOPUP_MANUAL_RESOLVE_NOT_ALLOWED");
+        assertThat(topup.needsManualCheck()).isTrue();
+
+        topup.startManualResolve(TopupManualResolveAction.RESTORE);
+        assertThat(topup.needsManualCheck()).isFalse();
+        assertThat(topup.getManualCheckAt()).isNull();
+    }
+
     private Topup doneTopup(long amount) {
         Topup topup = Topup.create(1L, wallet, amount, PgProvider.TOSS, NOW);
         topup.markProcessing("pk_" + amount, NOW);

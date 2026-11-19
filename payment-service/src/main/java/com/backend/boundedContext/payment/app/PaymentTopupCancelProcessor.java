@@ -10,6 +10,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.backend.boundedContext.payment.app.dto.TopupCancelDto;
 import com.backend.boundedContext.payment.domain.PaymentErrorCode;
 import com.backend.boundedContext.payment.domain.Topup;
+import com.backend.boundedContext.payment.domain.TopupManualCheckReason;
+import com.backend.boundedContext.payment.domain.TopupManualResolveAction;
 import com.backend.boundedContext.payment.domain.TopupStatus;
 import com.backend.boundedContext.payment.domain.Wallet;
 import com.backend.boundedContext.payment.domain.WalletTransactionType;
@@ -92,6 +94,40 @@ public class PaymentTopupCancelProcessor {
         // failCancel()이 취소 중 금액을 0으로 만들기 전에 되돌릴 금액·키를 읽음
         walletTransactionRepository.save(locked.wallet().change(WalletTransactionType.CHARGE_CANCEL_RESTORE, topup.getCancelingAmount(), topup.getId(), topup.cancelRestoreIdempotencyKey()));
         topup.failCancel();
+    }
+
+    /**
+     * 대사가 자동으로 정할 수 없는 건을 수동 확인으로 표시하고, 표시했으면 true
+     * 이 회차가 아직 CANCELING이고 표시 전일 때만 표시함 (그사이 취소 응답이 반영됐으면 표시하지 않음). 지갑은 건드리지 않아 충전 건만 잠금
+     */
+    @Transactional
+    public boolean markManualCheck(Long topupId, int attempt, TopupManualCheckReason reason) {
+        Topup topup = topupRepository.findByIdForUpdate(topupId)
+                .orElseThrow(() -> new DomainException(PaymentErrorCode.TOPUP_NOT_FOUND));
+        if (!topup.isCancelingAttempt(attempt) || topup.needsManualCheck()) {
+            return false;
+        }
+        topup.markManualCheck(reason, LocalDateTime.now());
+        return true;
+    }
+
+    /**
+     * 관리자 정리 (CANCELING 수동 확인 건): 취소 확정 또는 되돌림. 반영은 대사의 complete·fail과 같고, 정리한 뒤 상태를 돌려줌
+     * 수동 확인 건이 아니면 409 TOPUP_NOT_MANUAL_CHECK, CANCELING이 아니거나 이 상태의 정리가 아니면 409 TOPUP_MANUAL_RESOLVE_NOT_ALLOWED
+     */
+    @Transactional
+    public TopupStatus resolveManualCheck(Long topupId, TopupManualResolveAction action) {
+        Locked locked = lock(topupId);
+        Topup topup = locked.topup();
+
+        topup.startManualResolve(action);
+        if (action == TopupManualResolveAction.CONFIRM_CANCEL) {
+            topup.completeCancel(LocalDateTime.now());
+        } else {
+            walletTransactionRepository.save(locked.wallet().change(WalletTransactionType.CHARGE_CANCEL_RESTORE, topup.getCancelingAmount(), topup.getId(), topup.cancelRestoreIdempotencyKey()));
+            topup.failCancel();
+        }
+        return topup.getStatus();
     }
 
     /**

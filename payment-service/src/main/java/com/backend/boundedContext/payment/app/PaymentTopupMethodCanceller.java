@@ -23,6 +23,9 @@ public class PaymentTopupMethodCanceller {
     // PG에 남기는 취소 사유
     private static final String CANCEL_REASON = "충전에 허용하지 않은 결제 수단";
 
+    // 관리자가 다시 요청해 취소됐을 때의 충전 건 실패 사유
+    static final String MANUAL_RETRY_REASON = "허용하지 않은 결제 수단이라 관리자 요청으로 PG에서 결제를 취소했습니다.";
+
     private final PaymentTopupConfirmProcessor paymentTopupConfirmProcessor;
     private final TopupGateways topupGateways;
 
@@ -59,9 +62,27 @@ public class PaymentTopupMethodCanceller {
         }
     }
 
+    /**
+     * 관리자가 고른 다시 요청: 회차를 늘린 값(start)으로 PG 전액 취소를 보내고, 확정했는지 돌려줌
+     * 실패해도 예외를 던지지 않음 (METHOD_CANCELING으로 남아 대사가 다시 확인함)
+     */
+    public boolean retryManually(TopupMethodCancelStart start) {
+        try {
+            cancelAndComplete(start, MANUAL_RETRY_REASON);
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("관리자가 다시 요청한 허용하지 않은 결제 수단의 PG 취소를 끝내지 못했습니다. 대사가 다시 확인합니다. topupId={}, 원인={}", start.topupId(), NestedExceptionUtils.getMostSpecificCause(e).getMessage());
+            return false;
+        }
+    }
+
     private void cancelAndComplete(TopupMethodCancelStart start, PgPaymentMethod method) {
+        cancelAndComplete(start, completedReason(method));
+    }
+
+    private void cancelAndComplete(TopupMethodCancelStart start, String reason) {
         topupGateways.get(start.pgProvider()).cancel(new PgCancelRequest(start.payment(), start.amount(), CANCEL_REASON, start.attempt(), start.idempotencyKey()));
-        paymentTopupConfirmProcessor.completeMethodCancel(start.topupId(), start.attempt(), completedReason(method));
+        paymentTopupConfirmProcessor.completeMethodCancel(start.topupId(), start.attempt(), reason);
     }
 
     // 충전 건 실패 사유. 대사가 PG 조회로 취소를 확인했을 때도 같은 문구를 씀
