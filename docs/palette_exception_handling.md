@@ -250,6 +250,7 @@ if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
   - 답변 생성(채팅) 실패·시간 초과(10초, `spring.ai.openai.chat.timeout`)·빈 답변 → 예외로 응답하지 않고 가장 비슷한 FAQ 답변을 그대로 `200-1` + `data.answerType: "FAQ"`로 준다. WARN 로그만 남긴다
   - OpenAI SDK 재시도는 끈다(`max-retries: 0`). 재시도로 응답이 몇십 초씩 늦어지지 않고 바로 FAQ 답변으로 넘어가게 하기 위함이다
   - 근거 FAQ가 없으면 OpenAI 채팅을 부르지 않고 고객센터 안내 문구(`answerType: "NO_MATCH"`)로 답한다. 근거 없이 지어낸 답을 막기 위함이다
+  - 답변 끝의 근거 표시(`[근거: 1, 3]`·`[근거: 없음]`)를 떼어 `sources`를 정한다. `[근거: 없음]`이면 `NO_MATCH` + 빈 `sources`. 표시가 없거나 읽을 수 없으면 예외로 응답하지 않고 찾은 FAQ를 모두 근거로 주며 WARN 로그만 남긴다
   - 요청 수 제한(Redis)이 실패하면 챗봇을 막지 않고 WARN만 남긴다. 제한은 비용 보호용이라 Redis 장애로 상담까지 막지 않는다
 - **응답 시간 초과는 실패로 단정하지 않는다.** 카드 승인은 이미 됐을 수 있다. 충전을 `PROCESSING`으로 두고 성공 응답 `200-1` + `data.status: "PROCESSING"`(결과 확인 중)으로 돌려준다. 프론트는 `data.status`로 완료와 확인 중을 구분한다. 그 전에 그 자리에서 PG에 한 번 조회하고(위 "충전 승인 결과를 모를 때"), 그래도 모르면 대사 스케줄러가 PG 조회로 결과를 확정한다.
 - 같은 `Idempotency-Key` + 같은 요청은 오류가 아니라 처음 응답을 그대로 돌려준다. 다른 본문이면 `409-IDEMPOTENCY_KEY_REUSED`다. (주문 생성 `POST /orders`는 구현: 같은 구매자·같은 키면 처음 만든 주문을 돌려주고(그 주문이 취소됐으면 `409-IDEMPOTENCY_KEY_EXPIRED`), 본문은 비교하지 않는다. 그 밖의 API는 헤더 미구현. 충전 승인 `POST /topups/confirm`은 헤더 대신 주문번호(`orderId`)를 키로 쓴다: 같은 회원·주문번호에 결제키·금액이 같은 재요청이면 PG를 다시 부르지 않고 `DONE`(잔액은 지금 지갑 잔액)·`PROCESSING`을 `200-1`로 돌려주고, 결제키·금액이 다르거나 실패·만료·취소된 충전 건이면 `409-TOPUP_ALREADY_PROCESSED`(상태는 `GET /topups/{id}`로 확인). 내부 `PaymentApi.pay()`는 본문 `idempotencyKey`에 처음 결과를 돌려준다)
