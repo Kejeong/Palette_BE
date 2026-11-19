@@ -257,12 +257,14 @@ class TossTopupGatewayAdapterTest {
             "500, FAILED_INTERNAL_SYSTEM_PROCESSING",
             "500, FAILED_REFUND_PROCESS",
             "400, ALREADY_CANCELED_PAYMENT",
+            "400, ALREADY_REFUND_PAYMENT",
+            "403, NOT_CANCELABLE_AMOUNT",
             "409, IDEMPOTENT_REQUEST_PROCESSING",
             "400, ALREADY_PROCESSING_REQUEST",
             "403, FORBIDDEN_CONSECUTIVE_REQUEST",
             "400, PROVIDER_ERROR",
     })
-    @DisplayName("취소: 5xx·이미 취소됨·앞선 요청 처리 중·결제사 일시 오류는 결과 모름 (조회로 확정)")
+    @DisplayName("취소: 5xx·이미 취소됨·취소할 수 없는 금액·앞선 요청 처리 중·결제사 일시 오류는 결과 모름 (조회로 확정)")
     void cancel_unknown(int httpStatus, String code) {
         given(tossPaymentsClient.cancel(PAYMENT_KEY, 15_000, REASON, CANCEL_KEY))
                 .willThrow(new TossPaymentException(httpStatus, code, "메시지", null));

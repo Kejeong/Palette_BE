@@ -133,7 +133,7 @@ class PaymentCancelTopupUseCaseTest {
     void cancel_declinedLookupUnknown() {
         started();
         given(gateway.cancel(CANCEL_REQUEST))
-                .willThrow(new PgDeclinedException("NOT_CANCELABLE_AMOUNT", "취소 할 수 없는 금액 입니다.", null));
+                .willThrow(new PgDeclinedException("NOT_AVAILABLE_BANK", "은행 서비스 시간이 아닙니다.", null));
         given(gateway.getPayment(PAYMENT)).willThrow(new PgResultUnknownException(new RuntimeException("Read timed out")));
 
         TopupCancelDto result = useCase.cancelTopup(MEMBER_ID, TOPUP_ID);
