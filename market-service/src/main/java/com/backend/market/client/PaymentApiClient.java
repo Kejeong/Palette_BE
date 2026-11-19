@@ -53,16 +53,19 @@ public class PaymentApiClient implements PaymentApi {
     private final RestClient restClient;        // 결제 요청(pay·cancelPayment)
     private final RestClient queryRestClient;   // 조회(getPaymentAttempts). 응답 대기 시간이 짧다
 
+    // restClientBuilder: 스프링이 넣어 주는 builder(호출 기록 http_client_requests·추적 traceId가 붙음). RestClient.builder()로 직접 만들면 빠진다
+    // 결제 요청·조회는 응답 대기 시간이 달라 복사본(clone)을 하나 더 만든다(인자는 왼쪽부터 계산되어 원본을 바꾸기 전에 복사된다)
     @Autowired
     public PaymentApiClient(
+            RestClient.Builder restClientBuilder,
             @Value("${custom.payment.baseUrl}") String baseUrl,
             @Value("${custom.internal.apiKey}") String internalApiKey,
             @Value("${custom.payment.connectTimeoutMillis}") long connectTimeoutMillis,
             @Value("${custom.payment.readTimeoutMillis}") long readTimeoutMillis,
             @Value("${custom.payment.queryReadTimeoutMillis}") long queryReadTimeoutMillis
     ) {
-        this(RestClient.builder().requestFactory(requestFactory(connectTimeoutMillis, readTimeoutMillis)),
-                RestClient.builder().requestFactory(requestFactory(connectTimeoutMillis, queryReadTimeoutMillis)),
+        this(restClientBuilder.clone().requestFactory(requestFactory(connectTimeoutMillis, readTimeoutMillis)),
+                restClientBuilder.requestFactory(requestFactory(connectTimeoutMillis, queryReadTimeoutMillis)),
                 baseUrl, internalApiKey);
     }
 

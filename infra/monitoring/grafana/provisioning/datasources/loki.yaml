@@ -9,3 +9,11 @@ datasources:
     url: http://loki:3100
     isDefault: true
     editable: false
+    jsonData:
+      # 앱 로그(ECS JSON)의 trace.id를 누르면 Tempo에서 그 요청의 전체 경로가 열린다(TRSS-335)
+      # $$는 provisioning 파일에서 $를 그대로 쓰는 표기(환경변수로 읽지 않게)
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '"trace\.id":"(\w+)"'
+          datasourceUid: tempo
+          url: "$${__value.raw}"

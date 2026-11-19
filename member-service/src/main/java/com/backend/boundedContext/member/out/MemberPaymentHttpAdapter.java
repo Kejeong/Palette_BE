@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
 
 import com.backend.global.rsData.RsData;
 import com.backend.shared.payment.dto.WalletSummaryDto;
@@ -19,12 +20,13 @@ public class MemberPaymentHttpAdapter implements MemberPaymentPort {
 
     @Autowired
     public MemberPaymentHttpAdapter(
+            RestClient.Builder restClientBuilder,
             @Value("${custom.payment.baseUrl}") String baseUrl,
             @Value("${custom.internal.apiKey}") String internalApiKey,
             @Value("${custom.payment.connectTimeoutMillis}") long connectTimeoutMillis,
             @Value("${custom.payment.readTimeoutMillis}") long readTimeoutMillis
     ) {
-        this(MemberInternalApiClient.create("payment", baseUrl, internalApiKey, connectTimeoutMillis, readTimeoutMillis));
+        this(MemberInternalApiClient.create(restClientBuilder, "payment", baseUrl, internalApiKey, connectTimeoutMillis, readTimeoutMillis));
     }
 
     // 테스트에서 MockRestServiceServer를 연결한 클라이언트를 넘길 수 있게 열어 둠

@@ -224,7 +224,8 @@ class PaymentApiClientTest {
         });
         payment.start();
         try {
-            PaymentApiClient realClient = new PaymentApiClient(
+            // builder 하나를 넘겨도 조회(300ms)·결제(3초) 제한 시간이 섞이지 않아야 한다(생성자가 복사본을 만든다)
+            PaymentApiClient realClient = new PaymentApiClient(RestClient.builder(),
                     "http://127.0.0.1:" + payment.getAddress().getPort(), INTERNAL_API_KEY, 1_000, 3_000, 300);
 
             assertThatThrownBy(() -> realClient.getPaymentAttempts(500L))
