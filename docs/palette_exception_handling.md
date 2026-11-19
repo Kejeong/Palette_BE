@@ -217,7 +217,7 @@ if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
   - 5xx·`ALREADY_PROCESSED_PAYMENT`(결과 모름) → 바로 조회해 승인됐으면 반영, 아니면 충전 PROCESSING, `200-1` + `data.status: "PROCESSING"` (아래 "승인 결과를 모를 때")
   - 승인 후 DB 반영 실패 → 충전 PROCESSING, `200-1` + `data.status: "PROCESSING"`
   - 승인됐지만 허용하지 않은 결제 수단(카드·간편결제·계좌이체 외) → 예치금에 반영하지 않고 토스 전액 취소, `400-TOPUP_METHOD_NOT_ALLOWED`. 취소 결과를 모르거나 실패하면 충전 METHOD_CANCELING으로 두고 대사 스케줄러가 다시 취소(`TOPUP-{id}-METHOD-CANCEL-{회차}`, 첫 시도 포함 최대 3회. 3회 모두 실패하면 다음 회차에 한 번 더 조회한 뒤 수동 확인으로 표시)
-  - 연결 5초·응답 30초 제한 (`custom.toss`)
+  - 연결 5초·응답 30초 제한 (`custom.toss`). 결제 조회만 응답 5초(`lookupReadTimeoutSeconds`): 끊겨도 다음 회차에 다시 조회하면 되므로 짧게 둬 장애 때 대사가 오래 붙잡히지 않게 한다. 승인·취소는 끊으면 결과 모름이 늘어나 30초 그대로
 - 토스 충전 취소의 오류 처리 (취소 시작 때 잔액을 먼저 빼고, 확정 실패면 되돌린다):
   - 401·`INVALID_API_KEY`·`UNAUTHORIZED_KEY`(키 오류) → 잔액·남은 금액 되돌림(원장 `CHARGE_CANCEL_RESTORE`), `502-EXTERNAL_SERVICE_ERROR`
   - 그 밖의 4xx(환불 기간 지남·부분 취소 불가 수단 등) → 되돌림, `400-TOPUP_CANCEL_DECLINED`(`data.code`·`message`)
@@ -242,9 +242,9 @@ if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
 - 충전 PG 서킷 브레이커와 PG 자동 선택: PG별(토스·헥토) 서킷 브레이커(Resilience4j)가 승인·조회·취소 결과를 센다(`resilience4j.circuitbreaker.instances.pg-{PG}`)
   - 실패로 세는 것은 결과 모름(응답 없음·연결 끊김·5xx)뿐이다. 카드 거절·거래 없음은 PG가 응답한 것이라 성공, 설정 오류는 세지 않는다
   - 최근 10회 중 실패율 50% 이상(최소 5회)이면 60초 동안 사용 불가(OPEN, ERROR 로그), 그 뒤 저절로 HALF_OPEN이 되고 3회 결과로 다시 정한다. 헥토 테스트베드는 평소 연결의 약 1/3을 끊어서 기준을 그보다 높게 뒀다. 상태·실패율은 `resilience4j.circuitbreaker.*` 메트릭으로 Prometheus에 나간다
-  - 호출을 막지 않고 결과만 센다. 승인은 사용자가 이미 결제창 인증을 마쳤고, 대사·취소는 돈이 걸린 정리 작업이라 장애 중에도 계속한다
+  - 호출을 막지 않고 결과만 센다. 승인은 사용자가 이미 결제창 인증을 마쳤고, 대사·취소는 돈이 걸린 정리 작업이라 장애 중에도 계속한다. 장애 중 대사 호출은 조회 응답 5초와 결과 모름 연속 3건이면 회차 중단(아래 "충전 대사는 밀린 건을 한 번에 처리한다")으로 줄인다
   - 충전 준비는 사용자가 PG를 고르지 않는다. 토스가 기본이고, 토스가 사용 불가(OPEN·FORCED_OPEN)면 헥토, 둘 다 사용 불가면 `503-TOPUP_PG_UNAVAILABLE`(충전 건을 만들지 않음). 프론트는 응답의 `pgProvider`로 결제창을 고른다
-  - 연결 5초·응답 30초 제한 (`custom.hecto`)
+  - 연결 5초·응답 30초 제한 (`custom.hecto`). 결제 조회만 응답 5초(`lookupReadTimeoutSeconds`, 토스와 같은 이유)
 - 챗봇(ai-service)의 OpenAI 오류 처리. 챗봇은 답을 못 주는 것보다 FAQ 원문이라도 주는 쪽을 택한다:
   - 검색어 다시 쓰기(채팅) 실패·시간 초과·빈 답 → 예외로 응답하지 않고 원래 질문(같은 대화의 최근 질문 + 이번 질문)으로 FAQ를 찾는다. WARN 로그만 남긴다
   - 질문 임베딩 실패 → FAQ를 찾을 수 없으므로 `502-EXTERNAL_SERVICE_ERROR`(질문·답변을 대화에 남기지 않음)
@@ -263,7 +263,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 - **건별로 잡는다.** 한 건의 실패가 전체 작업을 멈추지 않게 건마다 try-catch하고, 실패 건은 로그를 남긴 뒤 다음 실행에서 다시 처리한다.
 - **실패 사유를 저장한다.** 정산서 `last_fail_reason`, 충전·결제 `fail_reason`(환불 `fail_reason`은 환불 구현 때) 등에 남겨 관리자 화면에서 보이게 한다.
 - **재시도할 실패와 아닌 실패를 나눈다.** 일시 장애(타임아웃, 락 경합)는 재시도하고, 데이터 문제(금액 불일치 등)는 바로 `FAILED`·`MANUAL_REQUIRED`로 둔다.
-- **충전 대사는 밀린 건을 한 번에 처리한다.** PROCESSING·CANCELING·METHOD_CANCELING 대사는 `topupReconcileBatchSize`(100)건씩 가져오고, 배치를 다 채우면 같은 실행에서 마지막 건 다음부터 이어서 가져온다(수정 시각·ID 순). PG 조회 결과를 모르는 건(응답 없음 등)이 나오면 PG 장애일 수 있어 그 배치까지만 처리한다. 장애 중 한 번 실행이 길어져 같은 스케줄러 스레드를 쓰는 다른 작업이 밀리지 않게 하기 위함이다.
+- **충전 대사는 밀린 건을 한 번에 처리한다.** PROCESSING·CANCELING·METHOD_CANCELING 대사는 `topupReconcileBatchSize`(100)건씩 가져오고, 배치를 다 채우면 같은 실행에서 마지막 건 다음부터 이어서 가져온다(수정 시각·ID 순). PG 조회 결과를 모르는 건(응답 없음 등)이 나오면 PG 장애일 수 있어 그 배치까지만 처리하고, 결과 모름이 연속 `topupReconcileUnknownStreak`(3)건이면 배치 중간이라도 바로 멈춘다(남은 건은 다음 회차). 다른 결과가 나오면 연속 수는 0으로 돌아가고, 예상 못 한 오류(DB 등)는 세지 않는다. 그래서 PG가 응답 없이 멈춰도 한 회차는 약 15초(3건 × 조회 응답 5초)로 끝난다. 장애 중 한 번 실행이 길어져 같은 스케줄러 스레드를 쓰는 다른 작업이 밀리지 않게 하기 위함이다.
 - **임베딩 스케줄러(ai)는 실패 건을 비워 두고 다시 시도한다.** OpenAI는 트랜잭션 밖에서 부르고, 임베딩하는 동안 글이 바뀌었으면(해시가 다르면) 저장하지 않는다.
   - 추천 상품·설문: 묶음 호출이 실패하면 한 건씩 다시 보내 실패한 건만 가려내고, 실패한 건은 1·5·30·60분 뒤로 다시 시도를 미룬다(`custom.recommend.embeddingRetryDelayMinutes`, 그 뒤로는 60분마다). 한 건 때문에 다른 건이 막히지 않는다. 같은 건이 3번 연속 실패하면 ERROR 로그를 한 번 남긴다(`embeddingFailureAlertAttempts`, Slack 알림). 한 건씩 보내다 3건이 연달아 실패하면 OpenAI 장애로 보고 나머지는 보내지 않는다(나머지도 실패로 남겨 같은 재시도 간격을 탄다)
   - FAQ: 묶음 호출이 실패하면 WARN만 남기고 임베딩을 비워 두며, 다음 실행(5초 뒤)에 같은 묶음을 다시 시도한다. 한 건씩 나눠 보내거나 시도를 미루지 않는다(관리자가 등록하는 FAQ 수십 건이라 따로 두지 않음)
