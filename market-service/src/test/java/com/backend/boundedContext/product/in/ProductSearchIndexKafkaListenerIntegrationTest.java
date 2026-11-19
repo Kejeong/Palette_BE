@@ -10,6 +10,14 @@ import com.backend.boundedContext.product.out.ProductRepository;
 import com.backend.boundedContext.product.out.search.ProductEsIndexAdapter;
 import com.backend.boundedContext.product.out.search.ProductSearchDocument;
 import com.backend.boundedContext.product.out.search.SearchIndexUnavailableException;
+import com.backend.global.exception.DomainException;
+import com.backend.global.exception.GlobalErrorCode;
+import com.backend.global.outbox.EventMessages;
+import com.backend.global.outbox.OutboxEvent;
+import com.backend.shared.event.DomainEvent;
+import com.backend.shared.event.EventEnvelope;
+import com.backend.shared.member.event.SellerBusinessNameChangedEvent;
+import com.backend.shared.member.out.MemberApi;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +30,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -30,6 +39,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.atLeast;
@@ -67,6 +77,10 @@ class ProductSearchIndexKafkaListenerIntegrationTest {
     /** ES 대신 색인 요청을 기록한다 (검색 어댑터도 이 타입을 받으므로 클래스로 바꾼다) */
     @MockitoBean
     private ProductEsIndexAdapter indexAdapter;
+
+    /** 색인 문서의 상호명을 회원 서비스 대신 준다 */
+    @MockitoBean
+    private MemberApi memberApi;
 
     // 다른 테스트·시드와 겹치지 않는 판매자 ID
     private final long sellerId = ThreadLocalRandom.current().nextLong(5_000_000_000L, 6_000_000_000L);
@@ -180,6 +194,26 @@ class ProductSearchIndexKafkaListenerIntegrationTest {
         send("review.events", String.valueOf(otherProductId), "ReviewCreatedEvent");
 
         await().atMost(WAIT).until(() -> upsertedIds().containsAll(List.of(productId, otherProductId)));
+    }
+
+    @Test
+    @DisplayName("회원 서비스가 실패해도 컨슈머는 멈추지 않고 상품을 상호명 없이 색인한다 (상호명은 나중에 채운다)")
+    void memberFailureStillIndexes() {
+        doNothing().when(indexAdapter).upsert(anyList());
+        given(memberApi.getSellers(any())).willThrow(new DomainException(GlobalErrorCode.EXTERNAL_SERVICE_ERROR));
+
+        send(String.valueOf(productId), "ProductChangedEvent");
+
+        await().atMost(WAIT).until(() -> upsertedIds().contains(productId));
+        assertThat(upsertedDocuments()).filteredOn(doc -> doc.productId() == productId)
+                .allSatisfy(doc -> assertThat(doc.businessName()).isNull());
+    }
+
+    private List<ProductSearchDocument> upsertedDocuments() {
+        return mockingDetails(indexAdapter).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("upsert"))
+                .flatMap(invocation -> invocation.<List<ProductSearchDocument>>getArgument(0).stream())
+                .toList();
     }
 
     /** upsert에 들어간 모든 상품 ID */

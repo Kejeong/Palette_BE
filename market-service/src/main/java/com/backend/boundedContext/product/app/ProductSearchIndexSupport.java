@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 /**
  * 상품 검색 색인 맞추기. DB가 원본이고 색인은 검색용 사본이다.
@@ -69,6 +71,10 @@ public class ProductSearchIndexSupport {
 
     /** 상품들을 DB의 지금 값으로 색인한다. 판매 중이 아니거나 없는 상품은 색인에서 지운다 */
     public void indexProducts(Collection<Long> productIds) {
+        indexProducts(productIds, new HashMap<>());
+    }
+
+    private void indexProducts(Collection<Long> productIds, Map<Long, String> nameCache) {
         if (productIds.isEmpty() || !productSearchIndexPort.isEnabled()) return;
         if (rebuilding.get()) {
             indexedWhileRebuilding.addAll(productIds);   // 색인이 실패해도(alias 없음) 보정에 넣도록 먼저 모은다
@@ -80,7 +86,7 @@ public class ProductSearchIndexSupport {
         Set<Long> removed = new HashSet<>(productIds);
         onSale.forEach(product -> removed.remove(product.getId()));
 
-        productSearchIndexPort.upsert(toDocuments(onSale));
+        productSearchIndexPort.upsert(toDocuments(onSale, nameCache));
         productSearchIndexPort.delete(removed);
     }
 
@@ -152,6 +158,8 @@ public class ProductSearchIndexSupport {
     private int rebuild() {
         indexedWhileRebuilding.clear();
         LocalDateTime startedAt = LocalDateTime.now();
+        // 판매자 상호명은 재색인 내내 같은 캐시로 판매자마다 한 번만 읽는다 (묶음마다 회원 서비스를 부르지 않게)
+        Map<Long, String> nameCache = new HashMap<>();
         String indexName = productSearchIndexPort.createIndex();
         int batchSize = productPolicy.getSearchIndexBatchSize();
         long afterId = 0L;
@@ -188,12 +196,18 @@ public class ProductSearchIndexSupport {
 
     /** 상품들의 색인 문서. 품절 여부와 지금 기본가(할인 중이면 할인가)는 검색 화면과 같은 계산을 쓰고, 행동 지표는 지금 DB 값으로 다시 계산한다 */
     List<ProductSearchDocument> toDocuments(List<Product> products) {
+        return toDocuments(products, new HashMap<>());
+    }
+
+    /** nameCache: 이미 읽은 판매자 상호명 (판매자 ID → 상호명, 읽지 못했으면 null) */
+    private List<ProductSearchDocument> toDocuments(List<Product> products, Map<Long, String> nameCache) {
         if (products.isEmpty()) return List.of();
 
         List<Long> ids = products.stream().map(Product::getId).toList();
         Map<Long, List<OptionStock>> stocks = productSupport.getOptionStocksByProductId(ids);
         Map<Long, ProductPrice> prices = productDiscountSupport.getPrices(products);
         Map<Long, ProductBehaviorScore> behaviors = productBehaviorSupport.getScores(ids, LocalDateTime.now());
+        Map<Long, String> businessNames = businessNames(products, nameCache);
 
         return products.stream()
                 .map(product -> {
@@ -216,6 +230,29 @@ public class ProductSearchIndexSupport {
                             product.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli());
                 })
                 .toList();
+    }
+
+    /**
+     * 판매자 상호명. 아직 읽지 않은 판매자만 회원 서비스에서 한 번에 가져와 nameCache에 더한다 (전체 재색인은 묶음 사이에 같은 캐시를 쓴다).
+     * <ul>
+     *   <li>회원 서비스가 실패하면 상호명 없이(null) 색인한다. 상호명 때문에 판매 중지·품절·가격 반영이 막히지 않게 하고,
+     *       빠진 상호명은 {@link #fillMissingBusinessNames}가 나중에 채운다. 같은 계산 안에서는 그 판매자를 다시 부르지 않는다</li>
+     *   <li>회원 서비스에 없는 판매자는 빈 문자열로 둔다. 다시 불러도 같으므로 채우기 대상에서 뺀다</li>
+     * </ul>
+     */
+    private Map<Long, String> businessNames(List<Product> products, Map<Long, String> nameCache) {
+        Set<Long> unread = products.stream().map(Product::getSellerId)
+                .filter(sellerId -> !nameCache.containsKey(sellerId))
+                .collect(Collectors.toSet());
+        if (unread.isEmpty()) return nameCache;
+        try {
+            Map<Long, String> names = productSupport.getBusinessNames(unread);
+            unread.forEach(sellerId -> nameCache.put(sellerId, names.getOrDefault(sellerId, "")));
+        } catch (RuntimeException e) {
+            log.warn("상호명을 가져오지 못해 상호명 없이 색인합니다. 나중에 채웁니다. sellerIds={}", unread, e);
+            unread.forEach(sellerId -> nameCache.put(sellerId, null));
+        }
+        return nameCache;
     }
 
     /** 색인 문서의 할인율. 할인 중이 아니면 0 (할인은 1% 이상만 등록되므로 0이면 할인 없음) */

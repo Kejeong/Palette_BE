@@ -10,6 +10,7 @@ import com.backend.boundedContext.product.out.ProductRepository;
 import com.backend.boundedContext.product.out.search.ProductSearchDocument;
 import com.backend.boundedContext.product.out.search.ProductSearchIndexPort;
 import com.backend.global.exception.DomainException;
+import com.backend.global.exception.GlobalErrorCode;
 import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
 import com.backend.shared.member.out.MemberApi;
@@ -38,6 +39,9 @@ import static org.assertj.core.api.Assertions.tuple;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
+import static org.mockito.BDDMockito.willReturn;
 
 /**
  * 상품 검색 색인: 색인 문서 값(할인가·할인율·품절), 할인 경계 대상, DB 검색 설정의 재색인 거부,
@@ -119,6 +123,47 @@ class ProductSearchIndexTest {
             assertThat(doc.soldOut()).isFalse();
         });
         assertThat(indexPort.deleted).isEmpty();
+    }
+
+    @Test
+    @DisplayName("색인: 판매자 상호명을 회원 서비스에서 가져와 담는다")
+    void documentIncludesBusinessName() {
+        Long productId = create();
+
+        indexSupport.indexProducts(List.of(productId));
+
+        assertThat(indexPort.upserted).singleElement()
+                .satisfies(doc -> assertThat(doc.businessName()).isEqualTo("색인 상점"));
+    }
+
+    @Test
+    @DisplayName("색인: 회원 서비스가 실패해도 상호명 없이(null) 색인한다 (판매 중지·품절·가격 반영이 막히지 않게). 회원에 없는 판매자는 빈 문자열")
+    void memberFailureIndexesWithoutBusinessName() {
+        Long productId = create();
+        given(memberApi.getSellers(any())).willThrow(new DomainException(GlobalErrorCode.EXTERNAL_SERVICE_ERROR));
+
+        indexSupport.indexProducts(List.of(productId));
+        assertThat(indexPort.upserted).singleElement().satisfies(doc -> assertThat(doc.businessName()).isNull());
+
+        indexPort.upserted.clear();
+        willReturn(List.of()).given(memberApi).getSellers(any());   // 회원 서비스에 그 판매자가 없다
+        indexSupport.indexProducts(List.of(productId));
+        assertThat(indexPort.upserted).singleElement().satisfies(doc -> assertThat(doc.businessName()).isEmpty());
+    }
+
+    @Test
+    @DisplayName("전체 재색인: 회원 서비스가 실패해도 끝까지 색인하고(상호명 없이), 같은 판매자는 재색인 내내 한 번만 부른다")
+    void rebuildSurvivesMemberFailure() {
+        Long first = create();
+        Long second = create();
+        indexPort.current = false;
+        given(memberApi.getSellers(any())).willThrow(new DomainException(GlobalErrorCode.EXTERNAL_SERVICE_ERROR));
+
+        indexSupport.rebuildIndex();
+
+        assertThat(indexPort.bulkIndexed).contains(first, second);
+        assertThat(indexPort.events).contains("switch");
+        verify(memberApi, times(1)).getSellers(any());   // 실패한 판매자를 묶음·보정마다 다시 부르지 않는다
     }
 
     @Test

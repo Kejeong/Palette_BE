@@ -283,7 +283,7 @@ class ProductEsSearchAdapterEsTest {
     private static ProductSearchDocument doc(long id, String name, long categoryId, boolean soldOut, long effectivePrice,
                                              int discountRate, long wishCount, long salesCount30d, double behaviorScore,
                                              long createdAt) {
-        return new ProductSearchDocument(id, name, "설명", categoryId, "ON_SALE", soldOut, effectivePrice, discountRate,
+        return new ProductSearchDocument(id, name, "설명", "팔레트 상점", categoryId, "ON_SALE", soldOut, effectivePrice, discountRate,
                 wishCount, 0, 0, salesCount30d, behaviorScore, createdAt);
     }
 }
