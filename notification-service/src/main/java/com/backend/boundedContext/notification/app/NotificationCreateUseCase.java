@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+
 // 알림 저장. 이벤트 타입을 모르고 알림에 필요한 값만 받음. 이벤트를 이 값으로 바꾸는 일은 이벤트 리스너(in)가 함
 @Service
 @RequiredArgsConstructor
@@ -17,8 +19,12 @@ public class NotificationCreateUseCase {
     private final ApplicationEventPublisher eventPublisher;
 
     // 주문 완료(결제 성공) 알림. 대표 상품명·상품 개수를 같이 저장함
+    // 토픽이 달라 배송 알림이 먼저 저장될 수 있으므로, 그 알림의 빈 상품명·개수도 채움
     public void createOrderPaid(Long memberId, Long orderId, String productName, Integer itemCount) {
         save(Notification.orderPaid(memberId, orderId, productName, itemCount));
+        if (productName != null) {
+            notificationRepository.fillProduct(memberId, orderId, productName, itemCount, LocalDateTime.now());
+        }
     }
 
     // 배송 시작(송장 등록) 알림. 택배사 표시 이름·송장번호를 문구에 넣고 따로도 저장함

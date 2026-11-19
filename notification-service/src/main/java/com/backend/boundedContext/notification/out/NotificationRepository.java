@@ -25,6 +25,18 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     // 회원의 같은 주문 알림 중 해당 유형 하나. 배송 알림이 결제 완료 알림의 상품명·개수를 가져올 때 씀 (idx_notification_member_id)
     Optional<Notification> findFirstByMemberIdAndOrderIdAndType(Long memberId, Long orderId, NotificationType type);
 
+    // 결제 완료 알림보다 먼저 저장된 같은 주문의 배송 알림에 상품명·개수를 채움. 벌크 update라 updated_at도 직접 채움
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            update Notification n
+               set n.productName = :productName, n.itemCount = :itemCount, n.updatedAt = :now
+             where n.memberId = :memberId
+               and n.orderId = :orderId
+               and n.type <> com.backend.boundedContext.notification.domain.NotificationType.ORDER_PAID
+               and n.productName is null
+            """)
+    int fillProduct(Long memberId, Long orderId, String productName, Integer itemCount, LocalDateTime now);
+
     // 본인 알림만 찾음. 다른 회원의 알림이면 empty
     Optional<Notification> findByIdAndMemberId(Long id, Long memberId);
 
