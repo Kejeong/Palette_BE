@@ -37,7 +37,7 @@ class MemberPaymentHttpAdapterTest {
 
     @Test
     @DisplayName("지갑 잔액을 회원 ID로 조회한다. 요청에는 내부 API 키 헤더가 붙는다")
-    void getWallet() {
+    void findWallet() {
         server.expect(requestTo(BASE_URL + "/internal/v1/payments/wallets/3"))
                 .andExpect(method(HttpMethod.GET))
                 .andExpect(header("X-Internal-Key", INTERNAL_API_KEY))
@@ -45,21 +45,41 @@ class MemberPaymentHttpAdapterTest {
                         {"memberId": 3, "balance": 50000, "heldAmount": 1000}
                         """), MediaType.APPLICATION_JSON));
 
-        assertThat(adapter.getWallet(3L)).isEqualTo(new WalletSummaryDto(3L, 50_000L, 1_000L));
+        assertThat(adapter.findWallet(3L)).contains(new WalletSummaryDto(3L, 50_000L, 1_000L));
         server.verify();
     }
 
     @Test
-    @DisplayName("지갑이 없으면 결제의 404-WALLET_NOT_FOUND를 같은 resultCode로 던진다")
-    void getWallet_notFound() {
+    @DisplayName("지갑이 없으면(결제의 404-WALLET_NOT_FOUND) Optional.empty()")
+    void findWallet_notFound() {
         server.expect(requestTo(BASE_URL + "/internal/v1/payments/wallets/3"))
                 .andRespond(withStatus(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON).body("""
                         {"resultCode": "404-WALLET_NOT_FOUND", "msg": "지갑을 찾을 수 없습니다.", "data": null}
                         """));
 
-        assertThatThrownBy(() -> adapter.getWallet(3L))
+        assertThat(adapter.findWallet(3L)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("지갑 없음이 아닌 결제 오류 응답은 같은 resultCode로 던진다")
+    void findWallet_otherError() {
+        server.expect(requestTo(BASE_URL + "/internal/v1/payments/wallets/3"))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON).body("""
+                        {"resultCode": "400-INVALID_REQUEST", "msg": "잘못된 요청입니다.", "data": null}
+                        """));
+
+        assertThatThrownBy(() -> adapter.findWallet(3L))
                 .isInstanceOfSatisfying(DomainException.class,
-                        e -> assertThat(e.getResultCode()).isEqualTo("404-WALLET_NOT_FOUND"));
+                        e -> assertThat(e.getResultCode()).isEqualTo("400-INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("결제 서비스가 5xx로 응답하면 지갑 없음으로 보지 않고 MemberPortUnavailableException을 던진다")
+    void findWallet_serverError() {
+        server.expect(requestTo(BASE_URL + "/internal/v1/payments/wallets/3"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        assertThatThrownBy(() -> adapter.findWallet(3L)).isInstanceOf(MemberPortUnavailableException.class);
     }
 
     @Test

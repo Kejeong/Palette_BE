@@ -1,10 +1,13 @@
 package com.backend.boundedContext.member.out;
 
+import java.util.Optional;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 
+import com.backend.global.exception.DomainException;
 import com.backend.global.rsData.RsData;
 import com.backend.shared.payment.dto.WalletSummaryDto;
 
@@ -14,6 +17,9 @@ import com.backend.shared.payment.dto.WalletSummaryDto;
  */
 @Component
 public class MemberPaymentHttpAdapter implements MemberPaymentPort {
+
+    // 결제의 지갑 없음 응답. 가입 직후 지갑 생성 전이거나 지갑을 만들지 않는 물류 담당자면 이 응답이 옴
+    private static final String WALLET_NOT_FOUND = "404-WALLET_NOT_FOUND";
 
     private final MemberInternalApiClient client;
 
@@ -32,17 +38,25 @@ public class MemberPaymentHttpAdapter implements MemberPaymentPort {
         this.client = client;
     }
 
-    // 지갑이 없으면 결제가 404-WALLET_NOT_FOUND로 응답해 같은 DomainException이 됨 (탈퇴 검사는 잔액 0으로 보고, 관리자 회원 상세는 지갑을 비움)
+    // 지갑 없음(404-WALLET_NOT_FOUND)은 여기서만 해석해 Optional.empty()로 바꿈. 다른 오류 응답은 같은 DomainException 그대로
     @Override
-    public WalletSummaryDto getWallet(Long memberId) {
-        WalletSummaryDto wallet = client.call(() -> client.restClient().get()
-                .uri("/internal/v1/payments/wallets/{memberId}", memberId)
-                .retrieve()
-                .body(new ParameterizedTypeReference<RsData<WalletSummaryDto>>() {}));
+    public Optional<WalletSummaryDto> findWallet(Long memberId) {
+        WalletSummaryDto wallet;
+        try {
+            wallet = client.call(() -> client.restClient().get()
+                    .uri("/internal/v1/payments/wallets/{memberId}", memberId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<RsData<WalletSummaryDto>>() {}));
+        } catch (DomainException e) {
+            if (WALLET_NOT_FOUND.equals(e.getResultCode())) {
+                return Optional.empty();
+            }
+            throw e;
+        }
         if (wallet == null) {
             throw new MemberPortUnavailableException("payment 내부 API 응답에 data가 없습니다", null);
         }
-        return wallet;
+        return Optional.of(wallet);
     }
 
     @Override
