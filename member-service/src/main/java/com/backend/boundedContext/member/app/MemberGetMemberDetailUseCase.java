@@ -1,6 +1,7 @@
 package com.backend.boundedContext.member.app;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.stereotype.Component;
 
@@ -36,7 +37,7 @@ public class MemberGetMemberDetailUseCase {
         Member member = memberSupport.getMember(memberId);
         SellerStatus sellerStatus = memberGetSellerUseCase.findSellerByMemberId(memberId).map(SellerDto::status).orElse(null);
         InfluencerStatus influencerStatus = influencerRepository.findByMemberId(memberId).map(Influencer::getStatus).orElse(null);
-        WalletSummaryDto wallet = DisplayPortQueries.orNull(() -> memberPaymentPort.findWallet(memberId).orElse(null));   // 지갑이 없어도 null
+        Optional<WalletSummaryDto> wallet = DisplayPortQueries.orNull(() -> memberPaymentPort.findWallet(memberId));   // 결제를 조회하지 못하면 null
         List<OrderSummaryDto> recentOrders = DisplayPortQueries.orNull(() -> memberOrderPort.getRecentOrders(memberId, RECENT_ORDER_LIMIT));
 
         return AdminMemberDetailDto.of(member, sellerStatus, influencerStatus, wallet, recentOrders);

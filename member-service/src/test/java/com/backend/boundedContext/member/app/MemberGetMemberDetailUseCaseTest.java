@@ -87,6 +87,7 @@ class MemberGetMemberDetailUseCaseTest {
         assertThat(detail.role()).isEqualTo(MemberRole.USER);
         assertThat(detail.sellerStatus()).isEqualTo(SellerStatus.PENDING);
         assertThat(detail.influencerStatus()).isEqualTo(InfluencerStatus.PENDING);
+        assertThat(detail.walletState()).isEqualTo(AdminMemberDetailDto.WalletState.CREATED);
         assertThat(detail.wallet().balance()).isEqualTo(50_000L);
         assertThat(detail.wallet().heldAmount()).isZero();
         assertThat(detail.recentOrders()).singleElement().satisfies(order -> {
@@ -111,7 +112,7 @@ class MemberGetMemberDetailUseCaseTest {
     }
 
     @Test
-    @DisplayName("결제를 조회하지 못하면 지갑만 null로 비우고, 회원 정보와 최근 주문은 그대로 돌려준다")
+    @DisplayName("결제를 조회하지 못하면 지갑 상태는 UNAVAILABLE이고 지갑만 비우며, 회원 정보와 최근 주문은 그대로 돌려준다")
     void getMemberDetail_paymentUnavailable() {
         given(memberSupport.getMember(3L)).willReturn(member);
         given(memberGetSellerUseCase.findSellerByMemberId(3L)).willReturn(Optional.empty());
@@ -121,12 +122,13 @@ class MemberGetMemberDetailUseCaseTest {
         AdminMemberDetailDto detail = memberGetMemberDetailUseCase.getMemberDetail(3L);
 
         assertThat(detail.email()).isEqualTo("user@palette.com");
+        assertThat(detail.walletState()).isEqualTo(AdminMemberDetailDto.WalletState.UNAVAILABLE);
         assertThat(detail.wallet()).isNull();
         assertThat(detail.recentOrders()).isEmpty();
     }
 
     @Test
-    @DisplayName("지갑이 없으면(Port가 Optional.empty) 지갑만 null로 비우고, 회원 정보와 최근 주문은 그대로 돌려준다")
+    @DisplayName("지갑이 없으면(Port가 Optional.empty) 지갑 상태는 NOT_CREATED이고 지갑은 null, 회원 정보와 최근 주문은 그대로 돌려준다")
     void getMemberDetail_walletNotFound() {
         given(memberSupport.getMember(3L)).willReturn(member);
         given(memberGetSellerUseCase.findSellerByMemberId(3L)).willReturn(Optional.empty());
@@ -136,6 +138,7 @@ class MemberGetMemberDetailUseCaseTest {
         AdminMemberDetailDto detail = memberGetMemberDetailUseCase.getMemberDetail(3L);
 
         assertThat(detail.email()).isEqualTo("user@palette.com");
+        assertThat(detail.walletState()).isEqualTo(AdminMemberDetailDto.WalletState.NOT_CREATED);
         assertThat(detail.wallet()).isNull();
         assertThat(detail.recentOrders()).isEmpty();
     }
