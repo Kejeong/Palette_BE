@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,11 +22,14 @@ import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.backend.boundedContext.member.domain.Member;
 import com.backend.boundedContext.member.domain.SocialProvider;
 import com.backend.boundedContext.member.out.MemberOrderPort;
 import com.backend.boundedContext.member.out.MemberPaymentPort;
+import com.backend.boundedContext.member.out.MemberPortUnavailableException;
 import com.backend.boundedContext.member.out.LoginAttemptStore;
 import com.backend.boundedContext.member.out.MemberRepository;
 import com.backend.boundedContext.member.out.MemberSocialAccountRepository;
@@ -143,5 +147,58 @@ class MemberWithdrawalIntegrationTest {
                 .andExpect(jsonPath("$.resultCode").value("400-PASSWORD_MISMATCH"));
 
         assertThat(memberRepository.findById(member.getId()).orElseThrow().getStatus()).isEqualTo(MemberStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("탈퇴 조건 확인(다른 서비스 호출)은 DB 트랜잭션 밖에서 하고, 통과하면 비식별화한다")
+    void withdraw_checkOutsideTransaction() throws Exception {
+        AtomicBoolean transactionActive = new AtomicBoolean(true);
+        given(memberOrderPort.hasActiveOrders(member.getId())).willAnswer(invocation -> {
+            transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return false;
+        });
+
+        withdrawRequest().andExpect(status().isOk());
+
+        assertThat(transactionActive).isFalse();
+        assertThat(memberRepository.findById(member.getId()).orElseThrow().getStatus()).isEqualTo(MemberStatus.DELETED);
+    }
+
+    @Test
+    @DisplayName("탈퇴 조건이 남아 있으면 409 WITHDRAWAL_NOT_ALLOWED이고 회원 데이터는 바뀌지 않는다")
+    void withdraw_notAllowed() throws Exception {
+        given(memberOrderPort.hasActiveOrders(member.getId())).willReturn(true);
+
+        withdrawRequest()
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.resultCode").value("409-WITHDRAWAL_NOT_ALLOWED"));
+
+        assertUnchanged();
+    }
+
+    @Test
+    @DisplayName("탈퇴 조건을 확인하지 못하면 503 WITHDRAWAL_CHECK_UNAVAILABLE이고 회원 데이터는 바뀌지 않는다")
+    void withdraw_checkUnavailable() throws Exception {
+        given(memberOrderPort.hasActiveOrders(member.getId())).willThrow(new MemberPortUnavailableException("시간 초과", null));
+
+        withdrawRequest()
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.resultCode").value("503-WITHDRAWAL_CHECK_UNAVAILABLE"));
+
+        assertUnchanged();
+    }
+
+    private ResultActions withdrawRequest() throws Exception {
+        String bearer = "Bearer " + jwtTokenProvider.createAccessToken(member.getId(), member.getRole());
+        return mockMvc.perform(delete("/api/v1/users/me").header("Authorization", bearer)
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"password": "%s"}
+                        """.formatted(PASSWORD)));
+    }
+
+    private void assertUnchanged() {
+        Member unchanged = memberRepository.findById(member.getId()).orElseThrow();
+        assertThat(unchanged.getStatus()).isEqualTo(MemberStatus.ACTIVE);
+        assertThat(unchanged.getEmail()).isEqualTo(email);
     }
 }

@@ -175,8 +175,7 @@ public class MemberFacade {
         memberSocialAccountLinker.unlink(memberId, SocialProvider.KAKAO);
     }
 
-    // 회원 탈퇴 (비식별화까지 한 트랜잭션)
-    @Transactional
+    // 회원 탈퇴. 탈퇴 조건 확인(다른 서비스 호출)을 DB 트랜잭션 밖에서 하려고 @Transactional을 두지 않음 (비식별화는 MemberWithdrawProcessor의 트랜잭션)
     public void withdraw(Long memberId, String password) {
         memberWithdrawUseCase.withdraw(memberId, password);
     }

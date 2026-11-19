@@ -9,9 +9,6 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
-import java.util.List;
-import java.util.Optional;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,15 +25,9 @@ import com.backend.boundedContext.member.app.dto.WithdrawalNotAllowedResponse;
 import com.backend.boundedContext.member.domain.Member;
 import com.backend.boundedContext.member.domain.MemberErrorCode;
 import com.backend.boundedContext.member.domain.MemberPolicy;
-import com.backend.boundedContext.member.domain.Seller;
-import com.backend.boundedContext.member.domain.SellerStatusHistory;
 import com.backend.boundedContext.member.domain.WithdrawalBlockReason;
 import com.backend.boundedContext.member.out.LoginAttemptStore;
-import com.backend.boundedContext.member.out.MemberSocialAccountRepository;
-import com.backend.boundedContext.member.out.SellerRepository;
-import com.backend.boundedContext.member.out.SellerStatusHistoryRepository;
 import com.backend.global.exception.DomainException;
-import com.backend.shared.member.dto.MemberStatus;
 
 @ExtendWith(MockitoExtension.class)
 class MemberWithdrawUseCaseTest {
@@ -61,13 +52,7 @@ class MemberWithdrawUseCaseTest {
     private MemberPolicy memberPolicy = new MemberPolicy(5, 60, 30, 5, 5, 15, 14, false, "Lax");
 
     @Mock
-    private SellerRepository sellerRepository;
-
-    @Mock
-    private SellerStatusHistoryRepository sellerStatusHistoryRepository;
-
-    @Mock
-    private MemberSocialAccountRepository memberSocialAccountRepository;
+    private MemberWithdrawProcessor memberWithdrawProcessor;
 
     @InjectMocks
     private MemberWithdrawUseCase memberWithdrawUseCase;
@@ -82,38 +67,15 @@ class MemberWithdrawUseCaseTest {
     }
 
     @Test
-    @DisplayName("비밀번호가 맞고 조건을 충족하면 회원을 비식별화하고 실패 횟수와 소셜 연결 정보를 지운다")
+    @DisplayName("비밀번호가 맞고 조건을 충족하면 실패 횟수를 지우고 비식별화를 맡긴다")
     void withdraw_success() {
         given(passwordEncoder.matches("palette123!", "encoded")).willReturn(true);
         given(memberWithdrawalSupport.check(MEMBER_ID)).willReturn(WithdrawalCheckDto.of(false, false, 0, 0, false, false));
-        given(sellerRepository.findByMemberId(MEMBER_ID)).willReturn(Optional.empty());
 
         memberWithdrawUseCase.withdraw(MEMBER_ID, "palette123!");
 
-        assertThat(member.getStatus()).isEqualTo(MemberStatus.DELETED);
-        assertThat(member.getEmail()).isEqualTo("deleted-3@deleted.palette");
         verify(loginAttemptStore).deleteAttempts(EMAIL);
-        verify(memberSocialAccountRepository).deleteAllByMemberId(MEMBER_ID);
-    }
-
-    @Test
-    @DisplayName("판매자 정보가 있으면 판매자와 상태 이력도 비식별화한다")
-    void withdraw_sellerAnonymized() {
-        Seller seller = Seller.apply(member, "팔레트 뷰티", "1234567890", "홍길동", "01012345678",
-                "국민은행", "12345601123456", "홍길동");
-        ReflectionTestUtils.setField(seller, "id", 10L);
-        SellerStatusHistory rejected = seller.reject("사업자번호 불일치");
-        given(passwordEncoder.matches("palette123!", "encoded")).willReturn(true);
-        given(memberWithdrawalSupport.check(MEMBER_ID)).willReturn(WithdrawalCheckDto.of(false, false, 0, 0, false, false));
-        given(sellerRepository.findByMemberId(MEMBER_ID)).willReturn(Optional.of(seller));
-        given(sellerStatusHistoryRepository.findAllBySellerIdOrderByIdAsc(10L)).willReturn(List.of(rejected));
-
-        memberWithdrawUseCase.withdraw(MEMBER_ID, "palette123!");
-
-        assertThat(seller.getRepresentativeName()).isEqualTo(Member.WITHDRAWN_NAME);
-        assertThat(seller.getAccountNumber()).isEqualTo("0");
-        assertThat(rejected.getRepresentativeName()).isNull();
-        assertThat(rejected.getAccountLast4()).isNull();
+        verify(memberWithdrawProcessor).anonymize(MEMBER_ID);
     }
 
     @Test
@@ -130,8 +92,7 @@ class MemberWithdrawUseCaseTest {
                     assertThat(((WithdrawalNotAllowedResponse) de.getData()).reasons())
                             .containsExactly(WithdrawalBlockReason.ACTIVE_ORDERS, WithdrawalBlockReason.BALANCE_REMAINING);
                 });
-        assertThat(member.getStatus()).isEqualTo(MemberStatus.ACTIVE);
-        verify(memberSocialAccountRepository, never()).deleteAllByMemberId(anyLong());   // 탈퇴가 거절되면 연결도 그대로
+        verify(memberWithdrawProcessor, never()).anonymize(anyLong());   // 탈퇴가 거절되면 회원·연결 정보는 그대로
     }
 
     @Test
@@ -179,6 +140,6 @@ class MemberWithdrawUseCaseTest {
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode")
                 .isEqualTo(errorCode.resultCode());
-        assertThat(member.getStatus()).isEqualTo(MemberStatus.ACTIVE);
+        verify(memberWithdrawProcessor, never()).anonymize(anyLong());
     }
 }
