@@ -84,6 +84,36 @@ class NotificationCreateUseCaseTest {
                 .containsExactly(tuple("라이트 윈드브레이커", 3), tuple("라이트 윈드브레이커", 3));
     }
 
+    @Test
+    @DisplayName("배송 알림이 먼저 저장되면: 결제 완료 알림을 저장할 때 같은 주문 배송 알림의 빈 상품명·개수를 채움")
+    void orderPaidFillsEarlierDeliveryProduct() {
+        notificationFacade.createDeliveryStarted(MEMBER_ID, ORDER_ID, "CJ대한통운", "123456789012");
+        notificationFacade.createDeliveryCompleted(MEMBER_ID, ORDER_ID);
+        notificationFacade.createDeliveryStarted(MEMBER_ID, OTHER_ORDER_ID, "CJ대한통운", "123456789013");
+
+        notificationFacade.createOrderPaid(MEMBER_ID, ORDER_ID, "라이트 윈드브레이커", 3);
+
+        assertThat(saved()).filteredOn(notification -> notification.getType() != NotificationType.ORDER_PAID)
+                .extracting(Notification::getOrderId, Notification::getProductName, Notification::getItemCount)
+                .containsExactlyInAnyOrder(
+                        tuple(ORDER_ID, "라이트 윈드브레이커", 3),
+                        tuple(ORDER_ID, "라이트 윈드브레이커", 3),
+                        tuple(OTHER_ORDER_ID, null, null));   // 다른 주문은 그대로
+    }
+
+    @Test
+    @DisplayName("결제 완료 알림을 다시 저장해도: 이미 상품명이 있는 배송 알림은 그대로 둠")
+    void orderPaidKeepsExistingDeliveryProduct() {
+        notificationFacade.createOrderPaid(MEMBER_ID, ORDER_ID, "라이트 윈드브레이커", 3);
+        notificationFacade.createDeliveryStarted(MEMBER_ID, ORDER_ID, "CJ대한통운", "123456789012");
+
+        notificationFacade.createOrderPaid(MEMBER_ID, ORDER_ID, "립스틱", 1);
+
+        assertThat(saved()).filteredOn(notification -> notification.getType() == NotificationType.DELIVERY_STARTED)
+                .extracting(Notification::getProductName, Notification::getItemCount)
+                .containsExactly(tuple("라이트 윈드브레이커", 3));
+    }
+
     // 로컬 DB에 다른 알림이 있어도 이 테스트 회원의 알림만 봄
     private List<Notification> saved() {
         return notificationRepository.findAll().stream()
