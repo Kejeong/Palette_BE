@@ -7,12 +7,24 @@
 #   앱을 전부 다시 빌드하려면: DEPLOY_ALL=1 bash infra/scripts/deploy.sh
 #
 # 서버의 .env(infra/.env)는 Git이 관리하지 않으므로 배포해도 그대로 남는다.
+#
+# ai-service만 Compose가 아니라 같은 서버의 k3s(쿠버네티스)에서 돈다(TRSS-327, infra/k8s/). ai는 따로 처리한다:
+#   빌드(palette-ai:<커밋>) → k3s에 넣기 → .env로 Secret 갱신 → 설정 적용 → 새 파드가 준비될 때까지 기다리기(실패하면 이전 버전으로 되돌림)
+# Compose 앱을 다시 만들기 전에 ai를 먼저 배포한다. gateway가 새 주소로 바뀌는 순간 k3s의 ai가 이미 준비돼 있게 하기 위함이다.
+# 처음 한 번 k3s를 설치해야 한다: sudo bash infra/scripts/setup-k3s.sh
 
 set -euo pipefail
 
-# 앱 서비스 목록. compose.prod.yaml의 서비스 이름이고, 소스 폴더는 module_dir(gateway만 gateway, 나머지는 <이름>-service), 컨테이너는 palette-<이름>이다.
-# 서비스가 분리되면 여기에 추가한다.
-APP_SERVICES=(gateway member market payment settlement delivery notification ai)
+# Compose 앱 서비스 목록. compose.prod.yaml의 서비스 이름이고, 소스 폴더는 module_dir(gateway만 gateway, 나머지는 <이름>-service), 컨테이너는 palette-<이름>이다.
+# 서비스가 분리되면 여기에 추가한다. ai는 k3s에서 돌아 여기에 없다(아래 AI_*)
+APP_SERVICES=(gateway member market payment settlement delivery notification)
+
+# k3s에서 도는 ai. 이미지 이름, 소스 폴더, 쿠버네티스 네임스페이스
+AI_IMAGE=palette-ai
+AI_MODULE=ai-service
+AI_NAMESPACE=palette
+# ai 이미지에 들어가는 공통 파일. 아래 SHARED_PATHS에서 compose.prod.yaml만 뺐다(ai 이미지는 compose 설정을 쓰지 않는다)
+AI_SHARED_PATHS='^(common/|gradle/|gradlew$|build\.gradle\.kts$|settings\.gradle\.kts$|lombok\.config$|Dockerfile$)'
 
 # 서비스 이름 → 소스 폴더(Gradle 모듈) 이름
 module_dir() {
@@ -98,15 +110,29 @@ main() {
     echo "▶ 바뀐 앱 고르기"
     pick_changed_apps "$current"
 
+    # k3s에 접속되는지, 지금 떠 있는 ai 이미지 태그가 무엇인지 본다. k3s에 ai가 아직 없으면(처음 배포) ai를 빌드한다
+    DEPLOY_STAGE="k3s 확인"
+    if ! kubectl get nodes > /dev/null 2>&1; then
+        DEPLOY_REASON="k3s에 접속하지 못했습니다. 처음이면 sudo bash infra/scripts/setup-k3s.sh 로 설치하세요"
+        return 1
+    fi
+    AI_DEPLOYED_TAG="$(kubectl -n "$AI_NAMESPACE" get deploy ai -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | sed 's/^.*://' || true)"
+    if [ -z "$AI_DEPLOYED_TAG" ] && ! $BUILD_AI; then
+        echo "  k3s에 ai가 아직 없음 → ai 빌드"
+        BUILD_AI=true
+    fi
+
     DEPLOY_STAGE="빌드·재시작"
+    # Dockerfile의 공통 빌드 단계가 바뀐 앱 jar만 만들게 한다(기본은 jar 전부). 예: "gateway market-service ai-service"
+    # Compose 앱과 ai에 같은 목록을 넘겨야 공통 빌드 단계(Gradle)를 한 번만 돌고 캐시를 같이 쓴다
+    local modules="" s
+    for s in "${BUILD_SERVICES[@]}"; do modules+="$(module_dir "$s") "; done
+    $BUILD_AI && modules+="${AI_MODULE} "
     if [ "${#BUILD_SERVICES[@]}" -gt 0 ]; then
         echo "▶ 빌드: ${BUILD_SERVICES[*]}"
-        # Dockerfile의 공통 빌드 단계가 바뀐 앱 jar만 만들게 한다(기본은 jar 전부). 예: "gateway market-service"
-        local modules="" s
-        for s in "${BUILD_SERVICES[@]}"; do modules+="$(module_dir "$s") "; done
         "${compose[@]}" build --build-arg SERVICES="$modules" "${BUILD_SERVICES[@]}"
     else
-        echo "▶ 빌드: 바뀐 앱이 없어 건너뜁니다"
+        echo "▶ 빌드(Compose 앱): 바뀐 앱이 없어 건너뜁니다"
     fi
     # 재시작하는 동안 gateway 응답 실패 알림을 끈다(위 put_gateway_alert_silence 설명 참고)
     GATEWAY_SILENCE_ID="$(put_gateway_alert_silence "" $(( wait_limit + 300 )) || true)"
@@ -116,6 +142,11 @@ main() {
         echo "⚠ gateway 응답 실패 알림을 무음으로 하지 못했습니다(Grafana 확인). 배포는 계속합니다"
     fi
 
+    # ai를 Compose 재시작보다 먼저 배포한다(머리말 참고). 실패하면 여기서 멈춰 Compose 앱(gateway 주소 포함)은 그대로 둔다
+    DEPLOY_STAGE="ai(k3s) 배포"
+    deploy_ai "$modules" "$wait_limit"
+
+    DEPLOY_STAGE="빌드·재시작"
     # 이미지나 설정(compose.prod.yaml)이 바뀐 컨테이너만 다시 만든다. 그대로인 앱은 재시작되지 않는다
     echo "▶ 재시작 (이미지·설정이 바뀐 컨테이너만)"
     "${compose[@]}" up -d --remove-orphans
@@ -169,7 +200,7 @@ main() {
             echo "✅ 배포 완료 ($(( SECONDS - started ))초)"
             # 다음 배포는 이 커밋과 비교한다. 실패한 배포는 기록하지 않아 다음 배포에서 다시 빌드된다
             echo "$current" > "$STATE_FILE"
-            docker image prune -f > /dev/null   # 이전 빌드에서 남은 이미지 정리 (디스크 50GB 제한)
+            clean_up_disk
             return 0
         fi
 
@@ -197,6 +228,7 @@ main() {
 pick_changed_apps() {
     local current="$1" last="" changed shared service monitoring
     BUILD_SERVICES=()
+    BUILD_AI=false
     RESTART_NGINX=false
     RESTART_MONITORING=()
     [ -f "$STATE_FILE" ] && last="$(cat "$STATE_FILE")"
@@ -204,6 +236,7 @@ pick_changed_apps() {
     if [ "${DEPLOY_ALL:-0}" = 1 ]; then
         echo "  DEPLOY_ALL=1 → 앱 전부"
         BUILD_SERVICES=("${APP_SERVICES[@]}")
+        BUILD_AI=true
         RESTART_NGINX=true
         RESTART_MONITORING=("${MONITORING_SERVICES[@]}")
         return
@@ -212,6 +245,7 @@ pick_changed_apps() {
     if [ -z "$last" ] || ! git merge-base --is-ancestor "$last" "$current" 2>/dev/null; then
         echo "  마지막 배포 기록이 없거나 비교할 수 없음 → 앱 전부"
         BUILD_SERVICES=("${APP_SERVICES[@]}")
+        BUILD_AI=true
         RESTART_NGINX=true
         RESTART_MONITORING=("${MONITORING_SERVICES[@]}")
         return
@@ -229,6 +263,11 @@ pick_changed_apps() {
             grep -q "^$(module_dir "$service")/" <<< "$changed" && BUILD_SERVICES+=("$service")
         done
     fi
+    # ai는 공통 파일(compose.prod.yaml 제외)이나 ai-service/ 아래가 바뀌면 다시 빌드한다. k3s 설정(infra/k8s/)은 매 배포 적용하므로 여기서 보지 않는다
+    if grep -qE "$AI_SHARED_PATHS|^${AI_MODULE}/" <<< "$changed"; then
+        BUILD_AI=true
+    fi
+    $BUILD_AI && echo "  ai 다시 빌드"
     grep -q '^infra/nginx/' <<< "$changed" && RESTART_NGINX=true
     # 바뀐 파일이 없으면 grep이 실패하므로 || true (set -e)
     monitoring="$(grep -oE '^infra/monitoring/[a-z]+/' <<< "$changed" || true)"
@@ -236,6 +275,71 @@ pick_changed_apps() {
         RESTART_MONITORING=($(cut -d/ -f3 <<< "$monitoring" | sort -u))
     fi
     return 0
+}
+
+# k3s의 ai를 배포한다(머리말 참고). 실패하면 이전 버전으로 되돌리고 DEPLOY_REASON을 남긴 뒤 1을 돌려준다.
+#   $1: 공통 빌드 단계에 넘길 모듈 목록(Compose 앱 빌드와 같은 값이라야 Gradle을 한 번만 돈다)
+#   $2: 새 파드가 준비될 때까지 기다릴 최대 시간(초)
+deploy_ai() {
+    local modules="$1" wait_limit="$2" tag="$AI_DEPLOYED_TAG" names env_text env_hash
+    AI_PREVIOUS_TAG="$AI_DEPLOYED_TAG"
+
+    if $BUILD_AI; then
+        tag="$APP_VERSION"
+        echo "▶ ai 빌드 (${AI_IMAGE}:${tag})"
+        docker build --build-arg MODULE="$AI_MODULE" --build-arg SERVICES="$modules" \
+            --build-arg APP_VERSION="$APP_VERSION" -t "${AI_IMAGE}:${tag}" .
+        # k3s는 Docker 이미지를 바로 못 본다. 레지스트리 없이 서버 안에서 넘겨 준다
+        echo "▶ ai 이미지를 k3s에 넣기"
+        docker save "${AI_IMAGE}:${tag}" | sudo k3s ctr images import - > /dev/null
+    else
+        echo "▶ ai: 바뀐 코드가 없어 지금 이미지를 그대로 씁니다 (${AI_IMAGE}:${tag})"
+    fi
+
+    # .env를 그대로 넣지 않고 Compose가 해석한 값(따옴표 제거·중복 이름 처리)에서 .env에 있는 이름만 골라 Secret으로 만든다.
+    # Compose 앱이 받는 값과 똑같아진다(infra/k8s/ai/deployment.yaml 머리말). 값은 화면에 찍지 않는다
+    echo "▶ ai 설정(Secret) 갱신"
+    names="$(grep -oE '^[A-Za-z_][A-Za-z0-9_]*' infra/.env | sort -u | paste -sd'|')"
+    env_text="$(docker compose -f infra/compose.prod.yaml config --environment | grep -E "^(${names})=")"
+    kubectl apply -f infra/k8s/namespace.yaml > /dev/null
+    kubectl -n "$AI_NAMESPACE" create secret generic ai-env --from-env-file=<(printf '%s\n' "$env_text") \
+        --dry-run=client -o yaml | kubectl apply -f - > /dev/null
+    # Secret 내용의 지문. .env만 바뀌어도 이 값이 바뀌어 파드가 새 값으로 다시 뜬다(deployment.yaml의 palette/env-hash)
+    env_hash="$(printf '%s' "$env_text" | sha256sum | cut -c1-16)"
+
+    # 자동 스케일링(Adapter·HPA)·로그·지표 수집기(Alloy)까지 매 배포 적용한다. 바뀐 게 없으면 쿠버네티스가 아무것도 안 한다
+    echo "▶ k3s 설정 적용 (ai · 자동 스케일링 · 로그·지표 수집)"
+    kubectl apply -f infra/k8s/prometheus-adapter.yaml -f infra/k8s/alloy.yaml > /dev/null
+    sed -e "s/IMAGE_TAG/${tag}/" -e "s/ENV_HASH/${env_hash}/" infra/k8s/ai/deployment.yaml | kubectl apply -f - > /dev/null
+    kubectl apply -f infra/k8s/ai/service.yaml -f infra/k8s/ai/hpa.yaml > /dev/null
+
+    # 새 파드가 준비 검사를 통과하고 옛 파드가 내려갈 때까지 기다린다. 바뀐 게 없으면 바로 끝난다
+    echo "▶ ai 롤링 업데이트 확인 (최대 ${wait_limit}초)"
+    if ! kubectl -n "$AI_NAMESPACE" rollout status deploy/ai --timeout="${wait_limit}s"; then
+        DEPLOY_REASON="ai(k3s) 새 파드가 ${wait_limit}초 안에 준비되지 않아 이전 버전으로 되돌렸습니다"
+        echo "✖ ${DEPLOY_REASON}"
+        kubectl -n "$AI_NAMESPACE" get pods -l app=ai
+        echo "▶ 최근 로그: ai 파드"
+        kubectl -n "$AI_NAMESPACE" logs -l app=ai --tail 80 --prefix 2>&1 || true
+        kubectl -n "$AI_NAMESPACE" rollout undo deploy/ai > /dev/null || true
+        return 1
+    fi
+    AI_DEPLOYED_TAG="$tag"
+}
+
+# 배포가 끝나면 디스크를 정리한다. 배포마다 빌드 캐시·이미지가 쌓여 디스크(50GB)를 채운다(2026-11-19 빌드 캐시만 24GB, 82%).
+# 쿠버네티스는 디스크 85%부터 이미지를 지우고 90%부터 파드를 쫓아내므로 미리 비운다. 정리가 실패해도 배포 결과는 바꾸지 않는다
+clean_up_disk() {
+    docker image prune -f > /dev/null || true   # 이름 없는 옛 이미지
+    # 빌드 캐시는 최근에 쓴 5GB만 남긴다. 다 지우면 다음 빌드가 Gradle 의존성부터 다시 받아 느려진다
+    docker builder prune -f --keep-storage 5GB > /dev/null || true
+    # ai 이미지: Docker 쪽은 k3s에 넣고 나면 필요 없어 지금 태그만 남긴다
+    docker images "$AI_IMAGE" --format '{{.Repository}}:{{.Tag}}' | grep -vx "${AI_IMAGE}:${AI_DEPLOYED_TAG}" \
+        | xargs -r docker rmi > /dev/null 2>&1 || true
+    # k3s 쪽은 지금 태그와 바로 전 태그만 남긴다. 바로 전 버전으로 손으로 되돌릴 수 있게(kubectl rollout undo)
+    sudo k3s ctr images ls -q | grep "^docker.io/library/${AI_IMAGE}:" \
+        | grep -v -e ":${AI_DEPLOYED_TAG}\$" -e ":${AI_PREVIOUS_TAG:-없음}\$" \
+        | xargs -r sudo k3s ctr images rm > /dev/null 2>&1 || true
 }
 
 # 실패 이유와 함께 컨테이너 상태, 문제 서비스의 최근 로그를 보여 준다(서비스를 못 집으면 앱 전체)
