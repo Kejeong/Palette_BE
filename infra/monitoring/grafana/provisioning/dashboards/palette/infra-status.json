@@ -2947,12 +2947,12 @@
       }
     },
     {
-      "type": "nodeGraph",
+      "type": "canvas",
       "title": "서비스 간 흐름 (실제 호출)",
       "id": 2,
       "datasource": {
-        "type": "tempo",
-        "uid": "tempo"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "h": 20,
@@ -2960,23 +2960,2441 @@
         "x": 0,
         "y": 22
       },
-      "description": "Tempo가 추적으로 만든 서비스 지도. 원 = 서비스(안쪽 숫자: 응답 시간·초당 요청, 테두리 빨강 비율 = 실패), 선 = 실제 호출(HTTP·Kafka). 누르면 자세히 보기·추적 목록",
       "targets": [
         {
           "datasource": {
-            "type": "tempo",
-            "uid": "tempo"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "refId": "A",
-          "queryType": "serviceMap"
+          "expr": "max(up{job=\"spring\",service=\"gateway\"}) or vector(0)",
+          "legendFormat": "gateway",
+          "refId": "A_gateway",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(up{job=\"spring\",service=\"member\"}) or vector(0)",
+          "legendFormat": "member",
+          "refId": "A_member",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(up{job=\"spring\",service=\"market\"}) or vector(0)",
+          "legendFormat": "market",
+          "refId": "A_market",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(up{job=\"spring\",service=\"payment\"}) or vector(0)",
+          "legendFormat": "payment",
+          "refId": "A_payment",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(up{job=\"spring\",service=\"settlement\"}) or vector(0)",
+          "legendFormat": "settlement",
+          "refId": "A_settlement",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(up{job=\"spring\",service=\"delivery\"}) or vector(0)",
+          "legendFormat": "delivery",
+          "refId": "A_delivery",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(up{job=\"spring\",service=\"notification\"}) or vector(0)",
+          "legendFormat": "notification",
+          "refId": "A_notification",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "clamp_max(count(up{job=\"spring\",service=\"ai\",pod!=\"\"} == 1), 1) or vector(0)",
+          "legendFormat": "ai",
+          "refId": "A_ai",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"ai-service\",server=\"member-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"ai-service\",server=\"member-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"ai-service\",server=\"member-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_ai_member",
+          "refId": "S_ai_member",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"delivery-service\",server=\"market-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"delivery-service\",server=\"market-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"delivery-service\",server=\"market-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_delivery_market",
+          "refId": "S_delivery_market",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"market-service\",server=\"delivery-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"market-service\",server=\"delivery-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"market-service\",server=\"delivery-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_market_delivery",
+          "refId": "S_market_delivery",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"market-service\",server=\"member-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"market-service\",server=\"member-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"market-service\",server=\"member-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_market_member",
+          "refId": "S_market_member",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"market-service\",server=\"payment-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"market-service\",server=\"payment-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"market-service\",server=\"payment-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_market_payment",
+          "refId": "S_market_payment",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"member-service\",server=\"market-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"member-service\",server=\"market-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"member-service\",server=\"market-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_member_market",
+          "refId": "S_member_market",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"member-service\",server=\"payment-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"member-service\",server=\"payment-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"member-service\",server=\"payment-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_member_payment",
+          "refId": "S_member_payment",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"member-service\",server=\"settlement-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"member-service\",server=\"settlement-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"member-service\",server=\"settlement-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_member_settlement",
+          "refId": "S_member_settlement",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"payment-service\",server=\"member-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"payment-service\",server=\"member-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"payment-service\",server=\"member-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_payment_member",
+          "refId": "S_payment_member",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"settlement-service\",server=\"member-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"settlement-service\",server=\"member-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"settlement-service\",server=\"member-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_settlement_member",
+          "refId": "S_settlement_member",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"settlement-service\",server=\"payment-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"settlement-service\",server=\"payment-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"settlement-service\",server=\"payment-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_settlement_payment",
+          "refId": "S_settlement_payment",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"market-service\",server=\"settlement-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"market-service\",server=\"settlement-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"market-service\",server=\"settlement-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_market_settlement",
+          "refId": "S_market_settlement",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"market-service\",server=\"notification-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"market-service\",server=\"notification-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"market-service\",server=\"notification-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_market_notification",
+          "refId": "S_market_notification",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"market-service\",server=\"ai-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"market-service\",server=\"ai-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"market-service\",server=\"ai-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_market_ai",
+          "refId": "S_market_ai",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum(increase(traces_service_graph_request_failed_total{client=\"delivery-service\",server=\"notification-service\"}[$__range])) or vector(0)) > bool 0) * 2 + ((sum(increase(traces_service_graph_request_total{client=\"delivery-service\",server=\"notification-service\"}[$__range])) or vector(0)) > bool 0) * ((sum(increase(traces_service_graph_request_failed_total{client=\"delivery-service\",server=\"notification-service\"}[$__range])) or vector(0)) == bool 0)",
+          "legendFormat": "st_delivery_notification",
+          "refId": "S_delivery_notification",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_total{server=\"member-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "in_member",
+          "refId": "I_member",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_failed_total{server=\"member-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "fin_member",
+          "refId": "F_member",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_total{server=\"market-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "in_market",
+          "refId": "I_market",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_failed_total{server=\"market-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "fin_market",
+          "refId": "F_market",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_total{server=\"payment-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "in_payment",
+          "refId": "I_payment",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_failed_total{server=\"payment-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "fin_payment",
+          "refId": "F_payment",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_total{server=\"settlement-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "in_settlement",
+          "refId": "I_settlement",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_failed_total{server=\"settlement-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "fin_settlement",
+          "refId": "F_settlement",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_total{server=\"delivery-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "in_delivery",
+          "refId": "I_delivery",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_failed_total{server=\"delivery-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "fin_delivery",
+          "refId": "F_delivery",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_total{server=\"notification-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "in_notification",
+          "refId": "I_notification",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_failed_total{server=\"notification-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "fin_notification",
+          "refId": "F_notification",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_total{server=\"ai-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "in_ai",
+          "refId": "I_ai",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round((sum(increase(traces_service_graph_request_failed_total{server=\"ai-service\"}[$__range])) or vector(0)))",
+          "legendFormat": "fin_ai",
+          "refId": "F_ai",
+          "instant": true,
+          "range": false
         }
       ],
-      "options": {}
+      "description": "자리는 고정, 선은 코드에 있는 서비스 간 연결(내부 API·Kafka). 선 색은 고른 기간의 실제 호출(Tempo): 파랑 호출 있음, 회색 없음, 빨강 실패 있음. 상자 둘째 줄 = 다른 서비스에게서 받은 호출 · 실패. 새 연결은 맨 아래 \"자동 서비스 지도\"에서 확인",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "끊김",
+                  "color": "red",
+                  "index": 1
+                },
+                "1": {
+                  "text": "정상",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "없음",
+                  "color": "red",
+                  "index": 2
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "st_.*"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "호출 없음",
+                        "color": "#6b7280",
+                        "index": 0
+                      },
+                      "1": {
+                        "text": "호출 있음",
+                        "color": "blue",
+                        "index": 1
+                      },
+                      "2": {
+                        "text": "실패 있음",
+                        "color": "red",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "in_.*"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": []
+              },
+              {
+                "id": "unit",
+                "value": "suffix: 건"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "fin_.*"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": []
+              },
+              {
+                "id": "unit",
+                "value": "suffix: 건"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#00000040",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "inlineEditing": false,
+        "showAdvancedTypes": true,
+        "panZoom": false,
+        "infinitePan": false,
+        "tooltip": {
+          "mode": "element",
+          "disableForOneClick": false
+        },
+        "root": {
+          "type": "frame",
+          "name": "root",
+          "elements": [
+            {
+              "type": "rectangle",
+              "name": "member",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "member"
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "top",
+                "size": 14
+              },
+              "background": {
+                "color": {
+                  "field": "member",
+                  "fixed": "#808080"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "#ffffff33"
+                },
+                "width": 1,
+                "radius": 6
+              },
+              "placement": {
+                "left": 715,
+                "top": 65,
+                "width": 230,
+                "height": 70
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "connections": [
+                {
+                  "source": {
+                    "x": -0.0782608695652174,
+                    "y": -1
+                  },
+                  "target": {
+                    "x": -0.0782608695652174,
+                    "y": 1
+                  },
+                  "targetName": "market",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_member_market",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                },
+                {
+                  "source": {
+                    "x": 0.9791331519856104,
+                    "y": -1
+                  },
+                  "target": {
+                    "x": -1,
+                    "y": 0.6611491322666357
+                  },
+                  "targetName": "payment",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_member_payment",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                },
+                {
+                  "source": {
+                    "x": 0.3167294688496216,
+                    "y": -1
+                  },
+                  "target": {
+                    "x": -0.41669091091489346,
+                    "y": 0.8021276611943958
+                  },
+                  "targetName": "settlement",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_member_settlement",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "name": "in_member_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "받음"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 721,
+                "top": 103,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "in_member_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "in_member",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffffcc"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 753,
+                "top": 103,
+                "width": 78,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "text",
+              "name": "fin_member_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "실패"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 833,
+                "top": 103,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "fin_member_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "fin_member",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "field": "fin_member",
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 865,
+                "top": 103,
+                "width": 72,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "rectangle",
+              "name": "market",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "market"
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "top",
+                "size": 14
+              },
+              "background": {
+                "color": {
+                  "field": "market",
+                  "fixed": "#808080"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "#ffffff33"
+                },
+                "width": 1,
+                "radius": 6
+              },
+              "placement": {
+                "left": 715,
+                "top": 295,
+                "width": 230,
+                "height": 70
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "connections": [
+                {
+                  "source": {
+                    "x": -1,
+                    "y": -0.6611491322666357
+                  },
+                  "target": {
+                    "x": 0.9791331519856104,
+                    "y": 1
+                  },
+                  "targetName": "delivery",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_market_delivery",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                },
+                {
+                  "source": {
+                    "x": 0.0782608695652174,
+                    "y": 1
+                  },
+                  "target": {
+                    "x": 0.0782608695652174,
+                    "y": -1
+                  },
+                  "targetName": "member",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_market_member",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                },
+                {
+                  "source": {
+                    "x": 1,
+                    "y": 0.9089830130991429
+                  },
+                  "target": {
+                    "x": -1,
+                    "y": -0.9089830130991429
+                  },
+                  "targetName": "payment",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_market_payment",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                },
+                {
+                  "source": {
+                    "x": 1,
+                    "y": -0.9089830130991429
+                  },
+                  "target": {
+                    "x": -1,
+                    "y": 0.9089830130991429
+                  },
+                  "targetName": "settlement",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_market_settlement",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                },
+                {
+                  "source": {
+                    "x": 0,
+                    "y": -1
+                  },
+                  "target": {
+                    "x": 0,
+                    "y": 1
+                  },
+                  "targetName": "notification",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_market_notification",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                },
+                {
+                  "source": {
+                    "x": -1,
+                    "y": 0.9089830130991433
+                  },
+                  "target": {
+                    "x": 1,
+                    "y": -0.9089830130991433
+                  },
+                  "targetName": "ai",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_market_ai",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "name": "in_market_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "받음"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 721,
+                "top": 333,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "in_market_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "in_market",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffffcc"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 753,
+                "top": 333,
+                "width": 78,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "text",
+              "name": "fin_market_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "실패"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 833,
+                "top": 333,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "fin_market_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "fin_market",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "field": "fin_market",
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 865,
+                "top": 333,
+                "width": 72,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "rectangle",
+              "name": "payment",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "payment"
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "top",
+                "size": 14
+              },
+              "background": {
+                "color": {
+                  "field": "payment",
+                  "fixed": "#808080"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "#ffffff33"
+                },
+                "width": 1,
+                "radius": 6
+              },
+              "placement": {
+                "left": 1131,
+                "top": 180,
+                "width": 230,
+                "height": 70
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "connections": [
+                {
+                  "source": {
+                    "x": -0.9791331519856104,
+                    "y": 1
+                  },
+                  "target": {
+                    "x": 1,
+                    "y": -0.6611491322666357
+                  },
+                  "targetName": "member",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_payment_member",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "name": "in_payment_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "받음"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 1137,
+                "top": 218,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "in_payment_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "in_payment",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffffcc"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 1169,
+                "top": 218,
+                "width": 78,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "text",
+              "name": "fin_payment_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "실패"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 1249,
+                "top": 218,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "fin_payment_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "fin_payment",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "field": "fin_payment",
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 1281,
+                "top": 218,
+                "width": 72,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "rectangle",
+              "name": "settlement",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "settlement"
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "top",
+                "size": 14
+              },
+              "background": {
+                "color": {
+                  "field": "settlement",
+                  "fixed": "#808080"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "#ffffff33"
+                },
+                "width": 1,
+                "radius": 6
+              },
+              "placement": {
+                "left": 1131,
+                "top": 410,
+                "width": 230,
+                "height": 70
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "connections": [
+                {
+                  "source": {
+                    "x": -0.3167294688496216,
+                    "y": 1
+                  },
+                  "target": {
+                    "x": 0.41669091091489346,
+                    "y": -0.8021276611943958
+                  },
+                  "targetName": "member",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_settlement_member",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                },
+                {
+                  "source": {
+                    "x": 0,
+                    "y": 1
+                  },
+                  "target": {
+                    "x": 0,
+                    "y": -1
+                  },
+                  "targetName": "payment",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_settlement_payment",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "name": "in_settlement_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "받음"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 1137,
+                "top": 448,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "in_settlement_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "in_settlement",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffffcc"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 1169,
+                "top": 448,
+                "width": 78,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "text",
+              "name": "fin_settlement_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "실패"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 1249,
+                "top": 448,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "fin_settlement_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "fin_settlement",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "field": "fin_settlement",
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 1281,
+                "top": 448,
+                "width": 72,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "rectangle",
+              "name": "delivery",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "delivery"
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "top",
+                "size": 14
+              },
+              "background": {
+                "color": {
+                  "field": "delivery",
+                  "fixed": "#808080"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "#ffffff33"
+                },
+                "width": 1,
+                "radius": 6
+              },
+              "placement": {
+                "left": 299,
+                "top": 410,
+                "width": 230,
+                "height": 70
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "connections": [
+                {
+                  "source": {
+                    "x": 1,
+                    "y": 0.6611491322666357
+                  },
+                  "target": {
+                    "x": -0.9791331519856104,
+                    "y": -1
+                  },
+                  "targetName": "market",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_delivery_market",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                },
+                {
+                  "source": {
+                    "x": 1,
+                    "y": -0.9089830130991429
+                  },
+                  "target": {
+                    "x": -1,
+                    "y": 0.9089830130991429
+                  },
+                  "targetName": "notification",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_delivery_notification",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "name": "in_delivery_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "받음"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 305,
+                "top": 448,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "in_delivery_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "in_delivery",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffffcc"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 337,
+                "top": 448,
+                "width": 78,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "text",
+              "name": "fin_delivery_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "실패"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 417,
+                "top": 448,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "fin_delivery_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "fin_delivery",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "field": "fin_delivery",
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 449,
+                "top": 448,
+                "width": 72,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "rectangle",
+              "name": "notification",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "notification"
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "top",
+                "size": 14
+              },
+              "background": {
+                "color": {
+                  "field": "notification",
+                  "fixed": "#808080"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "#ffffff33"
+                },
+                "width": 1,
+                "radius": 6
+              },
+              "placement": {
+                "left": 715,
+                "top": 525,
+                "width": 230,
+                "height": 70
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "connections": []
+            },
+            {
+              "type": "text",
+              "name": "in_notification_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "받음"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 721,
+                "top": 563,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "in_notification_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "in_notification",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffffcc"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 753,
+                "top": 563,
+                "width": 78,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "text",
+              "name": "fin_notification_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "실패"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 833,
+                "top": 563,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "fin_notification_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "fin_notification",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "field": "fin_notification",
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 865,
+                "top": 563,
+                "width": 72,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "rectangle",
+              "name": "ai",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "ai (k3s)"
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "top",
+                "size": 14
+              },
+              "background": {
+                "color": {
+                  "field": "ai",
+                  "fixed": "#808080"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "#ffffff33"
+                },
+                "width": 1,
+                "radius": 6
+              },
+              "placement": {
+                "left": 299,
+                "top": 180,
+                "width": 230,
+                "height": 70
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "connections": [
+                {
+                  "source": {
+                    "x": 1,
+                    "y": 0.9089830130991429
+                  },
+                  "target": {
+                    "x": -1,
+                    "y": -0.9089830130991429
+                  },
+                  "targetName": "member",
+                  "path": "straight",
+                  "color": {
+                    "field": "st_ai_member",
+                    "fixed": "#808080"
+                  },
+                  "size": {
+                    "fixed": 2,
+                    "min": 1,
+                    "max": 10
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "name": "in_ai_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "받음"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 305,
+                "top": 218,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "in_ai_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "in_ai",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffffcc"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 337,
+                "top": 218,
+                "width": 78,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "text",
+              "name": "fin_ai_tag",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "실패"
+                },
+                "color": {
+                  "fixed": "#ffffff99"
+                },
+                "align": "right",
+                "valign": "middle",
+                "size": 10
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 417,
+                "top": 218,
+                "width": 30,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "metric-value",
+              "name": "fin_ai_v",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "fin_ai",
+                  "fixed": ""
+                },
+                "color": {
+                  "fixed": "#ffffff"
+                },
+                "align": "center",
+                "valign": "middle",
+                "size": 11
+              },
+              "background": {
+                "color": {
+                  "field": "fin_ai",
+                  "fixed": "#00000040"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 4
+              },
+              "placement": {
+                "left": 449,
+                "top": 218,
+                "width": 72,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "rectangle",
+              "name": "legend_on_bar",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": ""
+                }
+              },
+              "background": {
+                "color": {
+                  "fixed": "blue"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 2
+              },
+              "placement": {
+                "left": 14,
+                "top": 19,
+                "width": 22,
+                "height": 4
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "text",
+              "name": "legend_on_text",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "호출 있음"
+                },
+                "color": {
+                  "fixed": "#ffffffcc"
+                },
+                "align": "left",
+                "valign": "middle",
+                "size": 12
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 42,
+                "top": 10,
+                "width": 80,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "rectangle",
+              "name": "legend_off_bar",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": ""
+                }
+              },
+              "background": {
+                "color": {
+                  "fixed": "#6b7280"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 2
+              },
+              "placement": {
+                "left": 134,
+                "top": 19,
+                "width": 22,
+                "height": 4
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "text",
+              "name": "legend_off_text",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "호출 없음"
+                },
+                "color": {
+                  "fixed": "#ffffffcc"
+                },
+                "align": "left",
+                "valign": "middle",
+                "size": 12
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 162,
+                "top": 10,
+                "width": 80,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "rectangle",
+              "name": "legend_bad_bar",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": ""
+                }
+              },
+              "background": {
+                "color": {
+                  "fixed": "red"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "radius": 2
+              },
+              "placement": {
+                "left": 254,
+                "top": 19,
+                "width": 22,
+                "height": 4
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "type": "text",
+              "name": "legend_bad_text",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "실패 있음"
+                },
+                "color": {
+                  "fixed": "#ffffffcc"
+                },
+                "align": "left",
+                "valign": "middle",
+                "size": 12
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "placement": {
+                "left": 282,
+                "top": 10,
+                "width": 80,
+                "height": 22
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            }
+          ],
+          "background": {
+            "color": {
+              "fixed": "transparent"
+            }
+          },
+          "border": {
+            "color": {
+              "fixed": "transparent"
+            }
+          },
+          "placement": {
+            "left": 0,
+            "top": 0,
+            "width": 1500,
+            "height": 640
+          },
+          "constraint": {
+            "horizontal": "left",
+            "vertical": "top"
+          }
+        }
+      }
     },
     {
       "type": "table",
       "title": "실패한 요청 (추적)",
-      "id": 3,
+      "id": 4,
       "datasource": {
         "type": "tempo",
         "uid": "tempo"
@@ -3009,7 +5427,7 @@
     {
       "type": "table",
       "title": "느린 요청 1초 이상 (추적)",
-      "id": 4,
+      "id": 5,
       "datasource": {
         "type": "tempo",
         "uid": "tempo"
@@ -3042,7 +5460,7 @@
     {
       "type": "text",
       "title": "",
-      "id": 5,
+      "id": 6,
       "gridPos": {
         "h": 3,
         "w": 24,
@@ -3058,7 +5476,7 @@
     {
       "type": "logs",
       "title": "요청 목록 · $svc · $status",
-      "id": 6,
+      "id": 7,
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -3091,7 +5509,7 @@
     {
       "type": "table",
       "title": "5xx가 난 주소 · $svc",
-      "id": 7,
+      "id": 8,
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -3165,7 +5583,7 @@
     {
       "type": "row",
       "title": "$app API 응답 시간",
-      "id": 8,
+      "id": 9,
       "collapsed": false,
       "repeat": "app",
       "gridPos": {
@@ -3179,7 +5597,7 @@
     {
       "type": "table",
       "title": "$app · API별 요청 · 응답 시간 (고른 기간, 느린 순)",
-      "id": 9,
+      "id": 10,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -3407,7 +5825,7 @@
     {
       "type": "timeseries",
       "title": "$app · 느린 API 상위 10개 (p95)",
-      "id": 10,
+      "id": 11,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -3459,7 +5877,7 @@
     {
       "type": "row",
       "title": "서비스",
-      "id": 11,
+      "id": 12,
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -3472,7 +5890,7 @@
     {
       "type": "stat",
       "title": "살아 있음",
-      "id": 12,
+      "id": 13,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -3637,7 +6055,7 @@
     {
       "type": "timeseries",
       "title": "gateway 경로별 초당 요청",
-      "id": 13,
+      "id": 14,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -3688,7 +6106,7 @@
     {
       "type": "timeseries",
       "title": "gateway 경로별 서버 오류(5xx) 비율",
-      "id": 14,
+      "id": 15,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -3739,7 +6157,7 @@
     {
       "type": "timeseries",
       "title": "gateway 경로별 평균 응답 시간",
-      "id": 15,
+      "id": 16,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -3790,7 +6208,7 @@
     {
       "type": "row",
       "title": "k3s (ai)",
-      "id": 16,
+      "id": 17,
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -3803,7 +6221,7 @@
     {
       "type": "timeseries",
       "title": "ai 파드 수",
-      "id": 17,
+      "id": 18,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -3866,7 +6284,7 @@
     {
       "type": "timeseries",
       "title": "확장 기준: ai 초당 요청 (HPA 기준 파드당 2)",
-      "id": 18,
+      "id": 19,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -3933,7 +6351,7 @@
     {
       "type": "timeseries",
       "title": "ai 파드별 JVM 힙 사용량",
-      "id": 19,
+      "id": 20,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -3984,7 +6402,7 @@
     {
       "type": "row",
       "title": "데이터 연결 (EC2-B)",
-      "id": 20,
+      "id": 21,
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -3997,7 +6415,7 @@
     {
       "type": "timeseries",
       "title": "앱별 DB 연결 (사용 중)",
-      "id": 21,
+      "id": 22,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -4048,7 +6466,7 @@
     {
       "type": "timeseries",
       "title": "앱별 DB 연결 대기",
-      "id": 22,
+      "id": 23,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -4099,7 +6517,7 @@
     {
       "type": "timeseries",
       "title": "Kafka 소비 지연 (밀린 메시지)",
-      "id": 23,
+      "id": 24,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -4150,7 +6568,7 @@
     {
       "type": "timeseries",
       "title": "Redis 명령 평균 시간",
-      "id": 24,
+      "id": 25,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -4201,7 +6619,7 @@
     {
       "type": "row",
       "title": "서버 (EC2-A app · EC2-B data)",
-      "id": 25,
+      "id": 26,
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -4214,7 +6632,7 @@
     {
       "type": "timeseries",
       "title": "남은 메모리",
-      "id": 26,
+      "id": 27,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -4265,7 +6683,7 @@
     {
       "type": "timeseries",
       "title": "디스크 사용률 (/)",
-      "id": 27,
+      "id": 28,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -4316,7 +6734,7 @@
     {
       "type": "timeseries",
       "title": "CPU 사용률",
-      "id": 28,
+      "id": 29,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -4367,7 +6785,7 @@
     {
       "type": "timeseries",
       "title": "앱별 JVM 힙 사용량",
-      "id": 29,
+      "id": 30,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -4414,6 +6832,47 @@
           "sort": "desc"
         }
       }
+    },
+    {
+      "type": "row",
+      "title": "자동 서비스 지도 (새 연결 확인용)",
+      "id": 31,
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 117
+      },
+      "panels": [
+        {
+          "type": "nodeGraph",
+          "title": "자동 서비스 지도 (Tempo)",
+          "id": 3,
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "gridPos": {
+            "h": 18,
+            "w": 24,
+            "x": 0,
+            "y": 118
+          },
+          "description": "Tempo가 추적으로 그린 지도. 배치는 자동. 위 고정 지도에 없는 새 연결이 생겼는지 볼 때 쓴다",
+          "targets": [
+            {
+              "datasource": {
+                "type": "tempo",
+                "uid": "tempo"
+              },
+              "refId": "A",
+              "queryType": "serviceMap"
+            }
+          ],
+          "options": {}
+        }
+      ]
     }
   ],
   "annotations": {

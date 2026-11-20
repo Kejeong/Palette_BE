@@ -12,8 +12,8 @@ import com.backend.boundedContext.member.out.MemberOrderPort;
 import com.backend.boundedContext.member.out.MemberPaymentPort;
 import com.backend.boundedContext.member.out.MemberSettlementPort;
 import com.backend.boundedContext.member.out.SellerRepository;
-import com.backend.global.exception.DomainException;
 import com.backend.shared.member.dto.SellerStatus;
+import com.backend.shared.payment.dto.WalletSummaryDto;
 
 import lombok.RequiredArgsConstructor;
 
@@ -28,9 +28,6 @@ public class MemberWithdrawalSupport {
     // 판매자 철회를 먼저 해야 하는 상태 (반려·철회 완료·제재는 판매가 끝난 상태라 탈퇴를 막지 않는다)
     private static final Set<SellerStatus> SELLER_ACTIVE_STATUSES =
             EnumSet.of(SellerStatus.PENDING, SellerStatus.APPROVED, SellerStatus.WITHDRAW_REQUESTED);
-
-    // 결제 모듈의 지갑 없음 응답. 가입 직후 지갑이 아직 만들어지기 전이면 이 응답이 온다
-    private static final String WALLET_NOT_FOUND = "404-WALLET_NOT_FOUND";
 
     private final SellerRepository sellerRepository;
     private final MemberOrderPort memberOrderPort;
@@ -55,13 +52,6 @@ public class MemberWithdrawalSupport {
 
     // 지갑이 아직 없으면(가입 직후 지갑 생성 전) 잔액 0으로 보고 통과시킨다. 돌려줄 예치금이 없기 때문
     private long getBalance(Long memberId) {
-        try {
-            return memberPaymentPort.getWallet(memberId).balance();
-        } catch (DomainException e) {
-            if (WALLET_NOT_FOUND.equals(e.getResultCode())) {
-                return 0L;
-            }
-            throw e;
-        }
+        return memberPaymentPort.findWallet(memberId).map(WalletSummaryDto::balance).orElse(0L);
     }
 }

@@ -56,10 +56,12 @@ public class HectoClient {
             .build();
 
     private final RestClient restClient;
+    private final RestClient lookupRestClient;  // 조회 전용. 응답 대기 시간만 짧음 (토스 클라이언트와 같은 이유)
     private final HectoCrypto crypto;
     private final String mchtId;
 
     // restClientBuilder: 스프링이 넣어 주는 builder(헥토 호출 기록·추적이 붙음). RestClient.builder()로 직접 만들면 빠진다
+    // 승인·취소와 조회는 응답 대기 시간이 달라 복사본(clone)을 하나 더 만듦 (토스 클라이언트와 같음)
     @Autowired
     public HectoClient(
             RestClient.Builder restClientBuilder,
@@ -67,14 +69,23 @@ public class HectoClient {
             @Value("${custom.hecto.mchtId}") String mchtId,
             @Value("${custom.hecto.connectTimeoutSeconds}") long connectTimeoutSeconds,
             @Value("${custom.hecto.readTimeoutSeconds}") long readTimeoutSeconds,
+            @Value("${custom.hecto.lookupReadTimeoutSeconds}") long lookupReadTimeoutSeconds,
             HectoCrypto crypto
     ) {
-        this(restClientBuilder.requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(readTimeoutSeconds))), baseUrl, mchtId, crypto);
+        this(restClientBuilder.clone().requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(readTimeoutSeconds))),
+                restClientBuilder.requestFactory(requestFactory(Duration.ofSeconds(connectTimeoutSeconds), Duration.ofSeconds(lookupReadTimeoutSeconds))),
+                baseUrl, mchtId, crypto);
     }
 
     // 테스트에서 MockRestServiceServer를 연결한 builder를 넘길 수 있게 열어 둠
     HectoClient(RestClient.Builder builder, String baseUrl, String mchtId, HectoCrypto crypto) {
+        this(builder, builder, baseUrl, mchtId, crypto);
+    }
+
+    // 승인·취소용과 조회용 builder를 따로 받음. 테스트에서 응답 대기 시간을 다르게 한 실제 연결을 넘길 수 있게 열어 둠
+    HectoClient(RestClient.Builder builder, RestClient.Builder lookupBuilder, String baseUrl, String mchtId, HectoCrypto crypto) {
         this.restClient = builder.baseUrl(baseUrl).build();
+        this.lookupRestClient = lookupBuilder.baseUrl(baseUrl).build();
         this.mchtId = mchtId;
         this.crypto = crypto;
     }
@@ -96,7 +107,7 @@ public class HectoClient {
                 "trdAmt", crypto.encryptAmount(amount),
                 "authTrdNo", authTrdNo);
 
-        HectoEnvelope response = post("/spay/APIService.do", params, data);
+        HectoEnvelope response = post(restClient, "/spay/APIService.do", params, data);
         Long approvedAmount = response.isSuccess() ? decrypt(response.data("trdAmt")) : null;
 
         if (response.isSuccess()) verifyApproveHash(response, approvedAmount);
@@ -122,7 +133,7 @@ public class HectoClient {
                 "cnclOrd", "%03d".formatted(cancelOrder),
                 "cnclAmt", crypto.encryptAmount(cancelAmount));
 
-        HectoEnvelope response = post("/spay/APICancel.do", params, data);
+        HectoEnvelope response = post(restClient, "/spay/APICancel.do", params, data);
         if (!response.isSuccess()) return response.toResponse(null, null, null);
 
         return response.toResponse(null, decrypt(response.data("cnclAmt")), decrypt(response.data("blcAmt")));
@@ -149,7 +160,8 @@ public class HectoClient {
                 "orgMchtTrdNo", orderId,
                 "orgTrdNo", orgTrdNo != null ? orgTrdNo : "");
 
-        HectoEnvelope response = post("/spay/APITrdcheck.do", params, data);
+        // 조회는 응답 대기 시간이 짧은 조회 전용 RestClient를 씀
+        HectoEnvelope response = post(lookupRestClient, "/spay/APITrdcheck.do", params, data);
         if (!response.isSuccess()) return response.toResponse(null, null, null);
 
         return response.toResponse(parse(response.data("trdAmt")), parse(response.data("cnclAmt")), null);
@@ -157,10 +169,10 @@ public class HectoClient {
 
     // 요청 실행. 응답을 못 받았거나 HTTP 오류·해석할 수 없는 응답이면 처리됐는지 알 수 없음
     // 헥토는 JSON 본문을 text/plain·*/* 같은 Content-Type으로 보내서(테스트베드 확인), 문자열로 받아 직접 JSON으로 읽음
-    private HectoEnvelope post(String uri, Map<String, String> params, Map<String, String> data) {
+    private HectoEnvelope post(RestClient client, String uri, Map<String, String> params, Map<String, String> data) {
         HectoEnvelope response;
         try {
-            String body = restClient.post()
+            String body = client.post()
                     .uri(uri)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("params", params, "data", data))

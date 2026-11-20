@@ -71,6 +71,38 @@ class MemberInternalApiClientTest {
     }
 
     @Test
+    @DisplayName("상대가 내부 키 오류(401-INTERNAL_API_KEY_INVALID)로 거절하면 사용자에게 401로 넘기지 않고 MemberPortUnavailableException을 던진다")
+    void call_internalApiKeyInvalid() {
+        server.expect(requestTo(URL))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED).contentType(MediaType.APPLICATION_JSON).body("""
+                        {"resultCode": "401-INTERNAL_API_KEY_INVALID", "msg": "내부 API 키가 없거나 올바르지 않습니다.", "data": null}
+                        """));
+
+        assertThatThrownBy(this::hasActiveOrders).isInstanceOf(MemberPortUnavailableException.class);
+    }
+
+    @Test
+    @DisplayName("내부 키 오류가 아닌 401(예: 401-UNAUTHORIZED)은 상대가 판단한 결과라 같은 resultCode로 던진다")
+    void call_otherUnauthorized() {
+        server.expect(requestTo(URL))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED).contentType(MediaType.APPLICATION_JSON).body("""
+                        {"resultCode": "401-UNAUTHORIZED", "msg": "로그인이 필요합니다.", "data": null}
+                        """));
+
+        assertThatThrownBy(this::hasActiveOrders)
+                .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.getResultCode()).isEqualTo("401-UNAUTHORIZED"));
+    }
+
+    @Test
+    @DisplayName("성공 응답(200)이라도 본문을 읽지 못하면 500으로 새지 않고 MemberPortUnavailableException을 던진다")
+    void call_unreadableSuccessBody() {
+        server.expect(requestTo(URL))
+                .andRespond(withSuccess("<html>gateway page</html>", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(this::hasActiveOrders).isInstanceOf(MemberPortUnavailableException.class);
+    }
+
+    @Test
     @DisplayName("상대가 5xx로 응답하면 확인하지 못한 것으로 보고 MemberPortUnavailableException을 던진다")
     void call_serverError() {
         server.expect(requestTo(URL))

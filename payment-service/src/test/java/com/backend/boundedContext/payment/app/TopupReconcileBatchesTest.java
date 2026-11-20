@@ -15,6 +15,7 @@ import com.backend.boundedContext.payment.app.dto.TopupReconcileResult;
 class TopupReconcileBatchesTest {
 
     private static final LocalDateTime BASE = LocalDateTime.of(2026, 11, 14, 9, 0);
+    private static final int STREAK = 3;
 
     private record Target(Long topupId, LocalDateTime updatedAt) implements TopupStaleTarget {}
 
@@ -29,7 +30,7 @@ class TopupReconcileBatchesTest {
                 TopupReconcileCursor.START, List.of(t1, t2),
                 t2.cursor(), List.of(t3));
 
-        TopupReconcileResult result = TopupReconcileBatches.run(2, fetch(batches), t -> TopupReconcileOutcome.COMPLETED, (t, e) -> {});
+        TopupReconcileResult result = TopupReconcileBatches.run(2, STREAK, fetch(batches), t -> TopupReconcileOutcome.COMPLETED, (t, e) -> {});
 
         assertThat(requested).containsExactly(TopupReconcileCursor.START, t2.cursor());
         assertThat(result.completed()).isEqualTo(3);
@@ -41,7 +42,7 @@ class TopupReconcileBatchesTest {
         Target t1 = target(1), t2 = target(2);
         Map<TopupReconcileCursor, List<Target>> batches = Map.of(TopupReconcileCursor.START, List.of(t1, t2));
 
-        TopupReconcileResult result = TopupReconcileBatches.run(2, fetch(batches), t -> TopupReconcileOutcome.FAILED, (t, e) -> {});
+        TopupReconcileResult result = TopupReconcileBatches.run(2, STREAK, fetch(batches), t -> TopupReconcileOutcome.FAILED, (t, e) -> {});
 
         assertThat(requested).containsExactly(TopupReconcileCursor.START, t2.cursor());
         assertThat(result.failed()).isEqualTo(2);
@@ -55,12 +56,47 @@ class TopupReconcileBatchesTest {
                 TopupReconcileCursor.START, List.of(t1, t2),
                 t2.cursor(), List.of(t3));
 
-        TopupReconcileResult result = TopupReconcileBatches.run(2, fetch(batches),
+        TopupReconcileResult result = TopupReconcileBatches.run(2, STREAK, fetch(batches),
                 t -> t == t1 ? TopupReconcileOutcome.UNKNOWN : TopupReconcileOutcome.COMPLETED, (t, e) -> {});
 
         assertThat(requested).containsExactly(TopupReconcileCursor.START);
         assertThat(result.pending()).isEqualTo(1);
         assertThat(result.completed()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("UNKNOWN이 연속 N건이면 배치 중간이라도 멈추고 뒤의 건은 처리하지 않는다 (예상 못 한 오류는 연속 수를 바꾸지 않음)")
+    void stopsOnUnknownStreak() {
+        Target t1 = target(1), t2 = target(2), t3 = target(3), t4 = target(4), t5 = target(5);
+        Map<TopupReconcileCursor, List<Target>> batches = Map.of(TopupReconcileCursor.START, List.of(t1, t2, t3, t4, t5));
+        List<Target> reconciled = new ArrayList<>();
+
+        // UNKNOWN, UNKNOWN, 오류, UNKNOWN → 오류를 건너뛰고 연속 3건이라 t4에서 멈춤
+        TopupReconcileResult result = TopupReconcileBatches.run(5, STREAK, fetch(batches), t -> {
+            reconciled.add(t);
+            if (t == t3) throw new IllegalStateException("반영 실패");
+            return TopupReconcileOutcome.UNKNOWN;
+        }, (t, e) -> {});
+
+        assertThat(reconciled).containsExactly(t1, t2, t3, t4);
+        assertThat(result).isEqualTo(new TopupReconcileResult(0, 0, 3, 1));
+    }
+
+    @Test
+    @DisplayName("UNKNOWN 사이에 다른 결과가 섞이면 연속 수가 0이 돼 배치를 끝까지 처리한다")
+    void continuesWhenUnknownInterleaved() {
+        Target t1 = target(1), t2 = target(2), t3 = target(3), t4 = target(4), t5 = target(5);
+        Map<TopupReconcileCursor, List<Target>> batches = Map.of(TopupReconcileCursor.START, List.of(t1, t2, t3, t4, t5));
+        List<Target> reconciled = new ArrayList<>();
+
+        // UNKNOWN, UNKNOWN, PENDING, UNKNOWN, UNKNOWN → 연속 최대 2건
+        TopupReconcileResult result = TopupReconcileBatches.run(5, STREAK, fetch(batches), t -> {
+            reconciled.add(t);
+            return t == t3 ? TopupReconcileOutcome.PENDING : TopupReconcileOutcome.UNKNOWN;
+        }, (t, e) -> {});
+
+        assertThat(reconciled).containsExactly(t1, t2, t3, t4, t5);
+        assertThat(result.pending()).isEqualTo(5);
     }
 
     @Test
@@ -72,7 +108,7 @@ class TopupReconcileBatchesTest {
                 t2.cursor(), List.of(t3));
         List<Target> errored = new ArrayList<>();
 
-        TopupReconcileResult result = TopupReconcileBatches.run(2, fetch(batches), t -> {
+        TopupReconcileResult result = TopupReconcileBatches.run(2, STREAK, fetch(batches), t -> {
             if (t == t2) throw new IllegalStateException("반영 실패");
             return t == t1 ? TopupReconcileOutcome.PENDING : TopupReconcileOutcome.COMPLETED;
         }, (t, e) -> errored.add(t));

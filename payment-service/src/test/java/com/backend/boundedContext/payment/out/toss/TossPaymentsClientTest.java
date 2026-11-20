@@ -251,6 +251,20 @@ class TossPaymentsClientTest {
     }
 
     @Test
+    @DisplayName("실제 HTTP 서버: 조회는 조회 전용 응답 대기 시간이 짧아 결과 모름, 같은 지연에도 승인은 응답을 받는다")
+    void realServer_lookupUsesShortReadTimeout() throws IOException {
+        HttpServer httpServer = startHttpServer(Duration.ofMillis(700));
+        try {
+            TossPaymentsClient client = realClient(httpServer.getAddress().getPort(), Duration.ofMillis(1_500), Duration.ofMillis(300));
+
+            assertThatThrownBy(() -> client.getPayment("pk_1")).isInstanceOf(TossTimeoutException.class);
+            assertThat(client.confirm("pk_1", ORDER_ID, 20_000).status()).isEqualTo("DONE");
+        } finally {
+            httpServer.stop(0);
+        }
+    }
+
+    @Test
     @DisplayName("실제 HTTP 서버: 응답 없이 연결이 끊기면 TossTimeoutException (결과 모름)")
     void realServer_confirm_connectionClosed() throws IOException {
         try (ServerSocket serverSocket = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
@@ -269,10 +283,10 @@ class TossPaymentsClientTest {
         }
     }
 
-    // 승인 요청에 delay만큼 기다렸다가 결제 결과를 돌려주는 실제 HTTP 서버
+    // 승인·조회 요청에 delay만큼 기다렸다가 결제 결과를 돌려주는 실제 HTTP 서버
     private static HttpServer startHttpServer(Duration delay) throws IOException {
         HttpServer httpServer = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
-        httpServer.createContext("/v1/payments/confirm", exchange -> {
+        httpServer.createContext("/v1/payments", exchange -> {
             try {
                 lastRequestProtocol = exchange.getProtocol();
                 lastRequestUpgradeHeader = exchange.getRequestHeaders().getFirst("Upgrade");
@@ -297,5 +311,14 @@ class TossPaymentsClientTest {
         RestClient.Builder builder = RestClient.builder()
                 .requestFactory(TossPaymentsClient.requestFactory(TEST_CONNECT_TIMEOUT, TEST_READ_TIMEOUT));
         return new TossPaymentsClient(builder, "http://localhost:" + port, SECRET_KEY);
+    }
+
+    // 승인·취소와 조회의 응답 대기 시간을 다르게 둔 클라이언트
+    private static TossPaymentsClient realClient(int port, Duration readTimeout, Duration lookupReadTimeout) {
+        RestClient.Builder builder = RestClient.builder()
+                .requestFactory(TossPaymentsClient.requestFactory(TEST_CONNECT_TIMEOUT, readTimeout));
+        RestClient.Builder lookupBuilder = RestClient.builder()
+                .requestFactory(TossPaymentsClient.requestFactory(TEST_CONNECT_TIMEOUT, lookupReadTimeout));
+        return new TossPaymentsClient(builder, lookupBuilder, "http://localhost:" + port, SECRET_KEY);
     }
 }

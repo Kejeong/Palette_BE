@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -84,7 +85,7 @@ class MemberWithdrawalIntegrationTest {
     @BeforeEach
     void setUp() {
         member = memberRepository.save(Member.signUp(email, passwordEncoder.encode(PASSWORD), "홍길동"));
-        given(memberPaymentPort.getWallet(member.getId())).willReturn(new WalletSummaryDto(member.getId(), 0L, 0L));
+        given(memberPaymentPort.findWallet(member.getId())).willReturn(Optional.of(new WalletSummaryDto(member.getId(), 0L, 0L)));
     }
 
     @AfterEach

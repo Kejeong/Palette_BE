@@ -40,7 +40,7 @@ public class ApiV1AdminMemberController {
         return RsData.of("200-1", "회원 목록을 조회했습니다.", memberFacade.getMembers(email, status, memberType, pageable));
     }
 
-    @Operation(summary = "회원 상세 조회", description = "역할, 판매자·인플루언서 상태(신청 이력이 없으면 null), 지갑 잔액을 함께 반환합니다.")
+    @Operation(summary = "회원 상세 조회", description = "역할, 판매자·인플루언서 상태(신청 이력이 없으면 null), 지갑 상태(walletState: CREATED 지갑 있음, NOT_CREATED 지갑 없음, UNAVAILABLE 결제 조회 실패)와 잔액을 함께 반환합니다. wallet은 CREATED일 때만 있습니다.")
     @GetMapping("/{userId}")
     public RsData<AdminMemberDetailDto> getMemberDetail(
             @PathVariable Long userId

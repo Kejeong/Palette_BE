@@ -31,8 +31,11 @@ import java.nio.charset.StandardCharsets;
 @RequiredArgsConstructor
 public class NotificationOrderEventListener {
 
-    // processed_event.consumer 값이자 Kafka groupId (서비스 이름). 같은 이벤트를 다른 서비스(배송·정산)와 따로 처리함
-    static final String CONSUMER = "notification";
+    // Kafka groupId (서비스 이름). 알림의 모든 리스너가 같은 그룹을 씀(바꾸면 오프셋이 처음부터 다시 잡히므로 그대로 둠)
+    static final String GROUP_ID = "notification";
+
+    // processed_event.consumer 값. 리스너마다 따로 두어 같은 이벤트를 다른 리스너가 받아도 서로 막지 않음
+    static final String CONSUMER = "notification-order";
 
     // OutboxKafkaSender가 붙이는 이벤트 타입 헤더
     private static final String EVENT_TYPE_HEADER = "eventType";
@@ -43,7 +46,7 @@ public class NotificationOrderEventListener {
     private final EventMessages eventMessages;
     private final ProcessedEvents processedEvents;
 
-    @KafkaListener(topics = "order.events", groupId = CONSUMER)
+    @KafkaListener(topics = "order.events", groupId = GROUP_ID)
     @Transactional
     public void handle(ConsumerRecord<String, String> record) {
         // 다루지 않는 이벤트는 payload를 읽기 전에 거름. 이 앱이 모르는 새 이벤트 타입이어도 DLT로 보내지 않음

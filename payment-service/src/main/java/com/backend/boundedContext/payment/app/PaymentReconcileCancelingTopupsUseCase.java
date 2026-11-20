@@ -37,7 +37,7 @@ public class PaymentReconcileCancelingTopupsUseCase {
     private final TopupGateways topupGateways;
 
     /**
-     * 확인 대기 시간(topupReconcileDelay)이 지나도록 CANCELING인 충전 건을 오래된 순으로 topupReconcileBatchSize건씩 확인함 (배치를 다 채우면 이어서 확인, 결과 모름이 나오면 그 배치까지만)
+     * 확인 대기 시간(topupReconcileDelay)이 지나도록 CANCELING인 충전 건을 오래된 순으로 topupReconcileBatchSize건씩 확인함 (배치를 다 채우면 이어서 확인, 결과 모름이 나오면 그 배치까지만, 연속 topupReconcileUnknownStreak건이면 바로 멈춤)
      * 대기 시간을 두는 이유: 취소 API가 아직 PG 응답을 기다리는 건을 대사가 먼저 판단해 되돌린 뒤 PG가 취소를 처리하면 이중 환불이 됨
      * (같은 회차라 회차 확인으로는 막지 못함) 그래서 PG 응답 대기 시간(30초)보다 충분히 긴 대기 시간이 지난 건만 봄
      * 반환값은 건수 집계 (completed: 취소 확정, failed: 되돌림, pending: 다음 회차에 다시 확인·수동 확인으로 표시, errors: 예상 못 한 오류)
@@ -45,7 +45,7 @@ public class PaymentReconcileCancelingTopupsUseCase {
     public TopupReconcileResult reconcileCancelingTopups(LocalDateTime now) {
         LocalDateTime cutoff = now.minus(paymentPolicy.topupReconcileDelay());
         int batchSize = paymentPolicy.topupReconcileBatchSize();
-        return TopupReconcileBatches.run(batchSize,
+        return TopupReconcileBatches.run(batchSize, paymentPolicy.topupReconcileUnknownStreak(),
                 after -> paymentTopupCancelProcessor.findReconcileTargets(cutoff, after, batchSize),
                 this::reconcile,
                 (target, e) -> log.error("충전 취소 결과 확인 중 오류가 발생했습니다. 다음 회차에 다시 확인합니다. topupId={}", target.topupId(), e));

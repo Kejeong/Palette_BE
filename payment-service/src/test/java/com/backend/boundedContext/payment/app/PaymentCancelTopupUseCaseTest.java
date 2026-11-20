@@ -25,7 +25,11 @@ import com.backend.boundedContext.payment.out.PaymentMemberPort;
 import com.backend.boundedContext.payment.out.pg.PgCancelRequest;
 import com.backend.boundedContext.payment.out.pg.PgConfigurationException;
 import com.backend.boundedContext.payment.out.pg.PgDeclinedException;
+import com.backend.boundedContext.payment.out.pg.PgPaymentMethod;
+import com.backend.boundedContext.payment.out.pg.PgPaymentNotFoundException;
 import com.backend.boundedContext.payment.out.pg.PgPaymentRef;
+import com.backend.boundedContext.payment.out.pg.PgPaymentResult;
+import com.backend.boundedContext.payment.out.pg.PgPaymentStatus;
 import com.backend.boundedContext.payment.out.pg.PgResultUnknownException;
 import com.backend.boundedContext.payment.out.pg.TopupGatewayPort;
 import com.backend.boundedContext.payment.out.pg.TopupGateways;
@@ -40,6 +44,7 @@ class PaymentCancelTopupUseCaseTest {
     private static final String PAYMENT_KEY = "pk_1";
     private static final String ORDER_ID = "TOPUP-123e4567-e89b-12d3-a456-426614174000";
     private static final long CANCEL_AMOUNT = 15_000;
+    private static final long CANCELED_BEFORE = 5_000;    // 앞선 부분 취소로 확정된 금액
     private static final int ATTEMPT = 1;
     private static final String CANCEL_KEY = "TOPUP-7-CANCEL-1";
     private static final PgPaymentRef PAYMENT = new PgPaymentRef(ORDER_ID, PAYMENT_KEY, 20_000, LocalDateTime.of(2026, 11, 15, 10, 0), null);
@@ -93,11 +98,12 @@ class PaymentCancelTopupUseCaseTest {
     }
 
     @Test
-    @DisplayName("PG 거절: 되돌리고 400 TOPUP_CANCEL_DECLINED, data에 PG 코드·메시지")
+    @DisplayName("PG 거절 + 조회한 취소 합계가 취소 전과 같음: 되돌리고 400 TOPUP_CANCEL_DECLINED, data에 PG 코드·메시지")
     void cancel_declined() {
         started();
         given(gateway.cancel(CANCEL_REQUEST))
                 .willThrow(new PgDeclinedException("EXCEED_MAX_REFUND_DUE", "환불 가능한 기간이 지났습니다.", null));
+        given(gateway.getPayment(PAYMENT)).willReturn(pgPayment(CANCELED_BEFORE));
 
         assertThatThrownBy(() -> useCase.cancelTopup(MEMBER_ID, TOPUP_ID))
                 .isInstanceOfSatisfying(DomainException.class, e -> {
@@ -106,6 +112,46 @@ class PaymentCancelTopupUseCaseTest {
                 });
         verify(processor).fail(TOPUP_ID, ATTEMPT);
         verify(processor, never()).complete(anyLong(), anyInt(), anyLong());
+    }
+
+    @Test
+    @DisplayName("PG 거절 + 조회한 취소 합계에 이번 취소가 들어 있음: 이미 취소된 것이라 되돌리지 않고 CANCELING으로 응답한다")
+    void cancel_declinedButCanceled() {
+        started();
+        given(gateway.cancel(CANCEL_REQUEST))
+                .willThrow(new PgDeclinedException("NOT_CANCELABLE_PAYMENT", "취소 할 수 없는 결제 입니다.", null));
+        given(gateway.getPayment(PAYMENT)).willReturn(pgPayment(CANCELED_BEFORE + CANCEL_AMOUNT));
+
+        TopupCancelDto result = useCase.cancelTopup(MEMBER_ID, TOPUP_ID);
+
+        assertCanceling(result);
+        verify(processor, never()).complete(anyLong(), anyInt(), anyLong());
+    }
+
+    @Test
+    @DisplayName("PG 거절 + 조회 결과 모름: 되돌리지 않고 CANCELING으로 응답한다 (대사가 정리)")
+    void cancel_declinedLookupUnknown() {
+        started();
+        given(gateway.cancel(CANCEL_REQUEST))
+                .willThrow(new PgDeclinedException("NOT_AVAILABLE_BANK", "은행 서비스 시간이 아닙니다.", null));
+        given(gateway.getPayment(PAYMENT)).willThrow(new PgResultUnknownException(new RuntimeException("Read timed out")));
+
+        TopupCancelDto result = useCase.cancelTopup(MEMBER_ID, TOPUP_ID);
+
+        assertCanceling(result);
+    }
+
+    @Test
+    @DisplayName("PG 거절 + 조회했는데 결제 없음: 되돌리지 않고 CANCELING으로 응답한다 (대사가 수동 확인으로 표시)")
+    void cancel_declinedPaymentNotFound() {
+        started();
+        given(gateway.cancel(CANCEL_REQUEST))
+                .willThrow(new PgDeclinedException("NOT_FOUND_PAYMENT", "존재하지 않는 결제 정보 입니다.", null));
+        given(gateway.getPayment(PAYMENT)).willThrow(new PgPaymentNotFoundException(new RuntimeException("NOT_FOUND_PAYMENT")));
+
+        TopupCancelDto result = useCase.cancelTopup(MEMBER_ID, TOPUP_ID);
+
+        assertCanceling(result);
     }
 
     @Test
@@ -119,6 +165,7 @@ class PaymentCancelTopupUseCaseTest {
                 .isInstanceOf(DomainException.class)
                 .extracting("resultCode").isEqualTo("502-EXTERNAL_SERVICE_ERROR");
         verify(processor).fail(TOPUP_ID, ATTEMPT);
+        verify(gateway, never()).getPayment(PAYMENT);
     }
 
     @Test
@@ -134,7 +181,11 @@ class PaymentCancelTopupUseCaseTest {
 
     private void started() {
         given(processor.start(MEMBER_ID, TOPUP_ID))
-                .willReturn(new TopupCancelStartResult(TOPUP_ID, PgProvider.TOSS, PAYMENT, CANCEL_AMOUNT, ATTEMPT, CANCEL_KEY));
+                .willReturn(new TopupCancelStartResult(TOPUP_ID, PgProvider.TOSS, PAYMENT, CANCEL_AMOUNT, CANCELED_BEFORE, ATTEMPT, CANCEL_KEY));
+    }
+
+    private static PgPaymentResult pgPayment(long canceledAmount) {
+        return new PgPaymentResult(PAYMENT_KEY, ORDER_ID, PgPaymentStatus.PARTIALLY_CANCELED, "PARTIAL_CANCELED", 20_000, canceledAmount, PgPaymentMethod.CARD, null);
     }
 
     // 결과 확인 대기: 되돌리지 않음

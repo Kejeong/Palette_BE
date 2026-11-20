@@ -3,6 +3,7 @@ package com.backend.boundedContext.payment.out.hecto;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 import org.springframework.stereotype.Component;
@@ -44,8 +45,8 @@ import lombok.extern.slf4j.Slf4j;
  *
  * 취소 (거절로 보면 잔액을 되돌리므로, 취소됐을 가능성이 있으면 결과 모름으로 두고 조회로 확정)
  * - 0021 → 성공 (남은 금액 0이면 CANCELED, 아니면 PARTIALLY_CANCELED)
- * - ST25(이미 취소 완료) → PgResultUnknownException (앞선 요청으로 이미 취소됐을 수 있음)
- * - 그 외 실패(ST57 취소 금액 초과 등) → PgDeclinedException
+ * - ST25(이미 취소 완료)·ST57(취소 금액 초과) → PgResultUnknownException (앞선 요청이나 상점관리자에서 이미 취소됐을 수 있음)
+ * - 그 외 실패 → PgDeclinedException
  */
 @Slf4j
 @Component
@@ -63,8 +64,9 @@ public class HectoTopupGatewayAdapter implements TopupGatewayPort {
     // 같은 인증 거래번호로 승인을 다시 보냈을 때 주는 코드(중복결제). 앞선 승인이 처리됐다는 뜻이라 결과 모름으로 봄
     private static final String DUPLICATE_PAYMENT = "ST50";
 
-    // 이미 전액 취소된 거래를 취소하려 할 때 주는 코드
-    private static final String ALREADY_CANCELED = "ST25";
+    // 취소가 실패해도 이미 취소됐을 수 있는 코드
+    // ST25: 이미 전액 취소된 거래, ST57: 취소 금액이 남은 금액보다 큼 (일부가 이미 취소됐을 수 있음)
+    private static final Set<String> CANCEL_UNKNOWN_CODES = Set.of("ST25", "ST57");
 
     // 결제창을 닫거나 취소해 cancUrl로 돌아온 경우. 결제창 결과를 받는 엔드포인트가 이 코드로 프론트에 넘김
     private static final String USER_CANCEL = "USER_CANCEL";
@@ -151,7 +153,7 @@ public class HectoTopupGatewayAdapter implements TopupGatewayPort {
         HectoResponse response = call(() -> hectoClient.cancel(payment.orderId(), payment.paymentKey(), request.attempt(), request.cancelAmount(), LocalDateTime.now()));
 
         if (!response.isSuccess()) {
-            if (ALREADY_CANCELED.equals(response.outRsltCd())) {
+            if (CANCEL_UNKNOWN_CODES.contains(response.outRsltCd())) {
                 throw new PgResultUnknownException(failure(response));
             }
             throw declined(response);

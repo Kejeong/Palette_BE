@@ -25,7 +25,9 @@ import lombok.extern.slf4j.Slf4j;
  *
  * PG 결과별 처리
  * - 취소 성공 → 취소 금액 확정 (전부 취소되면 CANCELED, 아니면 DONE)
- * - 거절(취소 가능 기간 지남·부분 취소 불가 수단 등) → 잔액·남은 금액을 되돌리고 400 TOPUP_CANCEL_DECLINED
+ * - 거절(취소 가능 기간 지남·부분 취소 불가 수단 등) → PG 조회로 이번 취소가 반영되지 않았는지 확인
+ *   - 취소 합계가 취소 전과 같음 → 잔액·남은 금액을 되돌리고 400 TOPUP_CANCEL_DECLINED
+ *   - 그 외·조회 실패 → 이미 취소됐을 수 있어(상점관리자에서 직접 취소 등) 결과 모름과 같이 처리
  * - 설정 오류(API 키 등) → 잔액·남은 금액을 되돌리고 502 EXTERNAL_SERVICE_ERROR
  * - 결과 모름(응답 없음·5xx 등) → 취소됐을 수 있으므로 되돌리지 않고 CANCELING 유지, 200 + status CANCELING
  */
@@ -59,6 +61,9 @@ public class PaymentCancelTopupUseCase {
             paymentTopupCancelProcessor.fail(topupId, start.attempt());
             throw e;
         } catch (PgDeclinedException e) {
+            if (!isCancelNotApplied(start, e)) {
+                return TopupCancelDto.canceling(start);
+            }
             // PG 메시지는 사용자에게 보여 줄 수 있는 문구라 응답 data에 그대로 사용
             String message = Objects.requireNonNullElse(e.getPgMessage(), PaymentErrorCode.TOPUP_CANCEL_DECLINED.msg());
             paymentTopupCancelProcessor.fail(topupId, start.attempt());
@@ -72,5 +77,20 @@ public class PaymentCancelTopupUseCase {
             log.error("PG 취소 후 반영에 실패해 결과 확인 대기로 둡니다. topupId={}", topupId, e);
             return TopupCancelDto.canceling(start);
         }
+    }
+
+    // 거절 응답이어도 이미 취소된 결제일 수 있어 되돌리기 전에 PG 조회로 확인함. 취소 합계가 취소 전과 같을 때만 true
+    // 다르거나 조회하지 못하면 되돌리지 않고 CANCELING 대사가 확정·되돌림·수동 확인으로 정리함
+    private boolean isCancelNotApplied(TopupCancelStartResult start, PgDeclinedException declined) {
+        try {
+            long canceledAmount = topupGateways.get(start.pgProvider()).getPayment(start.payment()).canceledAmount();
+            if (canceledAmount == start.canceledAmountBefore()) {
+                return true;
+            }
+            log.error("PG가 취소를 거절했지만 취소 합계가 취소 전과 달라 결과 확인 대기로 둡니다. topupId={}, code={}, PG 취소 합계 {}원, 취소 전 {}원", start.topupId(), declined.getCode(), canceledAmount, start.canceledAmountBefore());
+        } catch (RuntimeException e) {
+            log.error("PG가 취소를 거절했지만 조회로 확인하지 못해 결과 확인 대기로 둡니다. topupId={}, code={}", start.topupId(), declined.getCode(), e);
+        }
+        return false;
     }
 }
