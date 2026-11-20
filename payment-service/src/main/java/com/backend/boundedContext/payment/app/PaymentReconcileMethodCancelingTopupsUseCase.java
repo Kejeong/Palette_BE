@@ -41,14 +41,14 @@ public class PaymentReconcileMethodCancelingTopupsUseCase {
     private final TopupGateways topupGateways;
 
     /**
-     * 확인 대기 시간(topupReconcileDelay)이 지나도록 METHOD_CANCELING인 충전 건을 오래된 순으로 topupReconcileBatchSize건씩 확인함 (배치를 다 채우면 이어서 확인, 결과 모름이 나오면 그 배치까지만)
+     * 확인 대기 시간(topupReconcileDelay)이 지나도록 METHOD_CANCELING인 충전 건을 오래된 순으로 topupReconcileBatchSize건씩 확인함 (배치를 다 채우면 이어서 확인, 결과 모름이 나오면 그 배치까지만, 연속 topupReconcileUnknownStreak건이면 바로 멈춤)
      * 재시도하면 충전 건이 갱신돼 다음 재시도도 확인 대기 시간 뒤에 함
      * 반환값은 건수 집계 (completed: 취소 확정, failed: 다시 요청했지만 실패, pending: 다음 회차에 다시 확인·수동 확인으로 표시, errors: 예상 못 한 오류)
      */
     public TopupReconcileResult reconcileMethodCancelingTopups(LocalDateTime now) {
         LocalDateTime cutoff = now.minus(paymentPolicy.topupReconcileDelay());
         int batchSize = paymentPolicy.topupReconcileBatchSize();
-        return TopupReconcileBatches.run(batchSize,
+        return TopupReconcileBatches.run(batchSize, paymentPolicy.topupReconcileUnknownStreak(),
                 after -> paymentTopupConfirmProcessor.findMethodCancelTargets(cutoff, after, batchSize),
                 this::reconcile,
                 (target, e) -> log.error("허용하지 않은 결제 수단 취소 결과 확인 중 오류가 발생했습니다. 다음 회차에 다시 확인합니다. topupId={}", target.topupId(), e));

@@ -16,7 +16,7 @@ import com.backend.global.exception.DomainException;
 
 class PaymentPolicyTest {
 
-    private final PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 60, 1L, 2_500);
+    private final PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 3, 60, 1L, 2_500);
 
     @ParameterizedTest
     @ValueSource(longs = {10_000, 20_000, 990_000, 1_000_000})
@@ -54,9 +54,18 @@ class PaymentPolicyTest {
     }
 
     @Test
-    @DisplayName("결과 확인 대기 시간과 1회 처리 건수는 설정한 값이다")
+    @DisplayName("결과 확인 대기 시간·1회 처리 건수·회차를 멈추는 결과 모름 연속 건수는 설정한 값이다")
     void topupReconcile() {
         assertThat(paymentPolicy.topupReconcileDelay()).isEqualTo(Duration.ofMinutes(5));
         assertThat(paymentPolicy.topupReconcileBatchSize()).isEqualTo(100);
+        assertThat(paymentPolicy.topupReconcileUnknownStreak()).isEqualTo(3);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, -1})
+    @DisplayName("회차를 멈추는 결과 모름 연속 건수가 1 미만이면 만들 수 없다 (기동 실패)")
+    void topupReconcileUnknownStreak_invalid(int unknownStreak) {
+        assertThatThrownBy(() -> new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, unknownStreak, 60, 1L, 2_500))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

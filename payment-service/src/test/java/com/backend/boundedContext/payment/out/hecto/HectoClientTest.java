@@ -10,8 +10,14 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.concurrent.Executors;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +27,8 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.http.client.MockClientHttpRequest;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+
+import com.sun.net.httpserver.HttpServer;
 
 class HectoClientTest {
 
@@ -233,6 +241,45 @@ class HectoClientTest {
 
         assertThatThrownBy(() -> client.inquiry(ORDER_ID, TRD_NO, 20_000, REQUESTED_AT, REQUEST_AT))
                 .isInstanceOf(HectoResultUnknownException.class);
+    }
+
+    @Test
+    @DisplayName("실제 HTTP 서버: 조회는 조회 전용 응답 대기 시간이 짧아 결과 모름, 같은 지연에도 승인은 응답을 받는다")
+    void realServer_lookupUsesShortReadTimeout() throws IOException {
+        HttpServer httpServer = startHttpServer(Duration.ofMillis(700));
+        try {
+            RestClient.Builder builder = RestClient.builder().requestFactory(HectoClient.requestFactory(Duration.ofSeconds(1), Duration.ofMillis(1_500)));
+            RestClient.Builder lookupBuilder = RestClient.builder().requestFactory(HectoClient.requestFactory(Duration.ofSeconds(1), Duration.ofMillis(300)));
+            HectoClient realClient = new HectoClient(builder, lookupBuilder, "http://localhost:" + httpServer.getAddress().getPort(), MCHT_ID, crypto);
+
+            assertThatThrownBy(() -> realClient.inquiry(ORDER_ID, TRD_NO, 20_000, REQUESTED_AT, REQUEST_AT))
+                    .isInstanceOf(HectoResultUnknownException.class);
+            assertThat(realClient.approve(ORDER_ID, TRD_NO, 20_000, REQUEST_AT).outRsltCd()).isEqualTo("ST09");
+        } finally {
+            httpServer.stop(0);
+        }
+    }
+
+    // 모든 요청에 delay만큼 기다렸다가 실패 응답(0031)을 돌려주는 실제 HTTP 서버. 실패 응답은 해시를 검증하지 않아 승인 응답으로 쓸 수 있음
+    private static HttpServer startHttpServer(Duration delay) throws IOException {
+        HttpServer httpServer = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        httpServer.createContext("/spay", exchange -> {
+            try {
+                exchange.getRequestBody().readAllBytes();
+                Thread.sleep(delay);
+                byte[] body = failJson("ST09", "거래금액이 유효하지 않습니다.").getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=utf-8");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+            } catch (InterruptedException | IOException ignored) {
+                // 클라이언트가 먼저 끊으면 무시
+            } finally {
+                exchange.close();
+            }
+        });
+        httpServer.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+        httpServer.start();
+        return httpServer;
     }
 
     private String approveJson(String pktHash) {

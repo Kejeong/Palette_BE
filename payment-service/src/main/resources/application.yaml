@@ -107,6 +107,7 @@ custom:
     topupReconcileIntervalSeconds: 300  # 결과 확인 스케줄러(PROCESSING·CANCELING·METHOD_CANCELING) 실행 간격(초)
     topupReconcileDelayMinutes: 5       # 결과를 모르는 상태가 된 뒤 토스에 다시 확인하기까지 기다리는 시간(분). 토스 응답 대기(30초)보다 충분히 길게
     topupReconcileBatchSize: 100        # 결과 확인 스케줄러가 한 번에 조회하는 건수. 다 채우면 같은 실행에서 이어서 조회(PG 결과를 모르는 건이 나오면 그 배치까지만)
+    topupReconcileUnknownStreak: 3      # PG 결과를 모르는 건이 연속 이 건수면 배치 중간이라도 그 회차를 멈춤(1 이상). 남은 건은 다음 회차에
     topupStuckWarnMinutes: 60           # 결과가 정해지지 않은 상태로 이 시간(분)이 넘게 남은 충전 건은 결과 확인 스케줄러 간격마다 오류 로그로 알림
     adminMemberId: 1           # 수수료(FEE)를 받는 관리자 회원 ID (시드 1번)
     returnPickupFee: 2500    # 단순 변심 반품 때 구매자가 내는 반품 배송비(원). 환불 금액에서 뺀다
@@ -123,6 +124,7 @@ custom:
     secretKey: ${TOSS_SECRET_KEY:}
     connectTimeoutSeconds: 5   # 토스 서버 접속 제한 시간(초)
     readTimeoutSeconds: 30     # 요청 후 토스 응답 대기 제한 시간(초). 넘으면 충전 건을 PROCESSING으로 두고, 스케줄러가 토스 조회로 최종 결과를 반영
+    lookupReadTimeoutSeconds: 5  # 결제 조회만 쓰는 응답 대기 제한 시간(초). 끊겨도 다음 회차에 다시 조회하므로 짧게 둬 PG 장애 때 대사가 오래 붙잡히지 않게 함
   # 헥토파이낸셜 신용카드 API (충전 두 번째 PG). 상점 ID·키는 환경변수로 주입하고, 없으면 헥토 호출할 때만 실패한다.
   hecto:
     apiBaseUrl: ${HECTO_API_BASE_URL:https://tbgw.settlebank.co.kr}   # 기본값은 테스트베드. 운영은 https://gw.settlebank.co.kr
@@ -134,6 +136,7 @@ custom:
     frontResultUrl: ${HECTO_FRONT_RESULT_URL:http://localhost:5173/wallet/topup-result}   # 결제창 결과를 넘길 프론트 충전 결과 화면 (토스 successUrl·failUrl과 같은 화면)
     connectTimeoutSeconds: 5   # 헥토 서버 접속 제한 시간(초)
     readTimeoutSeconds: 30     # 요청 후 헥토 응답 대기 제한 시간(초). 넘으면 결과를 모르는 것으로 보고 스케줄러가 조회로 최종 결과를 반영
+    lookupReadTimeoutSeconds: 5  # 결제 조회만 쓰는 응답 대기 제한 시간(초). 토스와 같음
   outbox:
     relayEnabled: true          # false면 릴레이 스케줄러를 등록하지 않는다(테스트에서 끔: src/test/resources/application.properties)
     relayIntervalMillis: 1000   # Outbox 릴레이 실행 간격(밀리초). 이벤트가 리스너에 닿기까지 최대 이만큼 늦어진다
