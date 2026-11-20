@@ -48,3 +48,6 @@ out/
 
 ### 상품 이미지 로컬 저장소 (custom.product.image.localDir) ###
 uploads/
+
+# 리포트·로그 등 측정 실행 결과 (load-test/README.md 참고)
+load-test/results/
