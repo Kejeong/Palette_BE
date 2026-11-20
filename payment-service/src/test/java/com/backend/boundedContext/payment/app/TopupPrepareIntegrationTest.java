@@ -84,6 +84,24 @@ class TopupPrepareIntegrationTest {
     }
 
     @Test
+    @DisplayName("지갑이 없는 회원이면 지갑을 만들고 그 지갑으로 READY 충전 건을 저장한다")
+    void prepare_walletMissing_created() {
+        Long noWalletMemberId = memberId + 1;   // setUp에서 지갑을 만들지 않은 회원
+        try {
+            String orderId = paymentFacade.prepareTopup(noWalletMemberId, AMOUNT).orderId();
+
+            Wallet created = walletRepository.findByMemberId(noWalletMemberId).orElseThrow();
+            assertThat(created.getBalance()).isZero();
+            assertThat(topupRepository.findByOrderIdAndMemberId(orderId, noWalletMemberId))
+                    .hasValueSatisfying(topup -> assertThat(topup.getWallet().getId()).isEqualTo(created.getId()));
+        } finally {
+            topupRepository.deleteAll(topupRepository.findAll().stream()
+                    .filter(topup -> topup.getMemberId().equals(noWalletMemberId)).toList());
+            walletRepository.findByMemberId(noWalletMemberId).ifPresent(walletRepository::delete);
+        }
+    }
+
+    @Test
     @DisplayName("회원 확인이 실패하면(예: 회원 서비스 502) 충전 건을 만들지 않는다")
     void prepare_memberCheckFailed_noTopup() {
         willThrow(new DomainException(GlobalErrorCode.EXTERNAL_SERVICE_ERROR)).given(memberPort).checkActiveMember(memberId);

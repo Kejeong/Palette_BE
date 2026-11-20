@@ -3,6 +3,7 @@ package com.backend.boundedContext.payment.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
@@ -54,7 +55,7 @@ class PaymentPrepareTopupUseCaseTest {
         PaymentPolicy paymentPolicy = new PaymentPolicy(10_000, 1_000_000, 15, 5, 100, 3, 60, 1L, 2_500);
         paymentPrepareTopupUseCase = new PaymentPrepareTopupUseCase(paymentPolicy, memberPort,
                 new TopupGateways(List.of(toss, hecto), circuitBreakers),
-                new PaymentTopupPrepareProcessor(walletRepository, topupRepository));
+                new PaymentTopupPrepareProcessor(walletRepository, topupRepository, new PaymentCreateWalletUseCase(walletRepository)));
         given(toss.checkout(any())).willReturn(Optional.empty());
     }
 
@@ -80,6 +81,7 @@ class PaymentPrepareTopupUseCaseTest {
         assertThat(result.amount()).isEqualTo(20_000);
         assertThat(result.pgProvider()).isEqualTo(PgProvider.TOSS);
         assertThat(result.checkout()).isNull();
+        verify(walletRepository, never()).insertIfAbsent(any(), any());   // 지갑이 있으면 만들지 않음
     }
 
     @Test
@@ -155,15 +157,34 @@ class PaymentPrepareTopupUseCaseTest {
     }
 
     @Test
-    @DisplayName("지갑이 없으면 WALLET_NOT_FOUND")
-    void prepareTopup_walletNotFound() {
-        given(walletRepository.findByMemberId(1L)).willReturn(Optional.empty());
+    @DisplayName("지갑이 없으면(가입 이벤트가 늦어지거나 DLT로 감) 지갑을 만들고 그 지갑으로 충전 건을 저장한다")
+    void prepareTopup_walletMissing_created() {
+        Wallet created = Wallet.create(1L);
+        given(walletRepository.findByMemberId(1L)).willReturn(Optional.empty(), Optional.of(created));
+        given(walletRepository.insertIfAbsent(eq(1L), any())).willReturn(1);
+        given(topupRepository.save(any(Topup.class))).willAnswer(invocation -> invocation.getArgument(0));
 
-        assertThatThrownBy(() -> paymentPrepareTopupUseCase.prepareTopup(1L, 20_000))
-                .isInstanceOf(DomainException.class)
-                .extracting("resultCode").isEqualTo("404-WALLET_NOT_FOUND");
+        paymentPrepareTopupUseCase.prepareTopup(1L, 20_000);
 
-        verify(topupRepository, never()).save(any());
+        ArgumentCaptor<Topup> saved = ArgumentCaptor.forClass(Topup.class);
+        verify(topupRepository).save(saved.capture());
+        assertThat(saved.getValue().getWallet()).isSameAs(created);
+        verify(walletRepository).insertIfAbsent(eq(1L), any());
+    }
+
+    @Test
+    @DisplayName("지갑을 만들려는 사이 가입 이벤트 컨슈머가 먼저 만들었으면 그 지갑으로 충전 건을 저장한다")
+    void prepareTopup_walletCreatedByConsumerMeanwhile() {
+        Wallet byConsumer = Wallet.create(1L);
+        given(walletRepository.findByMemberId(1L)).willReturn(Optional.empty(), Optional.of(byConsumer));
+        given(walletRepository.insertIfAbsent(eq(1L), any())).willReturn(0);
+        given(topupRepository.save(any(Topup.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        paymentPrepareTopupUseCase.prepareTopup(1L, 20_000);
+
+        ArgumentCaptor<Topup> saved = ArgumentCaptor.forClass(Topup.class);
+        verify(topupRepository).save(saved.capture());
+        assertThat(saved.getValue().getWallet()).isSameAs(byConsumer);
     }
 
     // 결과 모름을 최소 호출 수(5회)만큼 기록해 그 PG의 서킷을 OPEN으로 만듦
