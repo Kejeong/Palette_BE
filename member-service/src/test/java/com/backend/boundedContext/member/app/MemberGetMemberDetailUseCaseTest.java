@@ -15,7 +15,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -56,7 +55,7 @@ class MemberGetMemberDetailUseCaseTest {
     @Mock
     private MemberOrderPort memberOrderPort;
 
-    @InjectMocks
+    // 회원 DB 조회는 실제 MemberDetailReader에 목 저장소를 넣어 함께 확인함
     private MemberGetMemberDetailUseCase memberGetMemberDetailUseCase;
 
     // 결제가 오류로 응답했을 때 MemberInternalApiClient가 만드는 것과 같은 resultCode
@@ -67,6 +66,8 @@ class MemberGetMemberDetailUseCaseTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(member, "id", 3L);
+        memberGetMemberDetailUseCase = new MemberGetMemberDetailUseCase(
+                new MemberDetailReader(memberSupport, memberGetSellerUseCase, influencerRepository), memberPaymentPort, memberOrderPort);
     }
 
     @Test

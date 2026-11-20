@@ -123,8 +123,7 @@ public class MemberFacade {
         return memberGetMembersUseCase.getMembers(email, status, memberType, pageable);
     }
 
-    // 관리자 회원 상세
-    @Transactional(readOnly = true)
+    // 관리자 회원 상세. 지갑·최근 주문(다른 서비스 호출)을 DB 트랜잭션 밖에서 하려고 @Transactional을 두지 않음 (회원 조회는 MemberDetailReader의 읽기 트랜잭션)
     public AdminMemberDetailDto getMemberDetail(Long memberId) {
         return memberGetMemberDetailUseCase.getMemberDetail(memberId);
     }
