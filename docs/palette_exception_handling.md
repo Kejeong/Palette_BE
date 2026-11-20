@@ -365,7 +365,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 409-TOPUP_MANUAL_RESOLVE_NOT_ALLOWED | 관리자 수동 확인 정리에서 충전 상태에 맞지 않는 정리 방법 (CANCELING에 METHOD_CANCELING용 방법 등) |
 | | 409-PAYMENT_ALREADY_PAID | 다른 멱등 키로 이미 PAID인 주문을 결제 (내부 `PaymentApi.pay`) |
 | | 404-HOLDING_NOT_FOUND / 409-HOLDING_INSUFFICIENT / 409-TRANSFER_AMOUNT_MISMATCH | 정산 지급(`PaymentApi.transfer`)에서 홀딩 없음 / 홀딩 남은 금액 부족 / 주문별 금액 합 ≠ 지급액 + 수수료 |
-| | 404-TOPUP_NOT_FOUND / 404-WALLET_NOT_FOUND | |
+| | 404-TOPUP_NOT_FOUND / 404-WALLET_NOT_FOUND | `WALLET_NOT_FOUND`: 지갑이 아직 없음(가입 이벤트 처리 전·DLT, 물류 담당자). 충전 준비는 지갑이 없으면 만들고 진행해 이 코드를 주지 않음(새로 만들면 WARN 로그) |
 | settlement (다은) | 404-SETTLEMENT_NOT_FOUND | |
 | | 409-SETTLEMENT_RUNNING | 같은 월 정산 실행 중 |
 | | 409-SETTLEMENT_STATE_INVALID | 보류·해제·재처리를 할 수 없는 상태 |
