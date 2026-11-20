@@ -202,13 +202,24 @@ class HectoTopupGatewayAdapterTest {
     }
 
     @Test
-    @DisplayName("취소 금액 초과(ST57)는 PgDeclinedException")
+    @DisplayName("취소됐을 가능성이 없는 실패(ST09 금액 오류 등)는 PgDeclinedException (헥토 코드·메시지)")
+    void cancel_declined() {
+        given(hectoClient.cancel(any(), any(), eq(1), eq(15_000L), any())).willReturn(fail("ST09", "거래금액이 유효하지 않습니다."));
+
+        assertThatThrownBy(() -> adapter.cancel(new PgCancelRequest(PAYMENT, 15_000, "예치금 충전 취소", 1, "TOPUP-7-CANCEL-1")))
+                .isInstanceOfSatisfying(PgDeclinedException.class, e -> {
+                    assertThat(e.getCode()).isEqualTo("ST09");
+                    assertThat(e.getPgMessage()).isEqualTo("거래금액이 유효하지 않습니다.");
+                });
+    }
+
+    @Test
+    @DisplayName("취소 금액 초과(ST57)는 상점관리자에서 일부가 이미 취소됐을 수 있어 PgResultUnknownException")
     void cancel_overBalance() {
         given(hectoClient.cancel(any(), any(), eq(1), eq(15_000L), any())).willReturn(fail("ST57", "취소금액(환불금액)이 원거래금액을 초과합니다."));
 
         assertThatThrownBy(() -> adapter.cancel(new PgCancelRequest(PAYMENT, 15_000, "예치금 충전 취소", 1, "TOPUP-7-CANCEL-1")))
-                .isInstanceOf(PgDeclinedException.class)
-                .extracting("code").isEqualTo("ST57");
+                .isInstanceOf(PgResultUnknownException.class);
     }
 
     @Test

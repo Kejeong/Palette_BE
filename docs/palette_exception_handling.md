@@ -220,16 +220,20 @@ if (updated == 0) throw new DomainException(OrderErrorCode.ORDER_STATE_INVALID);
   - 연결 5초·응답 30초 제한 (`custom.toss`)
 - 토스 충전 취소의 오류 처리 (취소 시작 때 잔액을 먼저 빼고, 확정 실패면 되돌린다):
   - 401·`INVALID_API_KEY`·`UNAUTHORIZED_KEY`(키 오류) → 잔액·남은 금액 되돌림(원장 `CHARGE_CANCEL_RESTORE`), `502-EXTERNAL_SERVICE_ERROR`
-  - 그 밖의 4xx(환불 기간 지남·부분 취소 불가 수단 등) → 되돌림, `400-TOPUP_CANCEL_DECLINED`(`data.code`·`message`)
-  - 응답 없음·5xx·`ALREADY_CANCELED_PAYMENT`·`IDEMPOTENT_REQUEST_PROCESSING`·`ALREADY_PROCESSING_REQUEST`·`FORBIDDEN_CONSECUTIVE_REQUEST`·`PROVIDER_ERROR`·취소 후 DB 반영 실패 → 취소됐을 수 있으므로 되돌리지 않고 충전 CANCELING, `200-1` + `data.status: "CANCELING"`. 대사 스케줄러가 토스 결제키 조회의 취소 금액 합계로 확정하거나 되돌린다. 합계가 어느 쪽과도 맞지 않거나 결제가 없으면 수동 확인으로 표시한다
+  - 그 밖의 4xx(환불 기간 지남·부분 취소 불가 수단 등) → 거절. 아래 "거절이어도 조회로 확인한 뒤 되돌린다"에 따라 처리
+  - 응답 없음·5xx·`ALREADY_CANCELED_PAYMENT`·`ALREADY_REFUND_PAYMENT`·`NOT_CANCELABLE_AMOUNT`(일부가 이미 취소돼 남은 금액보다 커졌을 수 있음)·`IDEMPOTENT_REQUEST_PROCESSING`·`ALREADY_PROCESSING_REQUEST`·`FORBIDDEN_CONSECUTIVE_REQUEST`·`PROVIDER_ERROR`·취소 후 DB 반영 실패 → 취소됐을 수 있으므로 되돌리지 않고 충전 CANCELING, `200-1` + `data.status: "CANCELING"`. 대사 스케줄러가 토스 결제키 조회의 취소 금액 합계로 확정하거나 되돌린다. 합계가 어느 쪽과도 맞지 않거나 결제가 없으면 수동 확인으로 표시한다
   - 토스 `Idempotency-Key`는 취소 회차마다 다르게(`TOPUP-{id}-CANCEL-{회차}`) 보내 재시도해도 같은 취소가 두 번 처리되지 않게 한다
+- **충전 취소는 PG가 거절해도 조회로 확인한 뒤 되돌린다(토스·헥토 공통).** 상점관리자에서 직접 취소한 결제는 거절 코드로 돌아올 수 있어, 바로 되돌리면 카드 환불과 예치금이 둘 다 남는 이중 환불이 될 수 있어서다
+  - 조회한 취소 합계 = 이번 취소 전 금액 → 이번 취소가 반영되지 않았으므로 되돌림, `400-TOPUP_CANCEL_DECLINED`(`data.code`·`message`)
+  - 그 외·조회 결과 모름·PG에 결제 없음 → 되돌리지 않고 충전 CANCELING, `200-1` + `data.status: "CANCELING"`(ERROR 로그). CANCELING 대사가 확정·되돌림·수동 확인으로 정리한다
+  - 키 오류는 PG가 인증 단계에서 거절한 것이라 조회 없이 바로 되돌린다
 - 대사 스케줄러의 토스 조회는 결제키(`GET /v1/payments/{paymentKey}`)로 한다. 주문번호 조회(`/v1/payments/orders/{orderId}`)는 결제위젯 시크릿 키로 호출할 수 없다
 - 헥토(신용카드, 인증 분리 승인)는 성공·실패 모두 HTTP 200에 `outStatCd`(`0021` 성공, `0031` 실패)와 `outRsltCd`로 알려 준다. 어댑터가 이 코드를 토스와 같은 PG 중립 결과·예외로 바꾸므로 충전 로직의 처리(충전 상태·응답 코드)는 토스와 같다
   - 공통: 응답 없음·HTTP 오류·해석할 수 없는 응답 → 결과 모름. 암호화 키가 없어 요청을 만들지 못함 → 키 오류(`502-EXTERNAL_SERVICE_ERROR`, 헥토에 요청이 가지 않음)
   - 충전 준비: 결제창 요청 값(금액 암호화·해시)을 저장 전에 만든다. 키 오류면 충전 건을 만들지 않고 `502-EXTERNAL_SERVICE_ERROR`
   - 승인: `0031` → 충전 FAILED_PG_DECLINED, `400-TOPUP_PAYMENT_DECLINED`(`data.code`: 헥토 `outRsltCd`). 결과 모름·**승인 응답 해시 불일치** → 바로 조회 후 재승인(아래 "승인 결과를 모를 때"), 승인 후 DB 반영 실패 → 충전 PROCESSING
   - 승인 `ST50`(중복결제)은 `0031`이지만 **거절이 아니라 결과 모름**이다. 같은 인증 거래번호로 두 번째 승인을 보내면 헥토가 `ST50`으로 거절하는데(테스트베드 확인, 며칠 지나면 `ST06`), 앞선 승인이 처리돼 카드는 결제됐다는 뜻이다. 거절로 기록하면 돈은 빠지고 충전은 실패로 끝나므로 PROCESSING으로 두고 대사가 조회로 반영한다
-  - 취소: `ST25`(이미 취소 완료)·결과 모름 → 앞선 요청으로 취소됐을 수 있어 되돌리지 않고 충전 CANCELING. 그 밖의 `0031`(`ST57` 취소 금액 초과 등) → 되돌림, `400-TOPUP_CANCEL_DECLINED`
+  - 취소: `ST25`(이미 취소 완료)·`ST57`(취소 금액 초과)·결과 모름 → 앞선 요청이나 상점관리자에서 취소됐을 수 있어 되돌리지 않고 충전 CANCELING. 그 밖의 `0031` → 거절(조회로 확인한 뒤 되돌림, 위 참고)
   - **헥토 취소는 멱등 키가 없다.** 취소 회차(`cnclOrd`, 충전 건의 취소 회차)를 보내지만, 이미 성공한 회차를 다시 보내면 또 취소된다(테스트베드 확인). 그래서 결과를 모르는 취소는 다시 요청하지 않고, 대사 스케줄러가 조회한 취소 금액 합계로 확정하거나 되돌린다(토스와 같은 방식)
   - 조회: 주문번호·원거래 일자(충전 건의 결제 요청 시각)·금액으로 한다. `0000` 정상(취소 금액이 있으면 부분 취소) / `0001` 취소 / `0009` 결제 실패, 그 외 결과 코드는 확정되지 않음으로 두고 다음 회차에 다시 확인한다. 실패 `ST06`(거래 없음)은 결제창에서 인증하지 않은 주문이라 "PG에 결제 없음"과 같게 처리하고(PROCESSING이면 FAILED_SYSTEM_ERROR, CANCELING·METHOD_CANCELING이면 수동 확인으로 표시), 그 밖의 실패는 결과 모름으로 둔다
   - 조회의 원거래 일자: `ST06`이고 승인 요청 시각(`confirm_requested_at`, PROCESSING 선점 때 저장)의 날짜가 결제 요청 날짜와 다르면(자정을 넘긴 충전 건) 그 날짜로 한 번 더 조회한 뒤에 거래 없음으로 본다. 테스트베드는 원거래 일자 ±1일까지 찾아 주지만 문서에 없는 동작이라 기대지 않는다
@@ -355,7 +359,7 @@ HTTP 요청이 아니므로 `GlobalExceptionHandler`가 동작하지 않는다.
 | | 409-TOPUP_ALREADY_PROCESSED | 승인: 결제키·금액이 처음 요청과 다른 재요청, 실패·만료·취소된 충전 건, 다른 충전 건에 쓰인 결제키 (같은 요청의 재요청은 처음 결과를 `200-1`로 돌려줌). 실패 기록: READY가 아닌 충전 건 |
 | | 409-TOPUP_NOT_CANCELABLE | 승인 완료(DONE)가 아니거나 취소할 남은 금액이 없는 충전 건에 취소 요청 |
 | | 400-TOPUP_METHOD_NOT_ALLOWED | 승인된 결제가 충전에 허용하지 않은 결제 수단(카드·간편결제·계좌이체 외). 예치금에 반영하지 않고 결제를 자동 취소 |
-| | 400-TOPUP_CANCEL_DECLINED | PG가 충전 취소를 거절함(환불 기간 지남·부분 취소 불가·헥토 취소 금액 초과 등). 잔액은 되돌림 (`data.code`·`message`: PG 오류 코드·메시지) |
+| | 400-TOPUP_CANCEL_DECLINED | PG가 충전 취소를 거절했고, 조회한 취소 합계로 이번 취소가 반영되지 않았음을 확인함(환불 기간 지남·부분 취소 불가 등). 잔액은 되돌림 (`data.code`·`message`: PG 오류 코드·메시지). 확인하지 못하면 이 코드 대신 `200-1` + CANCELING |
 | | 503-TOPUP_PG_UNAVAILABLE | 충전 준비 때 토스·헥토 모두 사용 불가(서킷 OPEN). 충전 건을 만들지 않음 |
 | | 409-TOPUP_NOT_MANUAL_CHECK | 관리자 수동 확인 정리를 수동 확인으로 표시되지 않은 충전 건에 요청 (이미 정리됨 포함) |
 | | 409-TOPUP_MANUAL_RESOLVE_NOT_ALLOWED | 관리자 수동 확인 정리에서 충전 상태에 맞지 않는 정리 방법 (CANCELING에 METHOD_CANCELING용 방법 등) |

@@ -38,6 +38,7 @@ public interface TopupGatewayPort {
 
     /**
      * 결제 취소. cancelAmount만큼 부분 취소함
+     * 거절이면 잔액을 되돌리므로, 취소됐을 가능성이 있는 응답(이미 취소됨·취소 금액 초과·처리 중)은 PgResultUnknownException으로 분류함
      * 멱등 키를 지원하지 않는 PG가 있음 (토스는 같은 idempotencyKey면 한 번만 취소하지만, 헥토는 같은 회차를 다시 보내면 또 취소됨)
      * 그래서 결과를 모르는 취소는 다시 요청하지 않고, 대사가 PG 조회로 취소 합계를 확인해 확정·되돌림
      */
