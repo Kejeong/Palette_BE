@@ -28,7 +28,6 @@ import com.backend.boundedContext.member.out.MemberPortUnavailableException;
 import com.backend.boundedContext.member.out.MemberSettlementPort;
 import com.backend.boundedContext.member.out.SellerRepository;
 import com.backend.global.exception.DomainException;
-import com.backend.global.exception.ErrorCode;
 import com.backend.shared.member.dto.SellerStatus;
 import com.backend.shared.payment.dto.WalletSummaryDto;
 
@@ -37,8 +36,6 @@ class MemberWithdrawalSupportTest {
 
     private static final Long MEMBER_ID = 3L;
     private static final Long SELLER_ID = 10L;
-    // 결제가 지갑 없음으로 응답했을 때 MemberInternalApiClient가 만드는 것과 같은 resultCode(404-WALLET_NOT_FOUND)
-    private static final ErrorCode WALLET_NOT_FOUND = new RemoteErrorCode(404, "WALLET_NOT_FOUND", "지갑을 찾을 수 없습니다.");
 
     @Mock
     private SellerRepository sellerRepository;
@@ -126,11 +123,11 @@ class MemberWithdrawalSupportTest {
     }
 
     @Test
-    @DisplayName("지갑이 아직 없으면(404 WALLET_NOT_FOUND) 잔액 0으로 보고 탈퇴할 수 있다")
+    @DisplayName("지갑이 아직 없으면(Port가 Optional.empty) 잔액 0으로 보고 탈퇴할 수 있다")
     void walletNotFound_balanceZero() {
         given(sellerRepository.findByMemberId(MEMBER_ID)).willReturn(Optional.empty());
         given(memberOrderPort.hasActiveOrders(MEMBER_ID)).willReturn(false);
-        given(memberPaymentPort.getWallet(MEMBER_ID)).willThrow(new DomainException(WALLET_NOT_FOUND));
+        given(memberPaymentPort.findWallet(MEMBER_ID)).willReturn(Optional.empty());
 
         WithdrawalCheckDto check = memberWithdrawalSupport.check(MEMBER_ID);
 
@@ -139,12 +136,12 @@ class MemberWithdrawalSupportTest {
     }
 
     @Test
-    @DisplayName("지갑 조회가 지갑 없음이 아닌 오류로 실패하면 그 오류를 그대로 던진다")
+    @DisplayName("지갑 조회가 오류로 실패하면 그 오류를 그대로 던진다")
     void walletOtherError_propagates() {
         DomainException walletError = new DomainException(MemberErrorCode.MEMBER_NOT_FOUND);
         given(sellerRepository.findByMemberId(MEMBER_ID)).willReturn(Optional.empty());
         given(memberOrderPort.hasActiveOrders(MEMBER_ID)).willReturn(false);
-        given(memberPaymentPort.getWallet(MEMBER_ID)).willThrow(walletError);
+        given(memberPaymentPort.findWallet(MEMBER_ID)).willThrow(walletError);
 
         assertThatThrownBy(() -> memberWithdrawalSupport.check(MEMBER_ID)).isSameAs(walletError);
     }
@@ -174,7 +171,7 @@ class MemberWithdrawalSupportTest {
     void paymentUnavailable_rejected() {
         given(sellerRepository.findByMemberId(MEMBER_ID)).willReturn(Optional.empty());
         given(memberOrderPort.hasActiveOrders(MEMBER_ID)).willReturn(false);
-        given(memberPaymentPort.getWallet(MEMBER_ID)).willThrow(unavailable());
+        given(memberPaymentPort.findWallet(MEMBER_ID)).willThrow(unavailable());
 
         assertUnavailable();
     }
@@ -192,14 +189,14 @@ class MemberWithdrawalSupportTest {
     private void givenBuyer(boolean hasActiveOrders, long balance) {
         given(sellerRepository.findByMemberId(MEMBER_ID)).willReturn(Optional.empty());
         given(memberOrderPort.hasActiveOrders(MEMBER_ID)).willReturn(hasActiveOrders);
-        given(memberPaymentPort.getWallet(MEMBER_ID)).willReturn(new WalletSummaryDto(MEMBER_ID, balance, 0));
+        given(memberPaymentPort.findWallet(MEMBER_ID)).willReturn(Optional.of(new WalletSummaryDto(MEMBER_ID, balance, 0)));
     }
 
     private void givenSeller(SellerStatus status, long unsettledAmount) {
         given(sellerRepository.findByMemberId(MEMBER_ID)).willReturn(Optional.of(seller(status)));
         given(memberOrderPort.hasActiveOrders(MEMBER_ID)).willReturn(false);
         given(memberSettlementPort.getUnsettledAmount(SELLER_ID)).willReturn(unsettledAmount);
-        given(memberPaymentPort.getWallet(MEMBER_ID)).willReturn(new WalletSummaryDto(MEMBER_ID, 0, 0));
+        given(memberPaymentPort.findWallet(MEMBER_ID)).willReturn(Optional.of(new WalletSummaryDto(MEMBER_ID, 0, 0)));
     }
 
     private static Seller seller(SellerStatus status) {
@@ -208,8 +205,5 @@ class MemberWithdrawalSupportTest {
         ReflectionTestUtils.setField(seller, "id", SELLER_ID);
         ReflectionTestUtils.setField(seller, "status", status);
         return seller;
-    }
-
-    private record RemoteErrorCode(int status, String name, String msg) implements ErrorCode {
     }
 }

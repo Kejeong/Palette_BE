@@ -136,7 +136,8 @@ class ApiV1AdminMemberControllerTest {
     void getMemberDetail_admin() throws Exception {
         given(memberFacade.getMemberDetail(2L)).willReturn(new AdminMemberDetailDto(
                 2L, "seller@palette.test", "판매자", MemberRole.USER, MemberType.SELLER, MemberStatus.ACTIVE,
-                LocalDateTime.of(2026, 10, 11, 15, 0), SellerStatus.APPROVED, InfluencerStatus.APPROVED, new AdminMemberDetailDto.Wallet(30_000L, 0L),
+                LocalDateTime.of(2026, 10, 11, 15, 0), SellerStatus.APPROVED, InfluencerStatus.APPROVED,
+                AdminMemberDetailDto.WalletState.CREATED, new AdminMemberDetailDto.Wallet(30_000L, 0L),
                 List.of(new AdminMemberDetailDto.RecentOrder(101L, OrderStatus.PAID, 25_000L, LocalDateTime.of(2026, 10, 12, 10, 0)))));
 
         mockMvc.perform(get("/api/v1/admin/users/2").header("Authorization", bearer(MemberRole.ADMIN)))
@@ -145,6 +146,7 @@ class ApiV1AdminMemberControllerTest {
                 .andExpect(jsonPath("$.data.memberType").value("SELLER"))
                 .andExpect(jsonPath("$.data.sellerStatus").value("APPROVED"))
                 .andExpect(jsonPath("$.data.influencerStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.data.walletState").value("CREATED"))
                 .andExpect(jsonPath("$.data.wallet.balance").value(30000))
                 .andExpect(jsonPath("$.data.wallet.heldAmount").value(0))
                 .andExpect(jsonPath("$.data.recentOrders[0].orderId").value(101))

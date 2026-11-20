@@ -1,5 +1,7 @@
 package com.backend.boundedContext.member.out;
 
+import java.util.Optional;
+
 import com.backend.shared.payment.dto.WalletSummaryDto;
 
 /**
@@ -9,8 +11,8 @@ import com.backend.shared.payment.dto.WalletSummaryDto;
  */
 public interface MemberPaymentPort {
 
-    // 잔액과 홀딩 중 금액 조회 (탈퇴 검사, 관리자 회원 상세)
-    WalletSummaryDto getWallet(Long memberId);
+    // 잔액과 홀딩 중 금액 조회 (탈퇴 검사, 관리자 회원 상세). 지갑이 아직 없으면 Optional.empty()
+    Optional<WalletSummaryDto> findWallet(Long memberId);
 
     // 결과가 아직 정해지지 않은 충전 건이 있는지 (탈퇴 검사)
     boolean hasPendingTopups(Long memberId);

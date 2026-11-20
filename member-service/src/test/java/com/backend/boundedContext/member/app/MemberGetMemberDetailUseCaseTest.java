@@ -60,7 +60,6 @@ class MemberGetMemberDetailUseCaseTest {
     private MemberGetMemberDetailUseCase memberGetMemberDetailUseCase;
 
     // 결제가 오류로 응답했을 때 MemberInternalApiClient가 만드는 것과 같은 resultCode
-    private static final ErrorCode WALLET_NOT_FOUND = new RemoteErrorCode(404, "WALLET_NOT_FOUND", "지갑을 찾을 수 없습니다.");
     private static final ErrorCode PAYMENT_BAD_REQUEST = new RemoteErrorCode(400, "INVALID_REQUEST", "잘못된 요청입니다.");
 
     private final Member member = Member.signUp("user@palette.com", "encoded", "홍길동");
@@ -78,7 +77,7 @@ class MemberGetMemberDetailUseCaseTest {
                 .willReturn(Optional.of(new SellerDto(10L, 3L, "팔레트상점", SellerStatus.PENDING)));
         given(influencerRepository.findByMemberId(3L))
                 .willReturn(Optional.of(Influencer.apply(member, "뷰티로그", "https://instagram.com/beautylog", "화장품 리뷰")));
-        given(memberPaymentPort.getWallet(3L)).willReturn(new WalletSummaryDto(3L, 50_000L, 0L));
+        given(memberPaymentPort.findWallet(3L)).willReturn(Optional.of(new WalletSummaryDto(3L, 50_000L, 0L)));
         given(memberOrderPort.getRecentOrders(3L, 5)).willReturn(List.of(
                 new OrderSummaryDto(101L, OrderStatus.PAID, 25_000L, LocalDateTime.of(2026, 10, 12, 10, 0))));
 
@@ -88,6 +87,7 @@ class MemberGetMemberDetailUseCaseTest {
         assertThat(detail.role()).isEqualTo(MemberRole.USER);
         assertThat(detail.sellerStatus()).isEqualTo(SellerStatus.PENDING);
         assertThat(detail.influencerStatus()).isEqualTo(InfluencerStatus.PENDING);
+        assertThat(detail.walletState()).isEqualTo(AdminMemberDetailDto.WalletState.CREATED);
         assertThat(detail.wallet().balance()).isEqualTo(50_000L);
         assertThat(detail.wallet().heldAmount()).isZero();
         assertThat(detail.recentOrders()).singleElement().satisfies(order -> {
@@ -102,7 +102,7 @@ class MemberGetMemberDetailUseCaseTest {
     void getMemberDetail_noSeller() {
         given(memberSupport.getMember(3L)).willReturn(member);
         given(memberGetSellerUseCase.findSellerByMemberId(3L)).willReturn(Optional.empty());
-        given(memberPaymentPort.getWallet(3L)).willReturn(new WalletSummaryDto(3L, 0L, 0L));
+        given(memberPaymentPort.findWallet(3L)).willReturn(Optional.of(new WalletSummaryDto(3L, 0L, 0L)));
         given(memberOrderPort.getRecentOrders(3L, 5)).willReturn(List.of());
 
         AdminMemberDetailDto detail = memberGetMemberDetailUseCase.getMemberDetail(3L);
@@ -112,41 +112,43 @@ class MemberGetMemberDetailUseCaseTest {
     }
 
     @Test
-    @DisplayName("결제를 조회하지 못하면 지갑만 null로 비우고, 회원 정보와 최근 주문은 그대로 돌려준다")
+    @DisplayName("결제를 조회하지 못하면 지갑 상태는 UNAVAILABLE이고 지갑만 비우며, 회원 정보와 최근 주문은 그대로 돌려준다")
     void getMemberDetail_paymentUnavailable() {
         given(memberSupport.getMember(3L)).willReturn(member);
         given(memberGetSellerUseCase.findSellerByMemberId(3L)).willReturn(Optional.empty());
-        given(memberPaymentPort.getWallet(3L)).willThrow(new MemberPortUnavailableException("시간 초과", null));
+        given(memberPaymentPort.findWallet(3L)).willThrow(new MemberPortUnavailableException("시간 초과", null));
         given(memberOrderPort.getRecentOrders(3L, 5)).willReturn(List.of());
 
         AdminMemberDetailDto detail = memberGetMemberDetailUseCase.getMemberDetail(3L);
 
         assertThat(detail.email()).isEqualTo("user@palette.com");
+        assertThat(detail.walletState()).isEqualTo(AdminMemberDetailDto.WalletState.UNAVAILABLE);
         assertThat(detail.wallet()).isNull();
         assertThat(detail.recentOrders()).isEmpty();
     }
 
     @Test
-    @DisplayName("지갑이 없으면(404 WALLET_NOT_FOUND) 지갑만 null로 비우고, 회원 정보와 최근 주문은 그대로 돌려준다")
+    @DisplayName("지갑이 없으면(Port가 Optional.empty) 지갑 상태는 NOT_CREATED이고 지갑은 null, 회원 정보와 최근 주문은 그대로 돌려준다")
     void getMemberDetail_walletNotFound() {
         given(memberSupport.getMember(3L)).willReturn(member);
         given(memberGetSellerUseCase.findSellerByMemberId(3L)).willReturn(Optional.empty());
-        given(memberPaymentPort.getWallet(3L)).willThrow(new DomainException(WALLET_NOT_FOUND));
+        given(memberPaymentPort.findWallet(3L)).willReturn(Optional.empty());
         given(memberOrderPort.getRecentOrders(3L, 5)).willReturn(List.of());
 
         AdminMemberDetailDto detail = memberGetMemberDetailUseCase.getMemberDetail(3L);
 
         assertThat(detail.email()).isEqualTo("user@palette.com");
+        assertThat(detail.walletState()).isEqualTo(AdminMemberDetailDto.WalletState.NOT_CREATED);
         assertThat(detail.wallet()).isNull();
         assertThat(detail.recentOrders()).isEmpty();
     }
 
     @Test
-    @DisplayName("지갑 없음이 아닌 결제 오류 응답은 그대로 던진다")
+    @DisplayName("결제 오류 응답(지갑 없음 외)은 그대로 던진다")
     void getMemberDetail_paymentOtherError() {
         given(memberSupport.getMember(3L)).willReturn(member);
         given(memberGetSellerUseCase.findSellerByMemberId(3L)).willReturn(Optional.empty());
-        given(memberPaymentPort.getWallet(3L)).willThrow(new DomainException(PAYMENT_BAD_REQUEST));
+        given(memberPaymentPort.findWallet(3L)).willThrow(new DomainException(PAYMENT_BAD_REQUEST));
 
         assertThatThrownBy(() -> memberGetMemberDetailUseCase.getMemberDetail(3L))
                 .isInstanceOf(DomainException.class)
@@ -159,7 +161,7 @@ class MemberGetMemberDetailUseCaseTest {
     void getMemberDetail_orderUnavailable() {
         given(memberSupport.getMember(3L)).willReturn(member);
         given(memberGetSellerUseCase.findSellerByMemberId(3L)).willReturn(Optional.empty());
-        given(memberPaymentPort.getWallet(3L)).willReturn(new WalletSummaryDto(3L, 50_000L, 0L));
+        given(memberPaymentPort.findWallet(3L)).willReturn(Optional.of(new WalletSummaryDto(3L, 50_000L, 0L)));
         given(memberOrderPort.getRecentOrders(3L, 5)).willThrow(new MemberPortUnavailableException("시간 초과", null));
 
         AdminMemberDetailDto detail = memberGetMemberDetailUseCase.getMemberDetail(3L);
@@ -178,7 +180,7 @@ class MemberGetMemberDetailUseCaseTest {
                 .extracting("resultCode")
                 .isEqualTo(MemberErrorCode.MEMBER_NOT_FOUND.resultCode());
 
-        verify(memberPaymentPort, never()).getWallet(anyLong());
+        verify(memberPaymentPort, never()).findWallet(anyLong());
     }
 
     private record RemoteErrorCode(int status, String name, String msg) implements ErrorCode {
