@@ -11,6 +11,8 @@ import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.dto.SellerStatus;
 import com.backend.shared.member.out.MemberApi;
 import com.backend.shared.order.dto.OrderStatus;
+import com.backend.shared.product.dto.OptionSnapshotDto;
+import com.backend.shared.product.out.ProductApi;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,6 +46,7 @@ class OrderGetSellerOrderItemsUseCaseTest {
 
     @Mock OrderItemRepository orderItemRepository;
     @Mock MemberApi memberApi;
+    @Mock ProductApi productApi;
 
     @InjectMocks OrderGetSellerOrderItemsUseCase useCase;
 
@@ -182,5 +185,50 @@ class OrderGetSellerOrderItemsUseCaseTest {
                 .isInstanceOf(DomainException.class)
                 .hasFieldOrPropertyWithValue("resultCode", "400-ORDER_PERIOD_INVALID");
         verifyNoInteractions(memberApi, orderItemRepository);
+    }
+
+    @Test
+    @DisplayName("항목마다 옵션의 상품 대표 이미지(thumbnailUrl)를 붙이고, 상품 조회는 페이지당 1번이다")
+    @SuppressWarnings("unchecked")
+    void thumbnailUrl() {
+        OrderItem item = paidItem();
+        given(memberApi.findSellerByMemberId(MEMBER_ID)).willReturn(Optional.of(seller(SellerStatus.APPROVED)));
+        given(orderItemRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willReturn(new PageImpl<>(List.of(item), PAGE, 1));
+        given(productApi.getOptions(List.of(100L))).willReturn(List.of(new OptionSnapshotDto(
+                100L, 10L, SELLER_ID, "약산성 토너", "300ml", 12_000, 12_000, null, 10, true, null, "https://img/100.png")));
+
+        SellerOrderItemResponse row = useCase.getSellerOrderItems(MEMBER_ID, null, null, null, null, PAGE).items().get(0);
+
+        assertThat(row.thumbnailUrl()).isEqualTo("https://img/100.png");
+        verify(productApi).getOptions(List.of(100L));
+    }
+
+    @Test
+    @DisplayName("대표 이미지가 없는 옵션이면 thumbnailUrl은 null이다")
+    @SuppressWarnings("unchecked")
+    void thumbnailUrl_missing() {
+        OrderItem item = paidItem();
+        given(memberApi.findSellerByMemberId(MEMBER_ID)).willReturn(Optional.of(seller(SellerStatus.APPROVED)));
+        given(orderItemRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willReturn(new PageImpl<>(List.of(item), PAGE, 1));
+        given(productApi.getOptions(List.of(100L))).willReturn(List.of());
+
+        SellerOrderItemResponse row = useCase.getSellerOrderItems(MEMBER_ID, null, null, null, null, PAGE).items().get(0);
+
+        assertThat(row.thumbnailUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("항목이 없으면 상품을 조회하지 않는다")
+    @SuppressWarnings("unchecked")
+    void thumbnailUrl_emptyPage() {
+        given(memberApi.findSellerByMemberId(MEMBER_ID)).willReturn(Optional.of(seller(SellerStatus.APPROVED)));
+        given(orderItemRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willReturn(new PageImpl<>(List.of(), PAGE, 0));
+
+        useCase.getSellerOrderItems(MEMBER_ID, null, null, null, null, PAGE);
+
+        verifyNoInteractions(productApi);
     }
 }

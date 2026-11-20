@@ -9,6 +9,8 @@ import com.backend.global.page.PageResponse;
 import com.backend.shared.member.dto.SellerDto;
 import com.backend.shared.member.out.MemberApi;
 import com.backend.shared.order.dto.OrderStatus;
+import com.backend.shared.product.dto.OptionSnapshotDto;
+import com.backend.shared.product.out.ProductApi;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -18,7 +20,9 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.backend.boundedContext.order.out.OrderItemSpecifications.keywordContains;
@@ -47,6 +51,7 @@ public class OrderGetSellerOrderItemsUseCase {
 
     private final OrderItemRepository orderItemRepository;
     private final MemberApi memberApi;
+    private final ProductApi productApi;
 
     public PageResponse<SellerOrderItemResponse> getSellerOrderItems(Long memberId, OrderStatus status,
                                                                      LocalDate from, LocalDate to,
@@ -71,7 +76,25 @@ public class OrderGetSellerOrderItemsUseCase {
 
         Page<OrderItem> items = orderItemRepository.findAll(spec, latestFirst);
 
-        return PageResponse.from(items, SellerOrderItemResponse::from);
+        Map<Long, String> thumbnails = getThumbnailUrls(items.getContent());
+
+        return PageResponse.from(items, item -> SellerOrderItemResponse.from(item, thumbnails.get(item.getOptionId())));
+    }
+
+    // 이 페이지 항목의 옵션 ID → 상품의 현재 대표 이미지 URL (상품 조회 1번)
+    private Map<Long, String> getThumbnailUrls(List<OrderItem> items) {
+        List<Long> optionIds = items.stream()
+                .map(OrderItem::getOptionId)
+                .distinct()
+                .toList();
+        if (optionIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> thumbnails = new HashMap<>();
+        for (OptionSnapshotDto option : productApi.getOptions(optionIds)) {
+            thumbnails.put(option.optionId(), option.thumbnailUrl());
+        }
+        return thumbnails;
     }
 
     // 결제 전·취소 상태로는 조회할 수 없다
