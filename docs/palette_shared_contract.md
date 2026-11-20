@@ -231,7 +231,7 @@ public record SellerBusinessNameChangedEvent(Long sellerId, String businessName)
 ```
 
 - 가입 이벤트는 가입 트랜잭션에서 outbox에 저장되고, 릴레이가 커밋 뒤 토픽 `member.events`로 보낸다. 결제가 Kafka 컨슈머(groupId `payment`)로 받아 별도 트랜잭션에서 지갑을 만든다(TRSS-138). 지갑 생성이 실패해도 가입은 롤백되지 않는다.
-- 그래서 가입 직후 지갑이 아직 없는 구간이 있다(보통 몇 초). 이 구간의 충전·결제 처리는 결제 담당이 정한다(#194).
+- 그래서 가입 직후 지갑이 아직 없는 구간이 있다(보통 몇 초, 이벤트가 DLT로 가면 재전송 전까지). 이 구간에 충전 준비가 오면 지갑을 그 자리에서 만들고 진행한다(TRSS-346). 지갑 생성은 `INSERT … ON CONFLICT (member_id) DO NOTHING`이라 가입 이벤트 컨슈머와 동시에 만들어도 하나만 남는다.
 - 판매자 이벤트(TRSS-144)는 토픽 `seller.events`로 나가고 키는 `sellerId`다. 같은 판매자의 이벤트는 같은 파티션으로 가서 발행 순서대로 처리된다. 사유(`reason`)는 앞뒤 공백을 뺀 값이다.
 - 판매자 이벤트는 상태 변경과 같은 트랜잭션에서 outbox에 저장한다. 상품 중지·재개는 market 컨슈머(groupId `market`)가 이벤트로 처리하고 회원은 상품을 부르지 않는다(TRSS-160).
 - 정산 보류도 정산 컨슈머(groupId `settlement`)가 이벤트로 처리하고 회원은 정산을 부르지 않는다(TRSS-161). 이벤트가 오기 전에 지급이 돌면 정산이 지급 직전에 판매자 상태를 보고 보류한다.
@@ -726,7 +726,7 @@ public interface PaymentApi {
 }
 ```
 
-`404-WALLET_NOT_FOUND`는 **그 회원의 지갑이 아직 없음**을 뜻합니다. 지갑은 `MemberSignedUpEvent`를 받아 만들므로 가입 직후 이벤트 처리 전이거나 처리에 실패했으면 없고, 물류 담당자(`LOGISTICS`)는 지갑을 만들지 않습니다. 이 응답을 쓰는 곳:
+`404-WALLET_NOT_FOUND`는 **그 회원의 지갑이 아직 없음**을 뜻합니다. 지갑은 `MemberSignedUpEvent`를 받아 만들므로 가입 직후 이벤트 처리 전이거나 처리에 실패했으면 없고, 물류 담당자(`LOGISTICS`)는 지갑을 만들지 않습니다. 충전 준비(`POST /api/v1/topups`)는 지갑이 없으면 만들고 진행하므로 이 응답을 주지 않습니다. 이 응답을 쓰는 곳:
 
 | 부르는 쪽 | 처리 |
 | --- | --- |
