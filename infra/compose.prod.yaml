@@ -430,8 +430,9 @@ services:
   # ── 추적: 앱(Micrometer Tracing) → Tempo(저장·서비스 지도 지표) → Grafana (TRSS-335) ──
   # 요청 하나가 gateway → 서비스 → 서비스로 갈 때 구간별 기록(span)을 받는다. 앱은 Dockerfile의 기본 주소(tempo:4318)로 보낸다
   # Tempo는 uid 10001로 도는데 새 볼륨은 root 소유라 쓰지 못한다. 뜨기 전에 볼륨 주인만 바꾸고 끝나는 컨테이너
+  # Tempo 이미지에는 셸·chown이 없어서(최소 이미지) chown이 있는 busybox로 한다
   tempo-init:
-    image: grafana/tempo:2.10.10
+    image: busybox:1.36.1
     user: root
     entrypoint: ["chown", "10001:10001", "/var/tempo"]
     volumes:
