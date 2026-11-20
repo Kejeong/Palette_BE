@@ -133,8 +133,7 @@ public class PaymentFacade {
         return paymentGetAdminTopupsUseCase.getTopups(keyword, from, to, pageable);
     }
 
-    // 충전 준비
-    @Transactional
+    // 충전 준비. 회원 확인(회원 서비스 호출)을 DB 트랜잭션 밖에서 하려고 @Transactional을 두지 않음 (저장은 PaymentTopupPrepareProcessor의 트랜잭션)
     public TopupPrepareDto prepareTopup(Long memberId, long amount) {
         return paymentPrepareTopupUseCase.prepareTopup(memberId, amount);
     }
