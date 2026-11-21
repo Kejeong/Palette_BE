@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
  * @param discountAmount       상품 쿠폰 할인액 (판매자 부담). 상품 쿠폰을 쓰지 않은 항목은 0
  * @param discountedLineAmount 상품 쿠폰 할인 후 금액 = lineAmount − discountAmount. 정산은 이 금액 기준
  * @param status               주문 상태
+ * @param thumbnailUrl         상품의 현재 대표 이미지 URL. 대표 이미지가 없으면 null
  */
 public record SellerOrderItemResponse(
         Long orderItemId,
@@ -34,9 +35,15 @@ public record SellerOrderItemResponse(
         long discountAmount,
         @Schema(description = "상품 쿠폰 할인 후 금액(원) = lineAmount − discountAmount. 정산은 이 금액 기준")
         long discountedLineAmount,
-        OrderStatus status
+        OrderStatus status,
+        @Schema(description = "상품의 현재 대표 이미지 URL. 없으면 null")
+        String thumbnailUrl
 ) {
     public static SellerOrderItemResponse from(OrderItem item) {
+        return from(item, null);
+    }
+
+    public static SellerOrderItemResponse from(OrderItem item, String thumbnailUrl) {
         Order order = item.getOrder();
         return new SellerOrderItemResponse(
                 item.getId(),
@@ -51,7 +58,8 @@ public record SellerOrderItemResponse(
                 item.getLineAmount(),
                 item.getDiscountAmount(),
                 item.getDiscountedLineAmount(),
-                order.getStatus()
+                order.getStatus(),
+                thumbnailUrl
         );
     }
 }

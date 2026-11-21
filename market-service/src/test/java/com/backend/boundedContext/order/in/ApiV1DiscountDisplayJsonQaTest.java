@@ -61,7 +61,7 @@ class ApiV1DiscountDisplayJsonQaTest {
     @DisplayName("GET /api/v1/seller/order-items: discountAmount·discountedLineAmount가 추가되고 기존 금액·상태 필드는 그대로다")
     void sellerOrderItems_jsonFields() throws Exception {
         SellerOrderItemResponse row = new SellerOrderItemResponse(900L, 500L, "20261112-0001", LocalDateTime.now(),
-                10L, "약산성 토너", "300ml", 3, 12_000, 36_000, 5_000, 31_000, OrderStatus.PAID);
+                10L, "약산성 토너", "300ml", 3, 12_000, 36_000, 5_000, 31_000, OrderStatus.PAID, null);
         given(orderFacade.getSellerOrderItems(eq(MEMBER_ID), isNull(), isNull(), isNull(), isNull(), any()))
                 .willReturn(new PageResponse<>(List.of(row), 0, 20, 1, 1));
 
